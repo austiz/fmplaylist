@@ -240,7 +240,7 @@ def _process_pending_downloads(cfg: dict, heartbeat: dict) -> None:
         for attempt in range(3):
             try:
                 req = urllib.request.Request(url)
-                with urllib.request.urlopen(req, timeout=120) as resp:
+                with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx(cfg)) as resp:
                     with open(dest, 'wb') as f:
                         f.write(resp.read())
                 print(f'[download] saved {filename} ({os.path.getsize(dest) // 1024} KB)')
