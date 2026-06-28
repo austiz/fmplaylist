@@ -81,7 +81,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
           port: 21098
           script: |
             set -e
@@ -95,15 +95,16 @@ jobs:
 
       # Step 2: upload the built assets that git doesn't track
       - name: Upload built frontend assets
-        uses: burnett01/rsync-deployments@7.0.1
+        uses: appleboy/scp-action@v0.1.7
         with:
-          switches: -az --delete
-          path: public/build/
-          remote_path: ${{ secrets.DEPLOY_PATH }}/public/build/
-          remote_host: ${{ secrets.SSH_HOST }}
-          remote_port: 21098
-          remote_user: ${{ secrets.SSH_USERNAME }}
-          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
+          port: 21098
+          source: "public/build/"
+          target: ${{ secrets.DEPLOY_PATH }}/public/
+          strip_components: 1
 
       # Step 3: run migrations and rebuild caches
       - name: Migrate and cache
@@ -112,7 +113,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
           port: 21098
           script: |
             set -e
