@@ -6,6 +6,10 @@
     Options +SymLinksIfOwnerMatch
     RewriteEngine On
 
+    # Allow SSL validation challenges through before forcing HTTPS
+    RewriteCond %{REQUEST_URI} ^/\.well-known/
+    RewriteRule ^ - [L]
+
     # Force HTTPS
     RewriteCond %{HTTPS} off
     RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
