@@ -2,8 +2,10 @@
 
 namespace Database\Factories;
 
+use App\Models\Commercial;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
+/** @extends Factory<Commercial> */
 class CommercialFactory extends Factory
 {
     public function definition(): array

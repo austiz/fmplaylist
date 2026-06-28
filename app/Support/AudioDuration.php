@@ -11,7 +11,7 @@ class AudioDuration
             . ' -of default=noprint_wrappers=1:nokey=1 '
             . escapeshellarg($absolutePath)
         );
-        $seconds = (float) trim($out ?? '');
+        $seconds = (float) trim(is_string($out) ? $out : '');
 
         return $seconds > 0 ? (int) round($seconds) : null;
     }

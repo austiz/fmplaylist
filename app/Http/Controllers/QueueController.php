@@ -15,7 +15,7 @@ class QueueController extends Controller
 
         $pendingItems = QueueItem::with('song')->pending()->get();
 
-        $queue = $pendingItems->map(fn ($item) => [
+        $queue = $pendingItems->map(fn (QueueItem $item) => [
             'id' => $item->id,
             'position' => $item->position,
             'requested_by_name' => $item->requested_by_name,
@@ -26,7 +26,7 @@ class QueueController extends Controller
             ],
         ]);
 
-        $waitSeconds = $pendingItems->sum(fn ($item) => $item->song->duration_seconds ?? 0);
+        $waitSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song->duration_seconds ?? 0);
 
         return Inertia::render('queue', [
             'nowPlaying' => $nowPlaying ? [

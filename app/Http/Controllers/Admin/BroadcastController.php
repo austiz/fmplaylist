@@ -39,13 +39,13 @@ class BroadcastController extends Controller
             'settings' => $settings,
             'pi' => [
                 'online' => $online,
-                'status' => $token?->pi_status ?? 'offline',
-                'mode' => $token?->pi_mode ?? 'normal',
+                'status' => $token !== null ? ($token->pi_status ?? 'offline') : 'offline',
+                'mode' => $token !== null ? ($token->pi_mode ?? 'normal') : 'normal',
                 'ip' => $token?->pi_ip,
                 'last_seen' => $token?->last_seen_at?->diffForHumans(),
             ],
             'nowPlaying' => $np ? [
-                'title' => $np->song?->title ?? ucwords(str_replace('_', ' ', $np->type ?? '')),
+                'title' => $np->song !== null ? $np->song->title : ucwords(str_replace('_', ' ', $np->type ?? '')),
                 'artist' => $np->song?->artist,
                 'type' => $np->type,
             ] : null,

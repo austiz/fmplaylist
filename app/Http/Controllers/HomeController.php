@@ -17,7 +17,7 @@ class HomeController extends Controller
             ->pending()
             ->take(5)
             ->get()
-            ->map(fn ($item) => [
+            ->map(fn (QueueItem $item) => [
                 'id' => $item->id,
                 'position' => $item->position,
                 'requested_by_name' => $item->requested_by_name,

@@ -2,8 +2,10 @@
 
 namespace Database\Factories;
 
+use App\Models\SoundByte;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
+/** @extends Factory<SoundByte> */
 class SoundByteFactory extends Factory
 {
     public function definition(): array

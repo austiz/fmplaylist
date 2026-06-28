@@ -16,13 +16,13 @@ class DashboardController extends Controller
 
         $pendingItems = QueueItem::with('song')->pending()->get();
 
-        $queueRuntimeSeconds = $pendingItems->sum(fn ($item) => $item->song->duration_seconds ?? 0);
+        $queueRuntimeSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song->duration_seconds ?? 0);
 
         $recentRequests = QueueItem::with('song')
             ->orderByDesc('created_at')
             ->take(20)
             ->get()
-            ->map(fn ($item) => [
+            ->map(fn (QueueItem $item) => [
                 'id' => $item->id,
                 'status' => $item->status,
                 'requested_by_name' => $item->requested_by_name,

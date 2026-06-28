@@ -69,7 +69,7 @@ class PiController extends Controller
             'ip' => ['nullable', 'string', 'max:45'],
         ]);
 
-        /** @var PiToken $token */
+        /** @var PiToken|null $token */
         $token = $request->attributes->get('pi_token');
         if ($token) {
             $token->update([
@@ -187,6 +187,7 @@ class PiController extends Controller
         ]);
     }
 
+    /** @return array<string, mixed> */
     private static function buildConfig(): array
     {
         // Merge all pending downloads: songs + commercials + sound_bytes

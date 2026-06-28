@@ -20,6 +20,7 @@ class PiToken extends Model
         'last_seen_at' => 'datetime',
     ];
 
+    /** @return array{token: self, raw: string} */
     public static function generate(string $label = 'Raspberry Pi'): array
     {
         $raw = Str::random(48);
@@ -33,7 +34,7 @@ class PiToken extends Model
         return ['token' => $token, 'raw' => $raw];
     }
 
-    public static function findByRaw(string $raw): ?static
+    public static function findByRaw(string $raw): ?self
     {
         return static::where('token_hash', hash('sha256', $raw))->first();
     }

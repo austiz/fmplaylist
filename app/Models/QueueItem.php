@@ -21,16 +21,25 @@ class QueueItem extends Model
         'played_at' => 'datetime',
     ];
 
+    /** @return BelongsTo<Song, $this> */
     public function song(): BelongsTo
     {
         return $this->belongsTo(Song::class);
     }
 
+    /**
+     * @param Builder<QueueItem> $query
+     * @return Builder<QueueItem>
+     */
     public function scopePending(Builder $query): Builder
     {
         return $query->where('status', 'pending')->orderBy('position');
     }
 
+    /**
+     * @param Builder<QueueItem> $query
+     * @return Builder<QueueItem>
+     */
     public function scopePlayed(Builder $query): Builder
     {
         return $query->where('status', 'played')->orderByDesc('played_at');
