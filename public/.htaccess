@@ -3,6 +3,7 @@
         Options -MultiViews -Indexes
     </IfModule>
 
+    Options +SymLinksIfOwnerMatch
     RewriteEngine On
 
     # Force HTTPS
