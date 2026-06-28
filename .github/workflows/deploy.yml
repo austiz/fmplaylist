@@ -161,10 +161,8 @@ jobs:
             APP="$HOME/fmplaylist"
             echo '<?php require "/home/fmplyomq/fmplaylist/public/index.php";' > "$DOCROOT/index.php"
             cp "$APP/public/.htaccess" "$DOCROOT/.htaccess"
-            if [ ! -L "$DOCROOT/build" ]; then
-              rm -rf "$DOCROOT/build"
-              ln -s "$APP/public/build" "$DOCROOT/build"
-            fi
+            rm -rf "$DOCROOT/build"
+            cp -r "$APP/public/build" "$DOCROOT/build"
             if [ ! -L "$DOCROOT/storage" ]; then
               rm -rf "$DOCROOT/storage"
               ln -s "$APP/storage/app/public" "$DOCROOT/storage"
