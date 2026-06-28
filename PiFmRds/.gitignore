@@ -1,0 +1,20 @@
+src/waveform_*.wav
+src/pydemod
+src/test
+src/pi_fm_rds
+src/*_test
+*.o
+
+# Contains API key — never commit
+src/config.json
+
+# Generated test WAV files (FTPA.wav is intentionally kept)
+src/noise_*.wav
+src/pulses.wav
+src/sound.wav
+src/sound_*.wav
+src/stereo_*.wav
+
+# Media downloaded by the daemon at runtime
+src/commercials/
+src/sound-bytes/

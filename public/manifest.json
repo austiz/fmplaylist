@@ -1,0 +1,47 @@
+{
+    "name": "96.9 FM Playlist",
+    "short_name": "FM Playlist",
+    "description": "Request songs for live FM broadcast. Hear them live on 96.9.",
+    "start_url": "/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#0a0a0a",
+    "theme_color": "#0a0a0a",
+    "lang": "en",
+    "icons": [
+        {
+            "src": "/fmplaylist_logo.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/fmplaylist_logo.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "/favicon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "Request a Song",
+            "short_name": "Request",
+            "url": "/songs",
+            "icons": [{ "src": "/fmplaylist_logo.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "View Queue",
+            "short_name": "Queue",
+            "url": "/queue",
+            "icons": [{ "src": "/fmplaylist_logo.png", "sizes": "192x192" }]
+        }
+    ],
+    "screenshots": [],
+    "categories": ["music", "entertainment"]
+}
