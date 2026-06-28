@@ -201,7 +201,7 @@ class PiController extends Controller
                     'item_id' => $s->id,
                     'filename' => $s->filename,
                     'title' => $s->title,
-                    'download_url' => Storage::disk('public')->url($s->storage_path),
+                    'download_url' => url(Storage::disk('public')->url($s->storage_path)),
                 ])
         );
 
@@ -213,7 +213,7 @@ class PiController extends Controller
                     'item_id' => $c->id,
                     'filename' => $c->filename,
                     'title' => $c->title,
-                    'download_url' => Storage::disk('public')->url($c->storage_path),
+                    'download_url' => url(Storage::disk('public')->url($c->storage_path)),
                 ])
         );
 
@@ -225,7 +225,7 @@ class PiController extends Controller
                     'item_id' => $sb->id,
                     'filename' => $sb->filename,
                     'title' => $sb->title,
-                    'download_url' => Storage::disk('public')->url($sb->storage_path),
+                    'download_url' => url(Storage::disk('public')->url($sb->storage_path)),
                 ])
         );
 
