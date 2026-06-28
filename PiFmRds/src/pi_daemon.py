@@ -16,6 +16,7 @@ import json
 import os
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -26,8 +27,17 @@ import urllib.error
 SCRIPT_DIR  = os.path.dirname(os.path.realpath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, 'config.json')
 BINARY_PATH = os.path.join(SCRIPT_DIR, 'pi_fm_rds')
-CTL_PIPE    = '/tmp/rds_ctl'
 RTMP_PORT   = 1935
+
+# Audio constants — must match what we tell pi_fm_rds via streaming WAV header
+SAMPLE_RATE    = 44100
+CHANNELS       = 2
+BITS           = 16
+BYTES_PER_SEC  = SAMPLE_RATE * CHANNELS * (BITS // 8)  # 176400 bytes/sec
+CHUNK_SIZE     = 8192   # bytes per read cycle
+CROSSFADE_SECS = 2.0    # overlap at song boundaries
+FADE_IN_SECS   = 0.5
+FADE_OUT_SECS  = 2.0
 
 LOCAL_CONFIG_KEYS = {
     'server_url':            'https://fmplaylist.com',
@@ -44,21 +54,22 @@ LOCAL_CONFIG_KEYS = {
 
 MEDIA_TYPES = {'song', 'commercial', 'sound_byte'}
 
-# Remote config (from web app heartbeat) — overrides local defaults
 _remote_cfg: dict = {}
 
-# Subprocess tracking for clean shutdown
-_active_procs: list[subprocess.Popen] = []
-_stop_live     = threading.Event()
-_freq_interrupt = threading.Event()  # set when frequency changes mid-song
+# Single persistent FM transmitter — kept alive across all songs
+_fm_proc: subprocess.Popen | None = None
 
-# Local config ref — set in main() so send_heartbeat() can update freq
+_active_procs: list[subprocess.Popen] = []
+_stop_live      = threading.Event()
+_freq_interrupt = threading.Event()
+
 _local: dict = {}
 
 
 def _shutdown(signum, frame):
     print(f'\n[daemon] signal {signum} — stopping...')
     _stop_live.set()
+    _stop_fm()
     for proc in _active_procs:
         try:
             proc.terminate()
@@ -92,7 +103,6 @@ def save_local_config(cfg: dict) -> None:
 
 
 def merged_cfg(local: dict) -> dict:
-    """Merge local config with remote config received from web app."""
     return {**local, **_remote_cfg}
 
 
@@ -201,18 +211,13 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> dict | None:
         _process_pending_downloads(cfg, result)
         _process_pending_deletes(cfg, result)
 
-        # Detect frequency change — interrupt current playback immediately
         new_freq = result.get('freq')
         if new_freq is not None and float(new_freq) != float(_local.get('freq', 96.9)):
-            print(f'[hb] FREQ {_local["freq"]} → {new_freq} MHz — interrupting')
+            print(f'[hb] FREQ {_local["freq"]} → {new_freq} MHz — restarting transmitter')
             _local['freq'] = float(new_freq)
             save_local_config(_local)
             _freq_interrupt.set()
-            for proc in list(_active_procs):
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
+            _stop_fm()
     return result
 
 
@@ -224,14 +229,13 @@ def _process_pending_downloads(cfg: dict, heartbeat: dict) -> None:
         url      = item['download_url']
 
         if media_type not in MEDIA_TYPES or not item_id:
-            print(f'[download] skipping invalid item: {item}')
             continue
 
         os.makedirs(media_dir(cfg, media_type), exist_ok=True)
         dest = media_path(cfg, media_type, filename)
 
         if os.path.exists(dest):
-            print(f'[download] {media_type}:{filename} already exists, confirming')
+            print(f'[download] {filename} already exists, confirming')
             api_post(cfg, '/api/pi/confirm-download', {'type': media_type, 'item_id': item_id})
             continue
 
@@ -248,13 +252,13 @@ def _process_pending_downloads(cfg: dict, heartbeat: dict) -> None:
                 break
             except Exception as e:
                 if os.path.exists(dest):
-                    os.remove(dest)  # remove partial file
+                    os.remove(dest)
                 if attempt < 2:
-                    print(f'[download] failed {filename}: {e} — retry in {delay}s')
+                    print(f'[download] {filename}: {e} — retry in {delay}s')
                     time.sleep(delay)
                     delay *= 2
                 else:
-                    print(f'[download] failed {filename}: {e} — giving up')
+                    print(f'[download] {filename}: {e} — giving up')
 
 
 def _process_pending_deletes(cfg: dict, heartbeat: dict) -> None:
@@ -264,17 +268,15 @@ def _process_pending_deletes(cfg: dict, heartbeat: dict) -> None:
         filename = item['filename']
 
         if media_type not in MEDIA_TYPES or not item_id:
-            print(f'[delete] skipping invalid item: {item}')
             continue
 
         path = media_path(cfg, media_type, filename)
-
         if os.path.exists(path):
             try:
                 os.remove(path)
-                print(f'[delete] removed {media_type}:{filename}')
+                print(f'[delete] removed {filename}')
             except Exception as e:
-                print(f'[delete] failed to remove {filename}: {e}')
+                print(f'[delete] failed {filename}: {e}')
                 continue
 
         api_post(cfg, '/api/pi/confirm-delete', {'type': media_type, 'item_id': item_id})
@@ -294,25 +296,18 @@ def sync_library(cfg: dict) -> None:
         print(f'[sync] added={result.get("added", 0)} unchanged={result.get("unchanged", 0)} removed={result.get("removed", 0)}')
 
 
-# ── FM Playback ───────────────────────────────────────────────────────────────
+# ── FM Transmitter ────────────────────────────────────────────────────────────
 
-# Skip sudo when already root (e.g. systemd service with User=root)
 _PI_CMD = [BINARY_PATH] if os.geteuid() == 0 else ['sudo', BINARY_PATH]
-
-def make_ctl_pipe() -> None:
-    if not os.path.exists(CTL_PIPE):
-        os.mkfifo(CTL_PIPE)
 
 
 def rds_ps(cfg: dict) -> str:
-    """Exactly 8 chars: custom rds_ps → callsign → frequency-based default."""
     default = f'{cfg.get("freq", 96.9)} FM'
     ps = _remote_cfg.get('rds_ps') or cfg.get('callsign') or default
     return ps.ljust(8)[:8]
 
 
 def rds_rt(cfg: dict, song_title: str = '', song_artist: str = '') -> str:
-    """RadioText: custom message or auto song title."""
     if _remote_cfg.get('rds_rt_mode') == 'custom':
         return (_remote_cfg.get('rds_rt') or '').strip()[:64]
     if song_title and song_artist:
@@ -320,69 +315,271 @@ def rds_rt(cfg: dict, song_title: str = '', song_artist: str = '') -> str:
     return song_title[:64]
 
 
-def play_file(cfg: dict, filepath: str, title: str = '', artist: str = '', fade_in: bool = False, rds_ps_override: str = '') -> None:
+def _write_streaming_wav_header(pipe) -> None:
+    """
+    Write a WAV header whose sizes are 0xFFFFFFFF ("unknown / streaming").
+    libsndfile will keep reading raw PCM samples indefinitely after this header,
+    so we can pipe multiple songs without ever restarting pi_fm_rds.
+    """
+    byte_rate   = SAMPLE_RATE * CHANNELS * (BITS // 8)
+    block_align = CHANNELS * (BITS // 8)
+    pipe.write(b'RIFF')
+    pipe.write(struct.pack('<I', 0xFFFFFFFF))   # total RIFF size: unknown
+    pipe.write(b'WAVE')
+    pipe.write(b'fmt ')
+    pipe.write(struct.pack('<I', 16))            # fmt chunk size
+    pipe.write(struct.pack('<HHIIHH',
+        1,            # PCM
+        CHANNELS,
+        SAMPLE_RATE,
+        byte_rate,
+        block_align,
+        BITS,
+    ))
+    pipe.write(b'data')
+    pipe.write(struct.pack('<I', 0xFFFFFFFF))   # data size: unknown
+    pipe.flush()
+
+
+def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
+    global _fm_proc
+    if _fm_proc is not None and _fm_proc.poll() is None:
+        return True
+
+    _ps = ps or rds_ps(cfg)
+    _rt = rt or rds_rt(cfg)
+    print(f'[FM] starting transmitter at {cfg["freq"]} MHz  ps="{_ps.strip()}"')
+    try:
+        _fm_proc = subprocess.Popen(
+            _PI_CMD + [
+                '-freq', str(cfg['freq']),
+                '-pi',   cfg.get('pi_code', 'C0DE'),
+                '-audio', '-',
+                '-ps',   _ps,
+                '-rt',   _rt,
+            ],
+            stdin=subprocess.PIPE,
+        )
+        # Send streaming WAV header once — libsndfile reads raw PCM after this
+        _write_streaming_wav_header(_fm_proc.stdin)
+        return True
+    except Exception as e:
+        print(f'[FM] failed to start: {e}')
+        _fm_proc = None
+        return False
+
+
+def _stop_fm() -> None:
+    global _fm_proc
+    if _fm_proc is None:
+        return
+    try:
+        _fm_proc.stdin.close()
+    except Exception:
+        pass
+    try:
+        _fm_proc.terminate()
+        _fm_proc.wait(timeout=3)
+    except Exception:
+        try:
+            _fm_proc.kill()
+        except Exception:
+            pass
+    _fm_proc = None
+
+
+def get_audio_duration(filepath: str) -> float:
+    try:
+        out = subprocess.check_output(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=noprint_wrappers=1:nokey=1', filepath],
+            stderr=subprocess.DEVNULL, timeout=10,
+        )
+        return max(0.0, float(out.strip()))
+    except Exception:
+        return 0.0
+
+
+def _mix_pcm(chunk_a: bytes, vol_a: float, chunk_b: bytes, vol_b: float) -> bytes:
+    """
+    Linear mix of two raw s16le PCM chunks at given volumes.
+    Shorter chunk is zero-padded. Result is clamped to int16 range.
+    """
+    max_len = max(len(chunk_a), len(chunk_b)) & ~1  # keep 16-bit aligned
+    a = chunk_a.ljust(max_len, b'\x00')[:max_len]
+    b = chunk_b.ljust(max_len, b'\x00')[:max_len]
+    n = max_len // 2
+    try:
+        import numpy as np
+        sa = np.frombuffer(a, dtype='<i2').astype(np.float32)
+        sb = np.frombuffer(b, dtype='<i2').astype(np.float32)
+        mixed = np.clip(sa * vol_a + sb * vol_b, -32768, 32767).astype('<i2')
+        return mixed.tobytes()
+    except ImportError:
+        sa = struct.unpack(f'<{n}h', a)
+        sb = struct.unpack(f'<{n}h', b)
+        mixed = [max(-32768, min(32767, int(x * vol_a + y * vol_b))) for x, y in zip(sa, sb)]
+        return struct.pack(f'<{n}h', *mixed)
+
+
+def _make_ffmpeg(filepath: str, fade_in: float = 0.0) -> subprocess.Popen:
+    """
+    Start ffmpeg for filepath, outputting raw s16le PCM at 44100 Hz stereo.
+    The streaming WAV header is already written to pi_fm_rds stdin, so we
+    emit headerless PCM only (-f s16le).
+    """
+    af_parts = []
+    if fade_in > 0:
+        af_parts.append(f'afade=t=in:st=0:d={fade_in}')
+    args = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', filepath]
+    if af_parts:
+        args += ['-af', ','.join(af_parts)]
+    args += ['-f', 's16le', '-ar', str(SAMPLE_RATE), '-ac', str(CHANNELS), 'pipe:1']
+    return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+
+def write_audio_to_fm(
+    filepath: str,
+    cfg: dict,
+    title: str = '',
+    artist: str = '',
+    fade_in: float = FADE_IN_SECS,
+    crossfade_secs: float = CROSSFADE_SECS,
+    _pre_started_ffmpeg: 'subprocess.Popen | None' = None,
+) -> 'subprocess.Popen | None':
+    """
+    Stream filepath to the FM transmitter.
+
+    - One pi_fm_rds process is reused across all songs (no restarts → no static).
+    - Applies fade-in at start.
+    - Near the end, fetches next queue item and crossfades (overlap) into it.
+    - Returns the still-running ffmpeg process for the next song so the caller
+      can continue it without restarting (None if no crossfade happened).
+    """
+    global _fm_proc
+
     if not os.path.exists(filepath):
         print(f'[play] file not found: {filepath}')
-        return
+        return None
 
     _freq_interrupt.clear()
 
-    ffmpeg_args = [
-        'ffmpeg', '-hide_banner', '-loglevel', 'error',
-        '-i', filepath,
-    ]
-    fade_duration = float(cfg.get('fade_in_duration', 0.0) or 0.0)
-    if fade_in and fade_duration > 0:
-        ffmpeg_args += ['-af', f'afade=t=in:st=0:d={fade_duration}']
-    ffmpeg_args += ['-f', 'wav', '-ar', '44100', '-ac', '2', '-sample_fmt', 's16', '-']
+    if not _ensure_fm_running(cfg, ps=rds_ps(cfg), rt=rds_rt(cfg, title, artist)):
+        return None
 
-    ffmpeg = subprocess.Popen(ffmpeg_args, stdout=subprocess.PIPE)
-    _active_procs.append(ffmpeg)
+    duration      = get_audio_duration(filepath)
+    # Bytes before we start the crossfade countdown
+    body_bytes    = max(0, int((duration - crossfade_secs) * BYTES_PER_SEC))
+    # After body_bytes, we apply fade-out on A while fading in B
+    xfade_bytes   = int(crossfade_secs * BYTES_PER_SEC)
 
-    rds = subprocess.Popen(
-        _PI_CMD + [
-         '-freq', str(cfg['freq']),
-         '-pi',   cfg.get('pi_code', 'C0DE'),
-         '-audio', '-',
-         '-ps',   (rds_ps_override.ljust(8)[:8] if rds_ps_override else rds_ps(cfg)),
-         '-rt',   rds_rt(cfg, title, artist)],
-        stdin=ffmpeg.stdout,
-    )
-    _active_procs.append(rds)
+    ffmpeg_a = _pre_started_ffmpeg or _make_ffmpeg(filepath, fade_in=fade_in)
+    if ffmpeg_a not in _active_procs:
+        _active_procs.append(ffmpeg_a)
 
-    if ffmpeg.stdout:
-        ffmpeg.stdout.close()
-
-    # Background thread: fire one heartbeat mid-song to catch frequency changes
     poll_interval = int(cfg.get('poll_interval_seconds', 30))
-    def _freq_watcher():
-        time.sleep(poll_interval)
-        if rds.poll() is None:
-            send_heartbeat(cfg, 'playing', 'normal')
+    last_hb       = time.time()
+    bytes_written = 0
 
-    threading.Thread(target=_freq_watcher, daemon=True).start()
+    # ── Phase 1: main body (before crossfade window) ──────────────────────────
+    while bytes_written < body_bytes:
+        if _freq_interrupt.is_set():
+            ffmpeg_a.terminate()
+            ffmpeg_a.wait()
+            if ffmpeg_a in _active_procs:
+                _active_procs.remove(ffmpeg_a)
+            return None
 
-    # Poll instead of blocking — allows _freq_interrupt to cut playback short
-    while rds.poll() is None and not _freq_interrupt.is_set():
-        time.sleep(1)
+        to_read = min(CHUNK_SIZE, body_bytes - bytes_written)
+        chunk   = ffmpeg_a.stdout.read(to_read)
+        if not chunk:
+            break  # song shorter than expected
 
-    if _freq_interrupt.is_set():
-        ffmpeg.terminate()
-        rds.terminate()
+        try:
+            _fm_proc.stdin.write(chunk)
+        except (BrokenPipeError, OSError):
+            print('[play] FM pipe broken — transmitter will restart next track')
+            _fm_proc = None
+            ffmpeg_a.terminate()
+            ffmpeg_a.wait()
+            if ffmpeg_a in _active_procs:
+                _active_procs.remove(ffmpeg_a)
+            return None
 
-    rds.wait()
-    ffmpeg.wait()
-    _active_procs.clear()
+        bytes_written += len(chunk)
+
+        if time.time() - last_hb > poll_interval:
+            threading.Thread(
+                target=send_heartbeat, args=(cfg, 'playing', 'normal'), daemon=True,
+            ).start()
+            last_hb = time.time()
+
+    # ── Phase 2: crossfade window ─────────────────────────────────────────────
+    # Fetch next song for crossfade (non-blocking — we have crossfade_secs to fill)
+    next_ffmpeg: subprocess.Popen | None = None
+    next_song_path = ''
+    if duration > crossfade_secs + 2 and not _freq_interrupt.is_set():
+        next_queue = api_get(cfg, '/api/pi/queue', _retries=1)
+        if next_queue:
+            _process_pending_downloads(cfg, next_queue)
+            _process_pending_deletes(cfg, next_queue)
+            nxt = next_queue.get('next')
+            if nxt:
+                next_song_path = os.path.join(cfg['song_dir'], nxt['song']['filename'])
+                if os.path.exists(next_song_path):
+                    next_ffmpeg = _make_ffmpeg(next_song_path, fade_in=0.0)
+                    _active_procs.append(next_ffmpeg)
+
+    xfade_written = 0
+    while xfade_written < xfade_bytes:
+        if _freq_interrupt.is_set():
+            break
+
+        t     = xfade_written / xfade_bytes          # 0 → 1
+        vol_a = max(0.0, 1.0 - t)
+        vol_b = min(1.0, t)
+
+        size    = min(CHUNK_SIZE, xfade_bytes - xfade_written)
+        chunk_a = ffmpeg_a.stdout.read(size) or b''
+        chunk_b = (next_ffmpeg.stdout.read(len(chunk_a) or size) if next_ffmpeg else b'') or b''
+
+        if not chunk_a and not chunk_b:
+            break
+
+        if next_ffmpeg and chunk_b:
+            mixed = _mix_pcm(chunk_a, vol_a, chunk_b, vol_b)
+        elif chunk_a:
+            # No next song — just fade out song A
+            n = len(chunk_a) // 2
+            sa = struct.unpack(f'<{n}h', chunk_a)
+            mixed = struct.pack(f'<{n}h', *[max(-32768, min(32767, int(s * vol_a))) for s in sa])
+        else:
+            break
+
+        try:
+            _fm_proc.stdin.write(mixed)
+        except (BrokenPipeError, OSError):
+            _fm_proc = None
+            break
+
+        xfade_written += len(mixed)
+
+    ffmpeg_a.terminate()
+    ffmpeg_a.wait()
+    if ffmpeg_a in _active_procs:
+        _active_procs.remove(ffmpeg_a)
+
+    if next_ffmpeg and not _freq_interrupt.is_set():
+        return next_ffmpeg   # caller continues playing next song from here
+    if next_ffmpeg:
+        next_ffmpeg.terminate()
+        next_ffmpeg.wait()
+        if next_ffmpeg in _active_procs:
+            _active_procs.remove(next_ffmpeg)
+    return None
 
 
 def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
-    """
-    Receive audio and broadcast live.
-
-    mode='phone_stream' — listen for RTMP on port 1935 (Larix Broadcaster)
-    mode='usb_input'    — read from ALSA USB device
-    mode='custom_stream'— read from any URL ffmpeg supports
-    """
     ps = rds_ps(cfg)
     rt = rds_rt(cfg, 'LIVE BROADCAST')
 
@@ -403,46 +600,43 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
     ffmpeg = subprocess.Popen(
         ['ffmpeg', '-hide_banner', '-loglevel', 'error']
         + src_args
-        + ['-f', 'wav', '-ar', '44100', '-ac', '2', '-sample_fmt', 's16', '-'],
+        + ['-f', 's16le', '-ar', str(SAMPLE_RATE), '-ac', str(CHANNELS), 'pipe:1'],
         stdout=subprocess.PIPE,
     )
     _active_procs.append(ffmpeg)
 
-    rds_proc = subprocess.Popen(
-        _PI_CMD + [
-         '-freq', str(cfg['freq']),
-         '-pi',   cfg.get('pi_code', 'C0DE'),
-         '-audio', '-',
-         '-ps',   ps,
-         '-rt',   rt],
-        stdin=ffmpeg.stdout,
-    )
-    _active_procs.append(rds_proc)
+    if not _ensure_fm_running(cfg, ps=ps, rt=rt):
+        ffmpeg.terminate()
+        ffmpeg.wait()
+        _active_procs.remove(ffmpeg)
+        return
 
-    if ffmpeg.stdout:
-        ffmpeg.stdout.close()
-
-    # Poll for mode changes every 30s; exit if admin switches back to normal
     def _watch():
         while not _stop_live.is_set():
             time.sleep(30)
-            result = send_heartbeat(cfg, 'live', mode)
+            send_heartbeat(cfg, 'live', mode)
             new_mode = _remote_cfg.get('broadcast_mode', 'normal')
             if new_mode not in ('phone_stream', 'usb_input', 'custom_stream'):
                 print(f'[live] mode changed to {new_mode} — stopping live')
                 _stop_live.set()
 
-    watcher = threading.Thread(target=_watch, daemon=True)
-    watcher.start()
+    threading.Thread(target=_watch, daemon=True).start()
 
-    while rds_proc.poll() is None and not _stop_live.is_set():
-        time.sleep(1)
+    while ffmpeg.poll() is None and not _stop_live.is_set():
+        chunk = ffmpeg.stdout.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        if _fm_proc is None or _fm_proc.poll() is not None:
+            break
+        try:
+            _fm_proc.stdin.write(chunk)
+        except (BrokenPipeError, OSError):
+            break
 
     ffmpeg.terminate()
-    rds_proc.terminate()
     ffmpeg.wait()
-    rds_proc.wait()
-    _active_procs.clear()
+    if ffmpeg in _active_procs:
+        _active_procs.remove(ffmpeg)
     _stop_live.clear()
 
 
@@ -451,7 +645,7 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
 def main() -> None:
     global _local
     _local = load_local_config()
-    local = _local
+    local  = _local
     ensure_media_dirs(local)
 
     if not local['api_key']:
@@ -463,31 +657,31 @@ def main() -> None:
         sys.exit(1)
 
     print(f'[boot] server={local["server_url"]} freq={local["freq"]}MHz')
-
-    print('[boot] syncing song library...')
     sync_library(local)
-
-    print('[boot] sending initial heartbeat...')
     send_heartbeat(local, 'idle', 'normal')
 
     last_sync        = time.time()
     last_config_poll = time.time()
 
+    # _continued_ffmpeg: when write_audio_to_fm returns a running ffmpeg for the
+    # next song (crossfade was started), we pass it back so the song continues
+    # seamlessly without restart.
+    _continued_ffmpeg: subprocess.Popen | None = None
+    _continued_song:   dict | None             = None
+
     print('[boot] entering playback loop')
 
     while True:
-        cfg          = merged_cfg(local)
-        poll_interval = int(cfg.get('poll_interval_seconds', 30))
+        cfg            = merged_cfg(local)
+        poll_interval  = int(cfg.get('poll_interval_seconds', 30))
         broadcast_mode = _remote_cfg.get('broadcast_mode', 'normal')
 
         # ── Live mode ──────────────────────────────────────────────────────
         if broadcast_mode in ('phone_stream', 'usb_input', 'custom_stream'):
+            _continued_ffmpeg = None
+            _continued_song   = None
             api_post(cfg, '/api/pi/now-playing', {'type': 'song', 'song_filename': ''})
-            play_live_stream(
-                cfg, broadcast_mode,
-                url=_remote_cfg.get('live_stream_url', ''),
-            )
-            # After live ends, send heartbeat and fall through to normal queue
+            play_live_stream(cfg, broadcast_mode, url=_remote_cfg.get('live_stream_url', ''))
             send_heartbeat(cfg, 'idle', 'normal')
             continue
 
@@ -500,13 +694,37 @@ def main() -> None:
             sync_library(local)
             last_sync = time.time()
 
+        # ── Crossfade continuation ─────────────────────────────────────────
+        # If the previous song already started the next via crossfade, continue it.
+        if _continued_ffmpeg is not None and _continued_song is not None:
+            song     = _continued_song
+            filepath = os.path.join(local['song_dir'], song['filename'])
+            print(f'[loop] continuing (crossfade): {song["title"]}')
+            send_heartbeat(cfg, 'playing', 'normal')
+            api_post(cfg, '/api/pi/now-playing', {
+                'type':          'song',
+                'song_filename': song['filename'],
+            })
+            next_proc = write_audio_to_fm(
+                filepath, cfg,
+                title=song['title'], artist=song.get('artist', ''),
+                fade_in=0.0,  # already faded in during crossfade
+                _pre_started_ffmpeg=_continued_ffmpeg,
+            )
+            _continued_ffmpeg = next_proc
+            _continued_song   = next_proc and _peek_next_song(cfg)
+            continue
+
+        _continued_ffmpeg = None
+        _continued_song   = None
+
         # ── Queue poll ─────────────────────────────────────────────────────
         queue_data = api_get(cfg, '/api/pi/queue')
 
         if not queue_data:
-            print(f'[loop] API unreachable, playing fallback...')
+            print('[loop] API unreachable, playing fallback...')
             fallback = os.path.join(local['song_dir'], cfg.get('fallback_song', 'FTPA.wav'))
-            play_file(cfg, fallback, title=rds_ps(cfg).strip())
+            write_audio_to_fm(fallback, cfg, title=rds_ps(cfg).strip())
             continue
 
         commercial = queue_data.get('commercial')
@@ -514,28 +732,23 @@ def main() -> None:
             filepath = media_path(local, 'commercial', commercial['filename'])
             print(f'[loop] playing commercial: {commercial["title"]}')
             send_heartbeat(cfg, 'playing', 'normal')
-            api_post(cfg, '/api/pi/now-playing', {
-                'type': 'commercial',
-                'item_id': commercial['id'],
-            })
-            play_file(cfg, filepath, title='Commercial Break')
+            api_post(cfg, '/api/pi/now-playing', {'type': 'commercial', 'item_id': commercial['id']})
+            write_audio_to_fm(filepath, cfg, title='Commercial Break',
+                               crossfade_secs=0.5)
             if _freq_interrupt.is_set():
-                continue  # restart loop — cfg will pick up new freq
+                continue
 
         sound_byte = queue_data.get('sound_byte')
         if sound_byte:
             filepath = media_path(local, 'sound_byte', sound_byte['filename'])
             print(f'[loop] playing sound byte: {sound_byte["title"]}')
             send_heartbeat(cfg, 'playing', 'normal')
-            api_post(cfg, '/api/pi/now-playing', {
-                'type': 'sound_byte',
-                'item_id': sound_byte['id'],
-            })
-            play_file(cfg, filepath, title=sound_byte['title'], rds_ps_override=sound_byte.get('rds_ps') or '')
+            api_post(cfg, '/api/pi/now-playing', {'type': 'sound_byte', 'item_id': sound_byte['id']})
+            write_audio_to_fm(filepath, cfg, title=sound_byte['title'],
+                               crossfade_secs=0.5)
             if _freq_interrupt.is_set():
-                continue  # restart loop — cfg will pick up new freq
+                continue
 
-        # Play requested song
         next_song = queue_data.get('next')
         if next_song:
             song     = next_song['song']
@@ -547,18 +760,34 @@ def main() -> None:
                 'queue_item_id': next_song['queue_item_id'],
                 'song_filename': song['filename'],
             })
-            play_file(cfg, filepath, title=song['title'], artist=song.get('artist', ''), fade_in=True)
+            next_proc = write_audio_to_fm(
+                filepath, cfg,
+                title=song['title'], artist=song.get('artist', ''),
+            )
+            if next_proc is not None:
+                # Crossfade started into a next song — peek what it is so we can
+                # mark now-playing correctly on the next loop iteration
+                _continued_ffmpeg = next_proc
+                _continued_song   = _peek_next_song(cfg)
             continue
 
         # Queue empty — play fallback
         fallback = os.path.join(local['song_dir'], cfg.get('fallback_song', 'FTPA.wav'))
-        print(f'[loop] queue empty, playing fallback')
+        print('[loop] queue empty, playing fallback')
         send_heartbeat(cfg, 'playing', 'normal')
         api_post(cfg, '/api/pi/now-playing', {
             'type':          'song',
             'song_filename': cfg.get('fallback_song', 'FTPA.wav'),
         })
-        play_file(cfg, fallback, title=rds_ps(cfg).strip(), fade_in=True)
+        write_audio_to_fm(fallback, cfg, title=rds_ps(cfg).strip())
+
+
+def _peek_next_song(cfg: dict) -> 'dict | None':
+    """Return the song dict for what's next in the queue, without side effects."""
+    data = api_get(cfg, '/api/pi/queue', _retries=1)
+    if data and data.get('next'):
+        return data['next']['song']
+    return None
 
 
 if __name__ == '__main__':
