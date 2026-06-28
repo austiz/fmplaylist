@@ -39,6 +39,7 @@ LOCAL_CONFIG_KEYS = {
     'sound_byte_dir':        os.path.join(SCRIPT_DIR, 'sound-bytes'),
     'fallback_song':         'FTPA.wav',
     'poll_interval_seconds': 30,
+    'verify_ssl':            True,
 }
 
 MEDIA_TYPES = {'song', 'commercial', 'sound_byte'}
@@ -124,6 +125,16 @@ def get_local_ip() -> str:
         return '0.0.0.0'
 
 
+def _ssl_ctx(cfg: dict):
+    import ssl
+    if cfg.get('verify_ssl', True):
+        return None
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 def api_get(cfg: dict, path: str, params: dict | None = None, _retries: int = 3):
     url = cfg['server_url'].rstrip('/') + path
     if params:
@@ -135,7 +146,7 @@ def api_get(cfg: dict, path: str, params: dict | None = None, _retries: int = 3)
     delay = 1
     for attempt in range(_retries):
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx(cfg)) as resp:
                 return json.loads(resp.read().decode())
         except Exception as e:
             if attempt < _retries - 1:
@@ -162,7 +173,7 @@ def api_post(cfg: dict, path: str, body: dict, _retries: int = 3):
     delay = 1
     for attempt in range(_retries):
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx(cfg)) as resp:
                 return json.loads(resp.read().decode())
         except Exception as e:
             if attempt < _retries - 1:
@@ -493,8 +504,9 @@ def main() -> None:
         queue_data = api_get(cfg, '/api/pi/queue')
 
         if not queue_data:
-            print(f'[loop] API unreachable, sleeping {poll_interval}s...')
-            time.sleep(poll_interval)
+            print(f'[loop] API unreachable, playing fallback...')
+            fallback = os.path.join(local['song_dir'], cfg.get('fallback_song', 'FTPA.wav'))
+            play_file(cfg, fallback, title=rds_ps(cfg).strip())
             continue
 
         commercial = queue_data.get('commercial')
