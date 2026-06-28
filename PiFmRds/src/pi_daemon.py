@@ -15,6 +15,7 @@ Config: config.json (only api_key, server_url, freq, pi_code needed locally)
 import json
 import math
 import os
+import select
 import signal
 import socket
 import struct
@@ -581,6 +582,20 @@ def write_audio_to_fm(
         f'{"(continuation)" if continuation else "(new)"}'
     )
 
+    # ── Warmup: write silence while ffmpeg initializes ────────────────────────
+    # Prevents DMA underrun (~static) during the 50-200ms ffmpeg startup lag.
+    # Continuations skip this — their ffmpeg has been running for 8+ seconds.
+    if not continuation and _fm_proc and _fm_proc.poll() is None:
+        warmup_deadline = time.monotonic() + 0.4   # max 400ms of silence fill
+        while time.monotonic() < warmup_deadline:
+            rlist, _, _ = select.select([ffmpeg_a.stdout], [], [], 0.020)
+            if rlist:
+                break   # ffmpeg has data ready — done
+            try:
+                _fm_proc.stdin.write(b'\x00' * CHUNK_SIZE)
+            except (BrokenPipeError, OSError):
+                break
+
     # ── Prefetch: prepare next song in background during the body phase ───────
     # Fires PREFETCH_BEFORE_XFADE_SECS before the crossfade so next song's
     # ffmpeg is already running (and its first chunks buffered in the kernel pipe)
@@ -674,8 +689,10 @@ def write_audio_to_fm(
 
     if next_ffmpeg:
         print(f'[{_ts()}][xfade] "{title}" → "{next_song_name}" ({crossfade_secs:.1f}s)')
+    elif not _prefetch_ready.is_set():
+        print(f'[{_ts()}][xfade] prefetch still running — solo fade-out (server slow?)')
     elif duration > crossfade_secs + 2:
-        print(f'[{_ts()}][xfade] prefetch not ready — solo fade-out')
+        print(f'[{_ts()}][xfade] queue empty — solo fade-out')
     else:
         print(f'[{_ts()}][xfade] skipping crossfade (short song {duration:.1f}s)')
 
@@ -885,12 +902,13 @@ def main() -> None:
             song     = _continued_song['song']
             filepath = os.path.join(local['song_dir'], song['filename'])
             print(f'[loop] continuing (crossfade): {song["title"]}')
+            # Both calls async — ffmpeg is already running, audio must not pause
             threading.Thread(target=send_heartbeat, args=(cfg, 'playing', 'normal'), daemon=True).start()
-            api_post(cfg, '/api/pi/now-playing', {
+            threading.Thread(target=api_post, args=(cfg, '/api/pi/now-playing', {
                 'type':          'song',
                 'queue_item_id': _continued_song.get('queue_item_id'),
                 'song_filename': song['filename'],
-            })
+            }), daemon=True).start()
             next_proc = write_audio_to_fm(
                 filepath, cfg,
                 title=song['title'], artist=song.get('artist', ''),
@@ -905,23 +923,31 @@ def main() -> None:
         _continued_ffmpeg = None
         _continued_song   = None
 
-        # ── Queue poll ─────────────────────────────────────────────────────
-        queue_data = api_get(cfg, '/api/pi/queue')
+        # ── Queue poll — writes silence to FM pipe while waiting ───────────
+        queue_data = _api_get_with_silence(cfg, '/api/pi/queue')
 
         if not queue_data:
             print('[loop] API unreachable, playing fallback...')
             fallback = os.path.join(local['song_dir'], cfg.get('fallback_song', 'FTPA.wav'))
-            write_audio_to_fm(fallback, cfg, title=rds_ps(cfg).strip())
+            get_audio_duration(fallback)
+            pre_ff = _make_ffmpeg(fallback, fade_in=FADE_IN_SECS)
+            _active_procs.append(pre_ff)
+            write_audio_to_fm(fallback, cfg, title=rds_ps(cfg).strip(), _pre_started_ffmpeg=pre_ff)
             continue
 
         commercial = queue_data.get('commercial')
         if commercial:
             filepath = media_path(local, 'commercial', commercial['filename'])
             print(f'[loop] playing commercial: {commercial["title"]}')
-            send_heartbeat(cfg, 'playing', 'normal')
-            api_post(cfg, '/api/pi/now-playing', {'type': 'commercial', 'item_id': commercial['id']})
+            # Pre-start ffmpeg first so warmup begins while API calls fly async
+            get_audio_duration(filepath)
+            pre_ff = _make_ffmpeg(filepath, fade_in=FADE_IN_SECS)
+            _active_procs.append(pre_ff)
+            threading.Thread(target=send_heartbeat, args=(cfg, 'playing', 'normal'), daemon=True).start()
+            threading.Thread(target=api_post, args=(cfg, '/api/pi/now-playing',
+                {'type': 'commercial', 'item_id': commercial['id']}), daemon=True).start()
             write_audio_to_fm(filepath, cfg, title='Commercial Break',
-                               crossfade_secs=0.5)
+                               crossfade_secs=0.5, _pre_started_ffmpeg=pre_ff)
             if _freq_interrupt.is_set():
                 continue
 
@@ -929,10 +955,17 @@ def main() -> None:
         if sound_byte:
             filepath = media_path(local, 'sound_byte', sound_byte['filename'])
             print(f'[loop] playing sound byte: {sound_byte["title"]}')
-            send_heartbeat(cfg, 'playing', 'normal')
-            api_post(cfg, '/api/pi/now-playing', {'type': 'sound_byte', 'item_id': sound_byte['id']})
-            write_audio_to_fm(filepath, cfg, title=sound_byte['title'],
-                               crossfade_secs=0.5)
+            get_audio_duration(filepath)
+            pre_ff = _make_ffmpeg(filepath, fade_in=FADE_IN_SECS)
+            _active_procs.append(pre_ff)
+            threading.Thread(target=send_heartbeat, args=(cfg, 'playing', 'normal'), daemon=True).start()
+            threading.Thread(target=api_post, args=(cfg, '/api/pi/now-playing',
+                {'type': 'sound_byte', 'item_id': sound_byte['id']}), daemon=True).start()
+            next_proc = write_audio_to_fm(filepath, cfg, title=sound_byte['title'],
+                                          crossfade_secs=0.5, _pre_started_ffmpeg=pre_ff)
+            if next_proc is not None:
+                _continued_ffmpeg = next_proc
+                _continued_song   = _peek_next_song(cfg)
             if _freq_interrupt.is_set():
                 continue
 
@@ -941,19 +974,21 @@ def main() -> None:
             song     = next_song['song']
             filepath = os.path.join(local['song_dir'], song['filename'])
             print(f'[loop] playing: {song["title"]}')
-            send_heartbeat(cfg, 'playing', 'normal')
-            api_post(cfg, '/api/pi/now-playing', {
+            get_audio_duration(filepath)
+            pre_ff = _make_ffmpeg(filepath, fade_in=FADE_IN_SECS)
+            _active_procs.append(pre_ff)
+            threading.Thread(target=send_heartbeat, args=(cfg, 'playing', 'normal'), daemon=True).start()
+            threading.Thread(target=api_post, args=(cfg, '/api/pi/now-playing', {
                 'type':          'song',
                 'queue_item_id': next_song['queue_item_id'],
                 'song_filename': song['filename'],
-            })
+            }), daemon=True).start()
             next_proc = write_audio_to_fm(
                 filepath, cfg,
                 title=song['title'], artist=song.get('artist', ''),
+                _pre_started_ffmpeg=pre_ff,
             )
             if next_proc is not None:
-                # Crossfade started into a next song — peek what it is so we can
-                # mark now-playing correctly on the next loop iteration
                 _continued_ffmpeg = next_proc
                 _continued_song   = _peek_next_song(cfg)
             continue
@@ -961,12 +996,15 @@ def main() -> None:
         # Queue empty — play fallback
         fallback = os.path.join(local['song_dir'], cfg.get('fallback_song', 'FTPA.wav'))
         print('[loop] queue empty, playing fallback')
-        send_heartbeat(cfg, 'playing', 'normal')
-        api_post(cfg, '/api/pi/now-playing', {
+        get_audio_duration(fallback)
+        pre_ff = _make_ffmpeg(fallback, fade_in=FADE_IN_SECS)
+        _active_procs.append(pre_ff)
+        threading.Thread(target=send_heartbeat, args=(cfg, 'playing', 'normal'), daemon=True).start()
+        threading.Thread(target=api_post, args=(cfg, '/api/pi/now-playing', {
             'type':          'song',
             'song_filename': cfg.get('fallback_song', 'FTPA.wav'),
-        })
-        write_audio_to_fm(fallback, cfg, title=rds_ps(cfg).strip())
+        }), daemon=True).start()
+        write_audio_to_fm(fallback, cfg, title=rds_ps(cfg).strip(), _pre_started_ffmpeg=pre_ff)
 
 
 def _peek_next_song(cfg: dict) -> 'dict | None':
@@ -975,6 +1013,32 @@ def _peek_next_song(cfg: dict) -> 'dict | None':
     if data and data.get('next'):
         return data['next']
     return None
+
+
+def _api_get_with_silence(cfg: dict, path: str, _retries: int = 3):
+    """
+    Call api_get in a background thread while writing PCM silence to the FM
+    pipe on the audio thread.  Prevents DMA underrun (static) during the
+    queue poll that happens between songs.
+    """
+    result:   list      = [None]
+    done:     threading.Event = threading.Event()
+
+    def _fetch() -> None:
+        result[0] = api_get(cfg, path, _retries=_retries)
+        done.set()
+
+    threading.Thread(target=_fetch, daemon=True).start()
+
+    silence = b'\x00' * CHUNK_SIZE
+    while not done.wait(timeout=0.020):   # poll every 20ms
+        if _fm_proc is not None and _fm_proc.poll() is None:
+            try:
+                _fm_proc.stdin.write(silence)
+            except (BrokenPipeError, OSError):
+                break
+
+    return result[0]
 
 
 if __name__ == '__main__':
