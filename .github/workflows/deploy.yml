@@ -51,7 +51,7 @@ jobs:
       - name: Validate deploy secrets
         run: |
           if [ -z "${{ secrets.DEPLOY_PATH }}" ] || [ "${{ secrets.DEPLOY_PATH }}" = "/" ]; then
-            echo "DEPLOY_PATH is missing or invalid (cannot be /)." >&2; exit 1
+            echo "DEPLOY_PATH is missing or invalid." >&2; exit 1
           fi
 
       # PHP + composer needed so Wayfinder can run during npm run build
@@ -105,92 +105,67 @@ jobs:
             echo 'VITE_APP_NAME="FM Playlist"'
           } > .env.production
 
-      # Verify SSH connection before doing any real work
-      - name: Test SSH connection
+      # Step 1: pull latest code, create dirs, enter maintenance mode
+      - name: Pull code and prepare
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
-          port: ${{ secrets.DEPLOY_PORT }}
-          script: echo "SSH connection OK on $(hostname)"
-
-      # Ensure remote app directory exists
-      - name: Ensure remote directories exist
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
+          passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
           port: ${{ secrets.DEPLOY_PORT }}
           script: |
-            mkdir -p "${{ secrets.DEPLOY_PATH }}"
-            mkdir -p "${{ secrets.DEPLOY_PATH }}/storage/framework/cache"
-            mkdir -p "${{ secrets.DEPLOY_PATH }}/storage/framework/sessions"
-            mkdir -p "${{ secrets.DEPLOY_PATH }}/storage/framework/views"
-            mkdir -p "${{ secrets.DEPLOY_PATH }}/storage/logs"
-            mkdir -p "${{ secrets.DEPLOY_PATH }}/bootstrap/cache"
-            echo "Directories ready."
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            git pull origin main --ff-only
+            mkdir -p storage/framework/cache storage/framework/sessions \
+                     storage/framework/views storage/logs bootstrap/cache
+            chmod -R 775 storage bootstrap/cache
+            php artisan down || true
 
-      # Deploy app via rsync — excludes .env, storage, and node_modules
-      - name: Deploy app files
-        uses: burnett01/rsync-deployments@5.2
-        with:
-          switches: >-
-            -azr --delete
-            --exclude='.git'
-            --exclude='.github'
-            --exclude='node_modules'
-            --exclude='.env'
-            --exclude='.env.production'
-            --exclude='storage/'
-          path: ./
-          remote_path: ${{ secrets.DEPLOY_PATH }}/
-          remote_host: ${{ secrets.DEPLOY_HOST }}
-          remote_user: ${{ secrets.DEPLOY_USER }}
-          remote_key: ${{ secrets.DEPLOY_KEY }}
-          remote_port: ${{ secrets.DEPLOY_PORT }}
-
-      # Upload production .env (written in runner — no YAML/heredoc quoting issues)
-      - name: Upload .env to server
+      # Step 2: upload built frontend assets
+      - name: Upload frontend assets
         uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
+          passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
           port: ${{ secrets.DEPLOY_PORT }}
-          source: ".env.production"
-          target: ${{ secrets.DEPLOY_PATH }}/
+          source: "public/build/"
+          target: ${{ secrets.DEPLOY_PATH }}/public/
+          strip_components: 1
 
-      # Harden permissions
-      - name: Harden permissions
-        uses: appleboy/ssh-action@v1.2.5
+      # Step 3: upload production .env
+      - name: Upload .env
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
+          passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
           port: ${{ secrets.DEPLOY_PORT }}
-          script: |
-            APP_DIR="${{ secrets.DEPLOY_PATH }}"
-            chmod -R 775 "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
-            mv "$APP_DIR/.env.production" "$APP_DIR/.env"
-            chmod 600 "$APP_DIR/.env"
+          source: ".env.production"
+          target: ${{ secrets.DEPLOY_PATH }}/
 
-      # Run Laravel artisan commands
+      # Step 4: install deps, migrate, cache, bring up
       - name: Run Laravel artisan commands
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
+          passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
           port: ${{ secrets.DEPLOY_PORT }}
           script: |
+            set -e
             cd "${{ secrets.DEPLOY_PATH }}"
-            if command -v php >/dev/null 2>&1; then PHP_BIN="php"; else PHP_BIN="/usr/local/bin/php"; fi
-            echo "PHP: $($PHP_BIN -v | head -n1)"
-            $PHP_BIN artisan down || true
+            mv .env.production .env
+            chmod 600 .env
             /usr/local/bin/composer install \
               --no-dev --optimize-autoloader --no-interaction --quiet
+            if command -v php >/dev/null 2>&1; then PHP_BIN="php"; else PHP_BIN="/usr/local/bin/php"; fi
+            echo "PHP: $($PHP_BIN -v | head -n1)"
             $PHP_BIN artisan migrate --force
             $PHP_BIN artisan optimize:clear
             $PHP_BIN artisan config:cache
@@ -202,27 +177,24 @@ jobs:
             $PHP_BIN artisan up
             echo "Deploy complete: $(date)"
 
-      # Keep public_html in sync (document root is locked to public_html on shared hosting)
+      # Step 5: keep public_html in sync (document root locked on shared hosting)
       - name: Sync public_html
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
+          passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
           port: ${{ secrets.DEPLOY_PORT }}
           script: |
             DOCROOT="$HOME/public_html"
             APP="$HOME/fmplaylist"
-            # Proxy index.php — routes all PHP requests into the Laravel app
             echo '<?php require "/home/fmplyomq/fmplaylist/public/index.php";' > "$DOCROOT/index.php"
-            # Keep .htaccess up to date (HTTPS redirect, security headers)
             cp "$APP/public/.htaccess" "$DOCROOT/.htaccess"
-            # Symlink build assets so Vite hashed files are served from public_html
             if [ ! -L "$DOCROOT/build" ]; then
               rm -rf "$DOCROOT/build"
               ln -s "$APP/public/build" "$DOCROOT/build"
             fi
-            # Symlink storage for user-uploaded files
             if [ ! -L "$DOCROOT/storage" ]; then
               rm -rf "$DOCROOT/storage"
               ln -s "$APP/storage/app/public" "$DOCROOT/storage"
