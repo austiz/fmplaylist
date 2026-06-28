@@ -69,7 +69,15 @@ _stop_live      = threading.Event()
 _freq_interrupt = threading.Event()
 _skip_event     = threading.Event()   # set by heartbeat when admin presses skip
 
+# Cache audio durations so continuation never blocks on ffprobe mid-stream
+_duration_cache: dict[str, float] = {}
+
 _local: dict = {}
+
+
+def _ts() -> str:
+    """Compact timestamp prefix for debug logs."""
+    return time.strftime('%H:%M:%S')
 
 
 def _shutdown(signum, frame):
@@ -213,21 +221,23 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> dict | None:
         bm = result.get('broadcast_mode', 'normal')
         dl = len(result.get('pending_downloads', []))
         rm = len(result.get('pending_deletes', []))
-        print(f'[hb] mode={bm} downloads={dl} deletes={rm}')
+        print(f'[{_ts()}][hb] status={status} mode={bm} downloads={dl} deletes={rm}')
         _process_pending_downloads(cfg, result)
         _process_pending_deletes(cfg, result)
 
         if result.get('skip_next'):
-            print('[hb] skip requested — fading out current song')
+            print(f'[{_ts()}][hb] skip_next=true — setting skip event')
             _skip_event.set()
 
         new_freq = result.get('freq')
         if new_freq is not None and float(new_freq) != float(_local.get('freq', 96.9)):
-            print(f'[hb] FREQ {_local["freq"]} → {new_freq} MHz — restarting transmitter')
+            print(f'[{_ts()}][hb] FREQ CHANGE {_local["freq"]} → {new_freq} MHz')
             _local['freq'] = float(new_freq)
             save_local_config(_local)
             _freq_interrupt.set()
             _stop_fm()
+    else:
+        print(f'[{_ts()}][hb] WARNING heartbeat failed (no response)')
     return result
 
 
@@ -269,11 +279,11 @@ def _process_pending_downloads(cfg: dict, heartbeat: dict) -> None:
                 if os.path.exists(dest):
                     os.remove(dest)
                 if attempt < 2:
-                    print(f'[download] {filename}: {e} — retry in {delay}s')
+                    print(f'[{_ts()}][download] ERROR {filename}: {e} — retry in {delay}s')
                     time.sleep(delay)
                     delay *= 2
                 else:
-                    print(f'[download] {filename}: {e} — giving up')
+                    print(f'[{_ts()}][download] ERROR {filename}: {e} — giving up')
 
 
 def _process_pending_deletes(cfg: dict, heartbeat: dict) -> None:
@@ -363,7 +373,7 @@ def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
 
     _ps = ps or rds_ps(cfg)
     _rt = rt or rds_rt(cfg)
-    print(f'[FM] starting transmitter at {cfg["freq"]} MHz  ps="{_ps.strip()}"')
+    print(f'[{_ts()}][FM] starting transmitter at {cfg["freq"]} MHz  ps="{_ps.strip()}"')
     try:
         _fm_proc = subprocess.Popen(
             _PI_CMD + [
@@ -379,7 +389,7 @@ def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
         _write_streaming_wav_header(_fm_proc.stdin)
         return True
     except Exception as e:
-        print(f'[FM] failed to start: {e}')
+        print(f'[{_ts()}][FM] ERROR failed to start: {e}')
         _fm_proc = None
         return False
 
@@ -404,14 +414,21 @@ def _stop_fm() -> None:
 
 
 def get_audio_duration(filepath: str) -> float:
+    if filepath in _duration_cache:
+        return _duration_cache[filepath]
+    print(f'[{_ts()}][probe] getting duration: {os.path.basename(filepath)}')
     try:
         out = subprocess.check_output(
             ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
              '-of', 'default=noprint_wrappers=1:nokey=1', filepath],
             stderr=subprocess.DEVNULL, timeout=10,
         )
-        return max(0.0, float(out.strip()))
-    except Exception:
+        dur = max(0.0, float(out.strip()))
+        _duration_cache[filepath] = dur
+        print(f'[{_ts()}][probe] {os.path.basename(filepath)} = {dur:.2f}s (cached)')
+        return dur
+    except Exception as e:
+        print(f'[{_ts()}][probe] ERROR {os.path.basename(filepath)}: {e}')
         return 0.0
 
 
@@ -454,16 +471,25 @@ def _make_ffmpeg(filepath: str, fade_in: float = 0.0) -> subprocess.Popen:
 
 
 def _cleanup_ffmpeg(proc: 'subprocess.Popen') -> None:
+    """Terminate ffmpeg and reap it in a background thread — never blocks audio."""
     try:
         proc.terminate()
-        proc.wait(timeout=2)
     except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        pass
     if proc in _active_procs:
         _active_procs.remove(proc)
+
+    def _reap() -> None:
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+
+    threading.Thread(target=_reap, daemon=True).start()
 
 
 def _fade_out_and_stop(ffmpeg_proc: 'subprocess.Popen', secs: float = 0.3) -> None:
@@ -498,36 +524,36 @@ def write_audio_to_fm(
     _pre_consumed_bytes: int = 0,
 ) -> 'subprocess.Popen | None':
     """
-    Stream filepath to the FM transmitter.
+    Stream filepath to the FM transmitter with crossfade.
 
-    - One pi_fm_rds process is reused across all songs (no restarts → no static).
-    - Applies fade-in at start via ffmpeg afade filter.
-    - Near the end, fetches the next queue item and crossfades into it using
-      equal-power (cos/sin) curves — avoids the perceived dip of a linear mix.
-    - Returns the still-running ffmpeg for the next song so the caller can
-      continue it seamlessly (_pre_started_ffmpeg on the next iteration).
-    - _pre_consumed_bytes: bytes already consumed from _pre_started_ffmpeg during
-      the previous crossfade window; subtracted from body_bytes so Phase 2 still
-      has a full crossfade window available.
+    Returns the still-running ffmpeg for the next song when a crossfade was
+    started (_pre_started_ffmpeg for the next call), otherwise None.
+
+    _pre_consumed_bytes: bytes already read from _pre_started_ffmpeg during the
+    previous crossfade window; reduces body_bytes so Phase 2 gets a full window.
+
+    NEVER calls proc.wait() on the audio thread — cleanup is always async so
+    the FM pipe stays filled and the carrier never drops.
     """
     global _fm_proc
 
     if not os.path.exists(filepath):
-        print(f'[play] file not found: {filepath}')
+        print(f'[{_ts()}][play] ERROR file not found: {filepath}')
         return None
 
     _freq_interrupt.clear()
     _skip_event.clear()
 
     if not _ensure_fm_running(cfg, ps=rds_ps(cfg), rt=rds_rt(cfg, title, artist)):
+        print(f'[{_ts()}][play] ERROR could not start FM transmitter')
         return None
 
+    # Duration is cached after the first probe — continuation calls are instant.
     duration    = get_audio_duration(filepath)
-    # Phase 1 ends crossfade_secs before the song end, minus any bytes already
-    # consumed from a pre-started ffmpeg (which had crossfade_secs played into it).
     body_bytes  = max(0, int((duration - crossfade_secs) * BYTES_PER_SEC) - _pre_consumed_bytes)
     xfade_bytes = int(crossfade_secs * BYTES_PER_SEC)
 
+    continuation = _pre_started_ffmpeg is not None
     ffmpeg_a = _pre_started_ffmpeg or _make_ffmpeg(filepath, fade_in=fade_in)
     if ffmpeg_a not in _active_procs:
         _active_procs.append(ffmpeg_a)
@@ -536,13 +562,21 @@ def write_audio_to_fm(
     last_hb       = time.time()
     bytes_written = 0
 
-    # ── Phase 1: main body (before crossfade window) ──────────────────────────
+    print(
+        f'[{_ts()}][play] "{title}" | dur={duration:.1f}s '
+        f'body={body_bytes//BYTES_PER_SEC:.1f}s xfade={crossfade_secs:.1f}s '
+        f'{"(continuation)" if continuation else "(new)"}'
+    )
+
+    # ── Phase 1: body ────────────────────────────────────────────────────────
     while bytes_written < body_bytes:
         if _freq_interrupt.is_set():
+            print(f'[{_ts()}][play] freq interrupt mid-song — aborting')
             _cleanup_ffmpeg(ffmpeg_a)
             return None
 
         if _skip_event.is_set():
+            print(f'[{_ts()}][skip] skip event — fading out "{title}"')
             _skip_event.clear()
             _fade_out_and_stop(ffmpeg_a, secs=0.3)
             return None
@@ -550,12 +584,14 @@ def write_audio_to_fm(
         to_read = min(CHUNK_SIZE, body_bytes - bytes_written)
         chunk   = ffmpeg_a.stdout.read(to_read)
         if not chunk:
-            break  # song shorter than expected
+            print(f'[{_ts()}][play] WARNING ffmpeg EOF at {bytes_written/BYTES_PER_SEC:.1f}s '
+                  f'(expected {body_bytes/BYTES_PER_SEC:.1f}s) — short file?')
+            break
 
         try:
             _fm_proc.stdin.write(chunk)
-        except (BrokenPipeError, OSError):
-            print('[play] FM pipe broken — transmitter will restart next track')
+        except (BrokenPipeError, OSError) as e:
+            print(f'[{_ts()}][FM] ERROR pipe broken during body: {e}')
             _fm_proc = None
             _cleanup_ffmpeg(ffmpeg_a)
             return None
@@ -568,9 +604,14 @@ def write_audio_to_fm(
             ).start()
             last_hb = time.time()
 
-    # ── Phase 2: crossfade window ─────────────────────────────────────────────
-    # Pre-fetch next song; we have crossfade_secs of audio to fill while doing it.
-    next_ffmpeg: subprocess.Popen | None = None
+    print(f'[{_ts()}][play] body done ({bytes_written/BYTES_PER_SEC:.1f}s written) — entering crossfade')
+
+    # ── Phase 2: crossfade ───────────────────────────────────────────────────
+    # Pre-fetch next song and cache its duration NOW (while we still have
+    # crossfade_secs of audio to fill) so the continuation call hits the cache.
+    next_ffmpeg:    subprocess.Popen | None = None
+    next_song_name: str = ''
+
     if duration > crossfade_secs + 2 and not _freq_interrupt.is_set() and not _skip_event.is_set():
         next_queue = api_get(cfg, '/api/pi/queue', _retries=1)
         if next_queue:
@@ -578,50 +619,67 @@ def write_audio_to_fm(
             _process_pending_deletes(cfg, next_queue)
             nxt = next_queue.get('next')
             if nxt:
-                next_song_path = os.path.join(cfg['song_dir'], nxt['song']['filename'])
-                if os.path.exists(next_song_path):
-                    next_ffmpeg = _make_ffmpeg(next_song_path, fade_in=0.0)
+                nxt_path = os.path.join(cfg['song_dir'], nxt['song']['filename'])
+                if os.path.exists(nxt_path):
+                    get_audio_duration(nxt_path)          # pre-warm cache
+                    next_ffmpeg    = _make_ffmpeg(nxt_path, fade_in=0.0)
+                    next_song_name = nxt['song'].get('title', os.path.basename(nxt_path))
                     _active_procs.append(next_ffmpeg)
+                    print(f'[{_ts()}][xfade] "{title}" → "{next_song_name}" ({crossfade_secs:.1f}s)')
+                else:
+                    print(f'[{_ts()}][xfade] next song not on disk: {nxt_path}')
+        else:
+            print(f'[{_ts()}][xfade] queue fetch failed — solo fade-out')
+    else:
+        reason = 'short song' if duration <= crossfade_secs + 2 else 'interrupted'
+        print(f'[{_ts()}][xfade] skipping crossfade ({reason})')
 
     xfade_written = 0
     while xfade_written < xfade_bytes:
         if _freq_interrupt.is_set() or _skip_event.is_set():
+            print(f'[{_ts()}][xfade] interrupted at {xfade_written/BYTES_PER_SEC:.2f}s')
             break
 
-        # Equal-power crossfade: constant perceived loudness (no dip in the middle)
-        t     = xfade_written / xfade_bytes   # 0.0 → 1.0
-        vol_a = math.cos(t * math.pi / 2)     # 1.0 → 0.0
-        vol_b = math.sin(t * math.pi / 2)     # 0.0 → 1.0
+        t     = xfade_written / xfade_bytes
+        vol_a = math.cos(t * math.pi / 2)   # 1.0 → 0.0  equal-power
+        vol_b = math.sin(t * math.pi / 2)   # 0.0 → 1.0
 
         size    = min(CHUNK_SIZE, xfade_bytes - xfade_written)
         chunk_a = ffmpeg_a.stdout.read(size) or b''
         chunk_b = (next_ffmpeg.stdout.read(len(chunk_a) or size) if next_ffmpeg else b'') or b''
 
         if not chunk_a and not chunk_b:
+            print(f'[{_ts()}][xfade] both streams EOF at {xfade_written/BYTES_PER_SEC:.2f}s')
             break
 
-        if next_ffmpeg and chunk_b:
+        if chunk_a and chunk_b:
             mixed = _mix_pcm(chunk_a, vol_a, chunk_b, vol_b)
         elif chunk_a:
-            n = len(chunk_a) // 2
-            sa = struct.unpack(f'<{n}h', chunk_a)
+            n     = len(chunk_a) // 2
+            sa    = struct.unpack(f'<{n}h', chunk_a[:n * 2])
             mixed = struct.pack(f'<{n}h', *[max(-32768, min(32767, int(s * vol_a))) for s in sa])
         else:
-            break
-
+            # chunk_a EOF but chunk_b has data — switch fully to next song
+            mixed = chunk_b
         try:
             _fm_proc.stdin.write(mixed)
-        except (BrokenPipeError, OSError):
+        except (BrokenPipeError, OSError) as e:
+            print(f'[{_ts()}][FM] ERROR pipe broken during crossfade: {e}')
             _fm_proc = None
             break
 
         xfade_written += len(mixed)
 
+    print(f'[{_ts()}][xfade] complete ({xfade_written/BYTES_PER_SEC:.2f}s mixed)')
+
+    # Async cleanup — NEVER blocks the audio thread
     _cleanup_ffmpeg(ffmpeg_a)
 
     if next_ffmpeg and not _freq_interrupt.is_set() and not _skip_event.is_set():
-        return next_ffmpeg   # caller continues playing next song from here
+        print(f'[{_ts()}][xfade] handing off to "{next_song_name}"')
+        return next_ffmpeg
     if next_ffmpeg:
+        print(f'[{_ts()}][xfade] interrupted — discarding next_ffmpeg')
         _cleanup_ffmpeg(next_ffmpeg)
     return None
 
