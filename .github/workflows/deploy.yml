@@ -80,8 +80,8 @@ jobs:
       - name: Build frontend assets
         run: npm run build
 
-      # Step 1: pull latest code + install PHP deps, then put site into maintenance mode
-      - name: Pull code and install Composer dependencies
+      # Step 1: pull code, write .env, install deps, enter maintenance mode
+      - name: Pull code and prepare environment
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -94,11 +94,24 @@ jobs:
             PHP="$(command -v /usr/local/bin/php php 2>/dev/null | head -1)"
             cd "${{ secrets.DEPLOY_PATH }}"
             git pull origin main --ff-only
+
+            # Write production .env (always — keeps it in sync with the secret)
+            cat > .env << 'ENVEOF'
+            ${{ secrets.PRODUCTION_ENV }}
+            ENVEOF
+            chmod 600 .env
+
+            # Ensure writable dirs exist
+            mkdir -p storage/framework/cache storage/framework/sessions \
+                     storage/framework/views storage/logs bootstrap/cache
+            chmod -R 775 storage bootstrap/cache
+
             /usr/local/bin/composer install \
               --no-dev \
               --optimize-autoloader \
               --no-interaction \
               --quiet
+
             $PHP artisan down || true
 
       # Step 2: upload the built assets that git doesn't track
@@ -114,7 +127,7 @@ jobs:
           target: ${{ secrets.DEPLOY_PATH }}/public/
           strip_components: 1
 
-      # Step 3: migrate, cache, link storage, harden permissions, bring site back up
+      # Step 3: migrate, cache, link storage, bring site back up
       - name: Migrate, cache, and bring up
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -127,8 +140,6 @@ jobs:
             set -e
             PHP="$(command -v /usr/local/bin/php php 2>/dev/null | head -1)"
             cd "${{ secrets.DEPLOY_PATH }}"
-            chmod -R 775 storage bootstrap/cache
-            chmod 600 .env || true
             $PHP artisan migrate --force
             $PHP artisan optimize:clear
             $PHP artisan config:cache
