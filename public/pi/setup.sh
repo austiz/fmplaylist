@@ -20,7 +20,7 @@ echo "==> Setting up FM Playlist on Pi as user: $REAL_USER"
 # ── 1. Dependencies ─────────────────────────────────────────────────────────
 echo "==> Installing dependencies..."
 apt-get update -qq
-apt-get install -y -qq git ffmpeg build-essential python3 python3-requests
+apt-get install -y -qq git ffmpeg build-essential python3 python3-requests libsndfile1-dev
 
 # ── 2. Download PiFmRds ──────────────────────────────────────────────────────
 if [ ! -d "$PI_DIR" ]; then
