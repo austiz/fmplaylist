@@ -285,6 +285,9 @@ def sync_library(cfg: dict) -> None:
 
 # ── FM Playback ───────────────────────────────────────────────────────────────
 
+# Skip sudo when already root (e.g. systemd service with User=root)
+_PI_CMD = [BINARY_PATH] if os.geteuid() == 0 else ['sudo', BINARY_PATH]
+
 def make_ctl_pipe() -> None:
     if not os.path.exists(CTL_PIPE):
         os.mkfifo(CTL_PIPE)
@@ -327,7 +330,7 @@ def play_file(cfg: dict, filepath: str, title: str = '', artist: str = '', fade_
     _active_procs.append(ffmpeg)
 
     rds = subprocess.Popen(
-        ['sudo', BINARY_PATH,
+        _PI_CMD + [
          '-freq', str(cfg['freq']),
          '-pi',   cfg.get('pi_code', 'C0DE'),
          '-audio', '-',
@@ -399,7 +402,7 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
     _active_procs.append(ffmpeg)
 
     rds_proc = subprocess.Popen(
-        ['sudo', BINARY_PATH,
+        _PI_CMD + [
          '-freq', str(cfg['freq']),
          '-pi',   cfg.get('pi_code', 'C0DE'),
          '-audio', '-',
