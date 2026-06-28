@@ -344,6 +344,10 @@ def play_file(cfg: dict, filepath: str, title: str = '', artist: str = '', fade_
     if ffmpeg.stdout:
         ffmpeg.stdout.close()
 
+    # Open the write end of the control pipe so pi_fm_rds unblocks from its
+    # O_RDONLY open (it waits for a writer before proceeding to read audio).
+    ctl_w = open(CTL_PIPE, 'w')
+
     # Background thread: fire one heartbeat mid-song to catch frequency changes
     poll_interval = int(cfg.get('poll_interval_seconds', 30))
     def _freq_watcher():
@@ -363,6 +367,7 @@ def play_file(cfg: dict, filepath: str, title: str = '', artist: str = '', fade_
 
     rds.wait()
     ffmpeg.wait()
+    ctl_w.close()
     _active_procs.clear()
 
 
@@ -416,6 +421,8 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
     if ffmpeg.stdout:
         ffmpeg.stdout.close()
 
+    ctl_w = open(CTL_PIPE, 'w')
+
     # Poll for mode changes every 30s; exit if admin switches back to normal
     def _watch():
         while not _stop_live.is_set():
@@ -436,6 +443,7 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
     rds_proc.terminate()
     ffmpeg.wait()
     rds_proc.wait()
+    ctl_w.close()
     _active_procs.clear()
     _stop_live.clear()
 
