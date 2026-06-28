@@ -22,14 +22,14 @@ class SseController extends Controller
             $qv = Cache::get('sse.queue_version', '0');
 
             // Send initial state immediately so the client is current on connect
-            echo "event: now-playing\ndata: " . json_encode($np) . "\n\n";
+            echo "event: now-playing\ndata: " . json_encode($np, JSON_THROW_ON_ERROR) . "\n\n";
             if ($pi) {
-                echo "event: pi-status\ndata: " . json_encode($pi) . "\n\n";
+                echo "event: pi-status\ndata: " . json_encode($pi, JSON_THROW_ON_ERROR) . "\n\n";
             }
             @ob_flush(); flush();
 
-            $lastNpHash   = md5(json_encode($np));
-            $lastPiHash   = md5(json_encode($pi));
+            $lastNpHash   = md5(json_encode($np, JSON_THROW_ON_ERROR));
+            $lastPiHash   = md5(json_encode($pi, JSON_THROW_ON_ERROR));
             $lastQueueVer = $qv;
 
             // Reconnect after 55s so nginx / reverse proxies don't timeout
@@ -40,16 +40,16 @@ class SseController extends Controller
                 $pi = Cache::get('sse.pi_status');
                 $qv = Cache::get('sse.queue_version', '0');
 
-                $npHash = md5(json_encode($np));
-                $piHash = md5(json_encode($pi));
+                $npHash = md5(json_encode($np, JSON_THROW_ON_ERROR));
+                $piHash = md5(json_encode($pi, JSON_THROW_ON_ERROR));
 
                 if ($npHash !== $lastNpHash) {
-                    echo "event: now-playing\ndata: " . json_encode($np) . "\n\n";
+                    echo "event: now-playing\ndata: " . json_encode($np, JSON_THROW_ON_ERROR) . "\n\n";
                     $lastNpHash = $npHash;
                 }
 
                 if ($piHash !== $lastPiHash) {
-                    echo "event: pi-status\ndata: " . json_encode($pi) . "\n\n";
+                    echo "event: pi-status\ndata: " . json_encode($pi, JSON_THROW_ON_ERROR) . "\n\n";
                     $lastPiHash = $piHash;
                 }
 

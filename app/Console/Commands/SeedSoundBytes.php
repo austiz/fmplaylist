@@ -51,7 +51,12 @@ class SeedSoundBytes extends Command
             $filename = time() . '_' . preg_replace('/[^a-z0-9]+/', '_', strtolower($displayTitle)) . '.mp3';
             $destPath = 'soundbytes/' . $filename;
 
-            Storage::disk('public')->put($destPath, file_get_contents($src));
+            $contents = file_get_contents($src);
+            if ($contents === false) {
+                $this->warn("Failed to read: {$src}");
+                continue;
+            }
+            Storage::disk('public')->put($destPath, $contents);
 
             SoundByte::create([
                 'title'             => $displayTitle,

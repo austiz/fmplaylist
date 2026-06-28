@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Database\Factories\CommercialFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Commercial extends Model
 {
+    /** @use HasFactory<CommercialFactory> */
     use HasFactory;
 
     protected $fillable = [
@@ -27,13 +29,17 @@ class Commercial extends Model
         'pi_delete_requested' => 'boolean',
     ];
 
+    /**
+     * @param Builder<Commercial> $query
+     * @return Builder<Commercial>
+     */
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('active', true);
     }
 
     /** Next in sequential rotation after the last-played id. Wraps around. */
-    public static function nextInRotation(): ?static
+    public static function nextInRotation(): ?self
     {
         $lastId = (int) Setting::get('last_commercial_id', 0);
 
@@ -49,6 +55,6 @@ class Commercial extends Model
         $m = intdiv($this->duration_seconds, 60);
         $s = $this->duration_seconds % 60;
 
-        return "{$m}:".str_pad($s, 2, '0', STR_PAD_LEFT);
+        return "{$m}:".str_pad((string) $s, 2, '0', STR_PAD_LEFT);
     }
 }

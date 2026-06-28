@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 
 class QueueService
 {
+    /** @return array<string, mixed> */
     public function getNextForPi(): array
     {
         // ── Commercial scheduling ─────────────────────────────────────────
@@ -180,6 +181,10 @@ class QueueService
         });
     }
 
+    /**
+     * @param array<int, array{filename: string, file_size?: int|null}> $songs
+     * @return array{added: int, unchanged: int, removed: int}
+     */
     public function syncLibrary(array $songs): array
     {
         $filenames = collect($songs)->pluck('filename')->all();
