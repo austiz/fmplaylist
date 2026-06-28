@@ -64,7 +64,7 @@ jobs:
 
       # Step 1: pull latest code + install PHP dependencies on the server
       - name: Pull code and install Composer dependencies
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
@@ -82,7 +82,7 @@ jobs:
 
       # Step 2: upload the built assets that git doesn't track
       - name: Upload built frontend assets
-        uses: burnett01/rsync-deployments@7.0.1
+        uses: burnett01/rsync-deployments@9.0.0
         with:
           switches: -az --delete
           path: public/build/
@@ -94,7 +94,7 @@ jobs:
 
       # Step 3: run migrations and rebuild caches
       - name: Migrate and cache
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
