@@ -26,6 +26,9 @@ import urllib.request
 import urllib.error
 import urllib.parse
 
+# Force line-buffered stdout so systemd journal sees output immediately.
+sys.stdout.reconfigure(line_buffering=True)
+
 SCRIPT_DIR  = os.path.dirname(os.path.realpath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, 'config.json')
 BINARY_PATH = os.path.join(SCRIPT_DIR, 'pi_fm_rds')
