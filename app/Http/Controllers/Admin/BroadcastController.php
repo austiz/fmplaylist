@@ -86,6 +86,9 @@ class BroadcastController extends Controller
     {
         $this->queueService->skipCurrent();
 
+        // Signal the Pi daemon to abort the current song on its next heartbeat.
+        PiToken::latest('last_seen_at')->first()?->update(['pi_skip_next' => true]);
+
         return back()->with('success', 'Current song skipped.');
     }
 

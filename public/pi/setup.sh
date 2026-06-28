@@ -46,7 +46,7 @@ cat > "$PI_DIR/src/config.json" << CONF
   "fallback_song": "FTPA.wav",
   "local_station_id_path": "$PI_DIR/src/station_id.wav",
   "local_station_id_hash": "",
-  "poll_interval_seconds": 30,
+  "poll_interval_seconds": 5,
   "verify_ssl": false
 }
 CONF

@@ -14,10 +14,12 @@ class PiToken extends Model
         'pi_status',
         'pi_mode',
         'pi_ip',
+        'pi_skip_next',
     ];
 
     protected $casts = [
         'last_seen_at' => 'datetime',
+        'pi_skip_next' => 'boolean',
     ];
 
     /** @return array{token: self, raw: string} */

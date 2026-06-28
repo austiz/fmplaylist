@@ -71,11 +71,14 @@ class PiController extends Controller
 
         /** @var PiToken|null $token */
         $token = $request->attributes->get('pi_token');
+        $skipNext = false;
         if ($token) {
+            $skipNext = (bool) $token->pi_skip_next;
             $token->update([
-                'pi_status' => $data['status'],
-                'pi_mode' => $data['mode'],
-                'pi_ip' => $data['ip'] ?? $token->pi_ip,
+                'pi_status'    => $data['status'],
+                'pi_mode'      => $data['mode'],
+                'pi_ip'        => $data['ip'] ?? $token->pi_ip,
+                'pi_skip_next' => false,  // consume the flag
             ]);
 
             Cache::put('sse.pi_status', [
@@ -86,7 +89,7 @@ class PiController extends Controller
             ], 180);
         }
 
-        return response()->json(self::buildConfig());
+        return response()->json([...self::buildConfig(), 'skip_next' => $skipNext]);
     }
 
     public function confirmDownload(Request $request): JsonResponse
