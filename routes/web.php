@@ -19,8 +19,9 @@ use Illuminate\Support\Facades\Route;
 // Pi setup download routes
 Route::get('/pi/setup.sh', [PiSetupController::class, 'setup'])->name('pi.setup');
 
-// Serve public storage files — symlinks unreliable on LiteSpeed shared hosting
-Route::get('/storage/{path}', function (string $path) {
+// Serve public storage files — symlinks unreliable on LiteSpeed shared hosting.
+// /files/ prefix avoids conflict with Laravel's built-in storage.local route at /storage/.
+Route::get('/files/{path}', function (string $path) {
     abort_if(str_contains($path, '..'), 403);
     $file = storage_path('app/public/' . $path);
     abort_unless(file_exists($file) && is_file($file), 404);
