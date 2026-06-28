@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FM Playlist Pi Setup
+# FM Playlist Pi Setup / Update
 # Usage: curl -fsSL https://fmplaylist.com/pi/setup.sh | sudo bash -s -- YOUR_TOKEN
 set -e
 
@@ -22,15 +22,18 @@ echo "==> Installing dependencies..."
 apt-get update -qq
 apt-get install -y -qq git ffmpeg build-essential python3 python3-requests libsndfile1-dev
 
-# ── 2. Download PiFmRds ──────────────────────────────────────────────────────
+# ── 2. Download / update PiFmRds ─────────────────────────────────────────────
 if [ ! -d "$PI_DIR" ]; then
-  echo "==> Downloading FM Playlist files..."
+  echo "==> Cloning FM Playlist files..."
   git clone https://github.com/austiz/fmplaylist.git /tmp/fmplaylist-setup
   cp -r /tmp/fmplaylist-setup/PiFmRds "$PI_DIR"
   rm -rf /tmp/fmplaylist-setup
   chown -R "$REAL_USER:$REAL_USER" "$PI_DIR"
 else
-  echo "==> PiFmRds already present, skipping clone."
+  echo "==> Updating Pi daemon to latest version..."
+  curl -fsSL "https://raw.githubusercontent.com/austiz/fmplaylist/main/PiFmRds/src/pi_daemon.py" \
+    -o "$PI_DIR/src/pi_daemon.py"
+  chown "$REAL_USER:$REAL_USER" "$PI_DIR/src/pi_daemon.py"
 fi
 
 # ── 3. Write config.json ─────────────────────────────────────────────────────
@@ -69,7 +72,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 $PI_DIR/src/pi_daemon.py
+ExecStart=/usr/bin/python3 -u $PI_DIR/src/pi_daemon.py
 WorkingDirectory=$PI_DIR/src
 Restart=always
 RestartSec=10
@@ -81,7 +84,7 @@ SERVICE
 
 systemctl daemon-reload
 systemctl enable fmplaylist
-systemctl start fmplaylist
+systemctl restart fmplaylist
 
 echo ""
 echo "✓ Setup complete! FM Playlist daemon is running."
