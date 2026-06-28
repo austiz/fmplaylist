@@ -748,3 +748,4 @@ A compromised admin account **cannot**:
 ## License
 
 The Laravel starter kit portions and the project application code follow the license declared in `composer.json`. PiFmRds includes its own license under `PiFmRds/LICENSE`.
+ _
