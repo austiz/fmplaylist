@@ -76,35 +76,6 @@ jobs:
       - name: Build frontend assets
         run: npm run build
 
-      # Write production .env in the runner (individual secrets — no heredoc YAML issues)
-      - name: Write production .env
-        run: |
-          {
-            echo 'APP_NAME="FM Playlist"'
-            echo 'APP_ENV=production'
-            echo 'APP_DEBUG=false'
-            echo 'APP_URL=${{ secrets.APP_URL }}'
-            echo 'APP_KEY=${{ secrets.APP_KEY }}'
-            echo 'DB_CONNECTION=mysql'
-            echo 'DB_HOST=localhost'
-            echo 'DB_PORT=3306'
-            echo 'DB_DATABASE=${{ secrets.DB_DATABASE }}'
-            echo 'DB_USERNAME=${{ secrets.DB_USERNAME }}'
-            echo 'DB_PASSWORD=${{ secrets.DB_PASSWORD }}'
-            echo 'SESSION_DRIVER=database'
-            echo 'SESSION_LIFETIME=120'
-            echo 'SESSION_SECURE_COOKIE=true'
-            echo 'SESSION_SAME_SITE=lax'
-            echo 'QUEUE_CONNECTION=sync'
-            echo 'CACHE_STORE=database'
-            echo 'FILESYSTEM_DISK=public'
-            echo 'LOG_CHANNEL=stack'
-            echo 'LOG_LEVEL=error'
-            echo 'BROADCAST_CONNECTION=log'
-            echo 'MAIL_MAILER=log'
-            echo 'VITE_APP_NAME="FM Playlist"'
-          } > .env.production
-
       # Step 1: pull latest code, create dirs, enter maintenance mode
       - name: Pull code and prepare
         uses: appleboy/ssh-action@v1.2.5
@@ -121,7 +92,12 @@ jobs:
             mkdir -p storage/framework/cache storage/framework/sessions \
                      storage/framework/views storage/logs bootstrap/cache
             chmod -R 775 storage bootstrap/cache
-            php artisan down || true
+            if command -v php >/dev/null 2>&1; then PHP_BIN="php"
+            elif [ -f "/opt/alt/php85/usr/bin/php" ]; then PHP_BIN="/opt/alt/php85/usr/bin/php"
+            elif [ -f "/opt/alt/php84/usr/bin/php" ]; then PHP_BIN="/opt/alt/php84/usr/bin/php"
+            elif [ -f "/usr/local/bin/php" ]; then PHP_BIN="/usr/local/bin/php"
+            else echo "php not found" >&2; exit 1; fi
+            $PHP_BIN artisan down || true
 
       # Step 2: upload built frontend assets
       - name: Upload frontend assets
@@ -136,19 +112,8 @@ jobs:
           target: ${{ secrets.DEPLOY_PATH }}/public/
           strip_components: 1
 
-      # Step 3: upload production .env
-      - name: Upload .env
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
-          port: ${{ secrets.DEPLOY_PORT }}
-          source: ".env.production"
-          target: ${{ secrets.DEPLOY_PATH }}/
-
-      # Step 4: install deps, migrate, cache, bring up
+      # Step 3: install deps, migrate, cache, bring up
+      # .env lives on the server permanently — never overwritten by CI
       - name: Run Laravel artisan commands
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -160,11 +125,9 @@ jobs:
           script: |
             set -e
             cd "${{ secrets.DEPLOY_PATH }}"
-            mv .env.production .env
-            chmod 600 .env
             if command -v composer >/dev/null 2>&1; then COMPOSER_BIN="composer"
-            elif [ -f "/usr/local/bin/composer" ]; then COMPOSER_BIN="/usr/local/bin/composer"
             elif [ -f "$HOME/bin/composer" ]; then COMPOSER_BIN="$HOME/bin/composer"
+            elif [ -f "/usr/local/bin/composer" ]; then COMPOSER_BIN="/usr/local/bin/composer"
             else echo "composer not found" >&2; exit 1; fi
             $COMPOSER_BIN install --no-dev --optimize-autoloader --no-interaction --quiet
             if command -v php >/dev/null 2>&1; then PHP_BIN="php"
@@ -184,7 +147,7 @@ jobs:
             $PHP_BIN artisan up
             echo "Deploy complete: $(date)"
 
-      # Step 5: keep public_html in sync (document root locked on shared hosting)
+      # Step 4: keep public_html in sync (document root locked on shared hosting)
       - name: Sync public_html
         uses: appleboy/ssh-action@v1.2.5
         with:
