@@ -159,10 +159,14 @@ jobs:
           script: |
             DOCROOT="$HOME/public_html"
             APP="$HOME/fmplaylist"
+            # Proxy index.php
             echo '<?php require "/home/fmplyomq/fmplaylist/public/index.php";' > "$DOCROOT/index.php"
-            cp "$APP/public/.htaccess" "$DOCROOT/.htaccess"
+            # Copy all root-level static files (favicon, manifest, sw.js, robots.txt, etc.)
+            find "$APP/public" -maxdepth 1 -type f ! -name 'index.php' -exec cp {} "$DOCROOT/" \;
+            # Copy build assets
             rm -rf "$DOCROOT/build"
             cp -r "$APP/public/build" "$DOCROOT/build"
+            # Storage symlink for user-uploaded files
             if [ ! -L "$DOCROOT/storage" ]; then
               rm -rf "$DOCROOT/storage"
               ln -s "$APP/storage/app/public" "$DOCROOT/storage"
