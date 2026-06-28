@@ -23,6 +23,7 @@ import threading
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 
 SCRIPT_DIR  = os.path.dirname(os.path.realpath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, 'config.json')
@@ -243,7 +244,12 @@ def _process_pending_downloads(cfg: dict, heartbeat: dict) -> None:
         delay = 2
         for attempt in range(3):
             try:
-                req = urllib.request.Request(url)
+                # Percent-encode non-ASCII chars (e.g. en-dash in ElevenLabs filenames)
+                parts    = urllib.parse.urlsplit(url)
+                safe_url = urllib.parse.urlunsplit(
+                    parts._replace(path=urllib.parse.quote(parts.path, safe='/:@!$&\'()*+,;='))
+                )
+                req = urllib.request.Request(safe_url)
                 with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx(cfg)) as resp:
                     with open(dest, 'wb') as f:
                         f.write(resp.read())
