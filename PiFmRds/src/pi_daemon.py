@@ -314,7 +314,6 @@ def play_file(cfg: dict, filepath: str, title: str = '', artist: str = '', fade_
         print(f'[play] file not found: {filepath}')
         return
 
-    make_ctl_pipe()
     _freq_interrupt.clear()
 
     ffmpeg_args = [
@@ -335,18 +334,13 @@ def play_file(cfg: dict, filepath: str, title: str = '', artist: str = '', fade_
          '-pi',   cfg.get('pi_code', 'C0DE'),
          '-audio', '-',
          '-ps',   (rds_ps_override.ljust(8)[:8] if rds_ps_override else rds_ps(cfg)),
-         '-rt',   rds_rt(cfg, title, artist),
-         '-ctl',  CTL_PIPE],
+         '-rt',   rds_rt(cfg, title, artist)],
         stdin=ffmpeg.stdout,
     )
     _active_procs.append(rds)
 
     if ffmpeg.stdout:
         ffmpeg.stdout.close()
-
-    # Open the write end of the control pipe so pi_fm_rds unblocks from its
-    # O_RDONLY open (it waits for a writer before proceeding to read audio).
-    ctl_w = open(CTL_PIPE, 'w')
 
     # Background thread: fire one heartbeat mid-song to catch frequency changes
     poll_interval = int(cfg.get('poll_interval_seconds', 30))
@@ -367,7 +361,6 @@ def play_file(cfg: dict, filepath: str, title: str = '', artist: str = '', fade_
 
     rds.wait()
     ffmpeg.wait()
-    ctl_w.close()
     _active_procs.clear()
 
 
@@ -379,8 +372,6 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
     mode='usb_input'    — read from ALSA USB device
     mode='custom_stream'— read from any URL ffmpeg supports
     """
-    make_ctl_pipe()
-
     ps = rds_ps(cfg)
     rt = rds_rt(cfg, 'LIVE BROADCAST')
 
@@ -412,16 +403,13 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
          '-pi',   cfg.get('pi_code', 'C0DE'),
          '-audio', '-',
          '-ps',   ps,
-         '-rt',   rt,
-         '-ctl',  CTL_PIPE],
+         '-rt',   rt],
         stdin=ffmpeg.stdout,
     )
     _active_procs.append(rds_proc)
 
     if ffmpeg.stdout:
         ffmpeg.stdout.close()
-
-    ctl_w = open(CTL_PIPE, 'w')
 
     # Poll for mode changes every 30s; exit if admin switches back to normal
     def _watch():
@@ -443,7 +431,6 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
     rds_proc.terminate()
     ffmpeg.wait()
     rds_proc.wait()
-    ctl_w.close()
     _active_procs.clear()
     _stop_live.clear()
 
