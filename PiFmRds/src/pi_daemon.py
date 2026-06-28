@@ -39,10 +39,11 @@ SAMPLE_RATE    = 44100
 CHANNELS       = 2
 BITS           = 16
 BYTES_PER_SEC  = SAMPLE_RATE * CHANNELS * (BITS // 8)  # 176400 bytes/sec
-CHUNK_SIZE     = 8192   # bytes per read cycle
-CROSSFADE_SECS = 2.0    # overlap at song boundaries
-FADE_IN_SECS   = 0.5
-FADE_OUT_SECS  = 2.0
+CHUNK_SIZE                = 8192   # bytes per read cycle
+CROSSFADE_SECS            = 2.0    # overlap at song boundaries
+FADE_IN_SECS              = 0.5
+FADE_OUT_SECS             = 2.0
+PREFETCH_BEFORE_XFADE_SECS = 8.0   # pre-start next song's ffmpeg this far before crossfade
 
 LOCAL_CONFIG_KEYS = {
     'server_url':            'https://fmplaylist.com',
@@ -467,7 +468,19 @@ def _make_ffmpeg(filepath: str, fade_in: float = 0.0) -> subprocess.Popen:
     if af_parts:
         args += ['-af', ','.join(af_parts)]
     args += ['-f', 's16le', '-ar', str(SAMPLE_RATE), '-ac', str(CHANNELS), 'pipe:1']
-    return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def _child_priority():
+        try:
+            os.nice(-10)   # high priority — decode must keep pace with audio writes
+        except Exception:
+            pass
+
+    return subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        preexec_fn=_child_priority,
+    )
 
 
 def _cleanup_ffmpeg(proc: 'subprocess.Popen') -> None:
@@ -568,6 +581,40 @@ def write_audio_to_fm(
         f'{"(continuation)" if continuation else "(new)"}'
     )
 
+    # ── Prefetch: prepare next song in background during the body phase ───────
+    # Fires PREFETCH_BEFORE_XFADE_SECS before the crossfade so next song's
+    # ffmpeg is already running (and its first chunks buffered in the kernel pipe)
+    # by the time we need to mix.  No API calls happen on the audio thread.
+    _prefetch_ready  = threading.Event()
+    _prefetch_result: dict = {}   # keys: 'ffmpeg', 'song', 'name'
+
+    def _prefetch_worker() -> None:
+        if duration <= crossfade_secs + 2 or _freq_interrupt.is_set() or _skip_event.is_set():
+            _prefetch_ready.set()
+            return
+        q = api_get(cfg, '/api/pi/queue', _retries=1)
+        if not (q and q.get('next')):
+            _prefetch_ready.set()
+            return
+        nxt      = q['next']
+        nxt_path = os.path.join(cfg['song_dir'], nxt['song']['filename'])
+        if not os.path.exists(nxt_path):
+            print(f'[{_ts()}][prefetch] not on disk yet: {os.path.basename(nxt_path)}')
+            _prefetch_ready.set()
+            return
+        get_audio_duration(nxt_path)   # cache duration while there's time
+        ff = _make_ffmpeg(nxt_path, fade_in=0.0)
+        _active_procs.append(ff)
+        _prefetch_result['ffmpeg'] = ff
+        _prefetch_result['song']   = nxt
+        _prefetch_result['name']   = nxt['song'].get('title', os.path.basename(nxt_path))
+        print(f'[{_ts()}][prefetch] ready: "{_prefetch_result["name"]}"')
+        _prefetch_ready.set()
+
+    # Trigger threshold: 8s before crossfade.  For short songs this is 0 (fires immediately).
+    _prefetch_at      = max(0, body_bytes - int(PREFETCH_BEFORE_XFADE_SECS * BYTES_PER_SEC))
+    _prefetch_started = False
+
     # ── Phase 1: body ────────────────────────────────────────────────────────
     while bytes_written < body_bytes:
         if _freq_interrupt.is_set():
@@ -598,6 +645,13 @@ def write_audio_to_fm(
 
         bytes_written += len(chunk)
 
+        # Spawn prefetch thread when we're PREFETCH_BEFORE_XFADE_SECS from end
+        if not _prefetch_started and bytes_written >= _prefetch_at:
+            _prefetch_started = True
+            secs_left = max(0, (body_bytes - bytes_written) / BYTES_PER_SEC)
+            print(f'[{_ts()}][prefetch] triggered — {secs_left:.1f}s before xfade')
+            threading.Thread(target=_prefetch_worker, daemon=True).start()
+
         if time.time() - last_hb > poll_interval:
             threading.Thread(
                 target=send_heartbeat, args=(cfg, 'playing', 'normal'), daemon=True,
@@ -607,33 +661,23 @@ def write_audio_to_fm(
     print(f'[{_ts()}][play] body done ({bytes_written/BYTES_PER_SEC:.1f}s written) — entering crossfade')
 
     # ── Phase 2: crossfade ───────────────────────────────────────────────────
-    # Pre-fetch next song and cache its duration NOW (while we still have
-    # crossfade_secs of audio to fill) so the continuation call hits the cache.
-    next_ffmpeg:    subprocess.Popen | None = None
-    next_song_name: str = ''
+    # If prefetch didn't trigger during body (very short song), spawn it now.
+    if not _prefetch_started:
+        threading.Thread(target=_prefetch_worker, daemon=True).start()
 
-    if duration > crossfade_secs + 2 and not _freq_interrupt.is_set() and not _skip_event.is_set():
-        next_queue = api_get(cfg, '/api/pi/queue', _retries=1)
-        if next_queue:
-            # Downloads/deletes are handled by the background heartbeat thread.
-            # NEVER call _process_pending_downloads here — it can block for minutes
-            # while downloading a file, draining the DMA buffer and causing static.
-            nxt = next_queue.get('next')
-            if nxt:
-                nxt_path = os.path.join(cfg['song_dir'], nxt['song']['filename'])
-                if os.path.exists(nxt_path):
-                    get_audio_duration(nxt_path)          # pre-warm cache
-                    next_ffmpeg    = _make_ffmpeg(nxt_path, fade_in=0.0)
-                    next_song_name = nxt['song'].get('title', os.path.basename(nxt_path))
-                    _active_procs.append(next_ffmpeg)
-                    print(f'[{_ts()}][xfade] "{title}" → "{next_song_name}" ({crossfade_secs:.1f}s)')
-                else:
-                    print(f'[{_ts()}][xfade] next song not on disk: {nxt_path}')
-        else:
-            print(f'[{_ts()}][xfade] queue fetch failed — solo fade-out')
+    # Non-blocking check — prefetch had PREFETCH_BEFORE_XFADE_SECS to complete.
+    # We do NOT wait here; any pause on the audio thread drains the DMA buffer.
+    # If it's not ready yet (server was very slow), do a clean solo fade-out.
+    _prefetch_ready.wait(timeout=0.0)   # instant poll — set if already done
+    next_ffmpeg:    subprocess.Popen | None = _prefetch_result.get('ffmpeg')
+    next_song_name: str                     = _prefetch_result.get('name', '')
+
+    if next_ffmpeg:
+        print(f'[{_ts()}][xfade] "{title}" → "{next_song_name}" ({crossfade_secs:.1f}s)')
+    elif duration > crossfade_secs + 2:
+        print(f'[{_ts()}][xfade] prefetch not ready — solo fade-out')
     else:
-        reason = 'short song' if duration <= crossfade_secs + 2 else 'interrupted'
-        print(f'[{_ts()}][xfade] skipping crossfade ({reason})')
+        print(f'[{_ts()}][xfade] skipping crossfade (short song {duration:.1f}s)')
 
     xfade_written = 0
     while xfade_written < xfade_bytes:
@@ -675,6 +719,12 @@ def write_audio_to_fm(
 
     # Async cleanup — NEVER blocks the audio thread
     _cleanup_ffmpeg(ffmpeg_a)
+
+    # If the prefetch thread completed late (after the crossfade), its ffmpeg
+    # is now orphaned.  Clean it up so we don't leak processes.
+    late_ff = _prefetch_result.get('ffmpeg')
+    if late_ff and late_ff is not next_ffmpeg:
+        _cleanup_ffmpeg(late_ff)
 
     if next_ffmpeg and not _freq_interrupt.is_set() and not _skip_event.is_set():
         print(f'[{_ts()}][xfade] handing off to "{next_song_name}"')
@@ -761,6 +811,22 @@ def main() -> None:
     if not os.path.exists(BINARY_PATH):
         print(f'ERROR: pi_fm_rds binary not found. Run "make" in {SCRIPT_DIR}')
         sys.exit(1)
+
+    # Raise CPU + I/O priority so the audio pipe write loop is never pre-empted
+    # by background downloads, heartbeats, or other system activity.
+    try:
+        os.nice(-15)
+        print('[boot] CPU priority raised (nice=-15)')
+    except PermissionError:
+        print('[boot] WARNING: could not raise priority (run as root for best audio)')
+    try:
+        subprocess.run(
+            ['ionice', '-c', '1', '-n', '0', '-p', str(os.getpid())],
+            check=False, stderr=subprocess.DEVNULL, timeout=2,
+        )
+        print('[boot] I/O priority set to real-time class')
+    except Exception:
+        pass
 
     print(f'[boot] server={local["server_url"]} freq={local["freq"]}MHz')
     sync_library(local)
