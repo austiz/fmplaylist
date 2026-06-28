@@ -615,8 +615,9 @@ def write_audio_to_fm(
     if duration > crossfade_secs + 2 and not _freq_interrupt.is_set() and not _skip_event.is_set():
         next_queue = api_get(cfg, '/api/pi/queue', _retries=1)
         if next_queue:
-            _process_pending_downloads(cfg, next_queue)
-            _process_pending_deletes(cfg, next_queue)
+            # Downloads/deletes are handled by the background heartbeat thread.
+            # NEVER call _process_pending_downloads here — it can block for minutes
+            # while downloading a file, draining the DMA buffer and causing static.
             nxt = next_queue.get('next')
             if nxt:
                 nxt_path = os.path.join(cfg['song_dir'], nxt['song']['filename'])
@@ -807,7 +808,7 @@ def main() -> None:
             song     = _continued_song['song']
             filepath = os.path.join(local['song_dir'], song['filename'])
             print(f'[loop] continuing (crossfade): {song["title"]}')
-            send_heartbeat(cfg, 'playing', 'normal')
+            threading.Thread(target=send_heartbeat, args=(cfg, 'playing', 'normal'), daemon=True).start()
             api_post(cfg, '/api/pi/now-playing', {
                 'type':          'song',
                 'queue_item_id': _continued_song.get('queue_item_id'),
