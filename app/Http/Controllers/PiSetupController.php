@@ -41,103 +41,98 @@ class PiSetupController extends Controller
 
     public function setup(): Response
     {
-        $base = rtrim(config('app.url'), '/');
-        $dir  = '/home/pi/PiFmRds/src';
-        $svc  = '/etc/systemd/system/fmplaylist.service';
-
-        $files = implode(' ', self::ALLOWED);
-
-        $config = json_encode([
-            'server_url'            => $base,
-            'api_key'               => 'PASTE_YOUR_TOKEN_HERE',
-            'freq'                  => 96.9,
-            'pi_code'               => 'C0DE',
-            'callsign'              => '96.9 FM ',
-            'song_dir'              => $dir,
-            'fallback_song'         => 'FTPA.wav',
-            'poll_interval_seconds' => 30,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-        $service = implode("\n", [
-            '[Unit]',
-            'Description=FM Playlist Pi Daemon',
-            'After=network-online.target',
-            'Wants=network-online.target',
-            '',
-            '[Service]',
-            "WorkingDirectory={$dir}",
-            "ExecStart=/usr/bin/python3 {$dir}/pi_daemon.py",
-            'Restart=always',
-            'RestartSec=10',
-            'User=root',
-            '',
-            '[Install]',
-            'WantedBy=multi-user.target',
-        ]);
+        $base = rtrim((string) config('app.url'), '/');
 
         $script = <<<BASH
-#!/bin/bash
-# FM Playlist Pi Setup
-# Usage (with token): curl -fsSL {$base}/pi/setup.sh | sudo bash -s -- YOUR_TOKEN
-# Usage (manual):     curl -fsSL {$base}/pi/setup.sh | sudo bash
+#!/usr/bin/env bash
+# FM Playlist Pi Setup / Update
+# Usage: curl -fsSL {$base}/pi/setup.sh | sudo bash -s -- YOUR_TOKEN
 set -e
 
 TOKEN="\${1:-}"
-DIR="{$dir}"
+if [ -z "\$TOKEN" ]; then
+  echo "ERROR: pass your Pi token as an argument."
+  echo "  curl -fsSL {$base}/pi/setup.sh | sudo bash -s -- YOUR_TOKEN"
+  exit 1
+fi
 
-echo "=== FM Playlist Pi Setup ==="
+# Detect the real user who invoked sudo
+REAL_USER="\${SUDO_USER:-\$(logname 2>/dev/null || echo pi)}"
+HOME_DIR="/home/\$REAL_USER"
+DIR="\$HOME_DIR/PiFmRds/src"
+SVC="/etc/systemd/system/fmplaylist.service"
 
-apt-get update -q
-apt-get install -y -q python3 ffmpeg build-essential libsndfile1-dev
+echo "==> FM Playlist setup for user: \$REAL_USER  dir: \$DIR"
 
+# ── 1. Dependencies ───────────────────────────────────────────────────────────
+apt-get update -qq
+apt-get install -y -qq git ffmpeg build-essential python3 python3-requests libsndfile1-dev
+
+# ── 2. Clone or update source files ──────────────────────────────────────────
 mkdir -p "\$DIR"
-cd "\$DIR"
 
-echo "Downloading source files..."
-for f in {$files}; do
-    printf "  %s\\n" "\$f"
-    wget -q -O "\$f" "{$base}/pi/\$f"
-done
+if [ ! -d "\$HOME_DIR/PiFmRds/.git" ]; then
+  echo "==> First install — cloning source files..."
+  git clone --depth 1 https://github.com/austiz/fmplaylist.git /tmp/fmplaylist-setup
+  cp -r /tmp/fmplaylist-setup/PiFmRds/src/. "\$DIR/"
+  rm -rf /tmp/fmplaylist-setup
+else
+  echo "==> Updating daemon to latest..."
+  curl -fsSL "{$base}/pi/pi_daemon.py" -o "\$DIR/pi_daemon.py"
+fi
+chown -R "\$REAL_USER:\$REAL_USER" "\$HOME_DIR/PiFmRds"
 
-chmod +x run.sh
+# ── 3. Write / update config.json ────────────────────────────────────────────
+echo "==> Writing config.json..."
+cat > "\$DIR/config.json" << CONF
+{
+  "server_url": "{$base}",
+  "api_key": "\$TOKEN",
+  "freq": 96.9,
+  "pi_code": "C0DE",
+  "callsign": "96.9 FM ",
+  "song_dir": "\$DIR",
+  "fallback_song": "FTPA.wav",
+  "poll_interval_seconds": 5,
+  "verify_ssl": false
+}
+CONF
+chown "\$REAL_USER:\$REAL_USER" "\$DIR/config.json"
 
-echo "Building pi_fm_rds..."
-make
-
-if [ ! -f config.json ]; then
-    cat > config.json << 'CONFIG'
-{$config}
-CONFIG
+# ── 4. Compile (only if binary missing) ──────────────────────────────────────
+if [ ! -f "\$DIR/pi_fm_rds" ]; then
+  echo "==> Compiling pi_fm_rds..."
+  cd "\$DIR" && make
+else
+  echo "==> pi_fm_rds already compiled, skipping."
 fi
 
-if [ -n "\$TOKEN" ]; then
-    python3 -c "
-import json, sys
-with open('config.json') as f: c = json.load(f)
-c['api_key'] = sys.argv[1]
-with open('config.json', 'w') as f: json.dump(c, f, indent=2)
-print('api_key written to config.json')
-" "\$TOKEN"
-fi
+# ── 5. Systemd service ────────────────────────────────────────────────────────
+echo "==> Installing systemd service..."
+cat > "\$SVC" << SERVICE
+[Unit]
+Description=FM Playlist Daemon
+After=network-online.target
+Wants=network-online.target
 
-cat > {$svc} << 'SERVICE'
-{$service}
+[Service]
+ExecStart=/usr/bin/python3 -u \$DIR/pi_daemon.py
+WorkingDirectory=\$DIR
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
 SERVICE
 
 systemctl daemon-reload
 systemctl enable fmplaylist
+systemctl restart fmplaylist
 
 echo ""
-echo "=== Setup complete ==="
-echo ""
-if [ -z "\$TOKEN" ]; then
-    echo "Next: edit \$DIR/config.json and set api_key"
-    echo "  Get your token from {$base}/admin/tokens"
-    echo ""
-fi
-echo "Start the daemon:"
-echo "  sudo systemctl start fmplaylist"
-echo "  sudo systemctl status fmplaylist"
+echo "✓ Done! Daemon restarted."
+echo "  Logs: sudo journalctl -u fmplaylist -f"
 BASH;
 
         return response($script, 200, ['Content-Type' => 'text/plain; charset=utf-8']);
