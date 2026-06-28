@@ -828,6 +828,17 @@ def main() -> None:
     except Exception:
         pass
 
+    # Retry until config.json has a valid server_url — handles cases where the
+    # file gets overwritten with empty values between service restarts.
+    while not str(local.get('server_url', '')).startswith('http'):
+        print(f'[boot] ERROR: server_url missing in {CONFIG_PATH}')
+        print(f'[boot] Run: sudo tee {CONFIG_PATH} <<\'EOF\'')
+        print(f'[boot]   {{"server_url":"https://fmplaylist.com","api_key":"YOUR_TOKEN",...}}')
+        print('[boot] Retrying in 15s...')
+        time.sleep(15)
+        local  = load_local_config()
+        _local = local
+
     print(f'[boot] server={local["server_url"]} freq={local["freq"]}MHz')
     sync_library(local)
     send_heartbeat(local, 'idle', 'normal')
