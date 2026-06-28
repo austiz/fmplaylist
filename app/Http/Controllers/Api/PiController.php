@@ -19,9 +19,16 @@ class PiController extends Controller
 {
     public function __construct(private QueueService $queueService) {}
 
-    public function queue(): JsonResponse
+    public function queue(Request $request): JsonResponse
     {
-        return response()->json($this->queueService->getNextForPi());
+        $data = $this->queueService->getNextForPi();
+
+        $lookahead = min((int) $request->query('lookahead', 0), 5);
+        if ($lookahead > 1 && isset($data['next'])) {
+            $data['upcoming'] = $this->queueService->peekUpcoming($lookahead);
+        }
+
+        return response()->json($data);
     }
 
     public function nowPlaying(Request $request): JsonResponse
