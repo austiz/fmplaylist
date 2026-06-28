@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
 
-# Only one deploy runs at a time; a new push cancels the in-flight one
 concurrency:
   group: deploy-production
   cancel-in-progress: true
@@ -33,8 +32,7 @@ jobs:
 
       - run: npm ci
       - run: composer install --no-interaction --prefer-dist --optimize-autoloader
-      - run: cp .env.example .env
-      - run: php artisan key:generate
+      - run: cp .env.example .env && php artisan key:generate
       - run: npm run build
       - run: php artisan test
 
@@ -50,21 +48,20 @@ jobs:
         with:
           persist-credentials: false
 
-      # Guard: never deploy with a missing or root-level DEPLOY_PATH
       - name: Validate deploy secrets
         run: |
           if [ -z "${{ secrets.DEPLOY_PATH }}" ] || [ "${{ secrets.DEPLOY_PATH }}" = "/" ]; then
-            echo "DEPLOY_PATH is missing or invalid." >&2; exit 1
+            echo "DEPLOY_PATH is missing or invalid (cannot be /)." >&2; exit 1
           fi
 
-      # Wayfinder calls php artisan during npm run build — needs PHP + vendor on the runner
+      # PHP + composer needed so Wayfinder can run during npm run build
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.5'
           tools: composer:v2
           coverage: none
 
-      - name: Install Composer dependencies
+      - name: Install Composer dependencies (production)
         run: composer install --no-dev --optimize-autoloader --no-interaction --quiet
 
       - run: cp .env.example .env && php artisan key:generate
@@ -74,79 +71,133 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Install Node dependencies
-        run: npm ci
+      - run: npm ci
 
       - name: Build frontend assets
         run: npm run build
 
-      # Step 1: pull code, write .env, install deps, enter maintenance mode
-      - name: Pull code and prepare environment
+      # Write production .env in the runner (individual secrets — no heredoc YAML issues)
+      - name: Write production .env
+        run: |
+          {
+            echo 'APP_NAME="FM Playlist"'
+            echo 'APP_ENV=production'
+            echo 'APP_DEBUG=false'
+            echo 'APP_URL=${{ secrets.APP_URL }}'
+            echo 'APP_KEY=${{ secrets.APP_KEY }}'
+            echo 'DB_CONNECTION=mysql'
+            echo 'DB_HOST=localhost'
+            echo 'DB_PORT=3306'
+            echo 'DB_DATABASE=${{ secrets.DB_DATABASE }}'
+            echo 'DB_USERNAME=${{ secrets.DB_USERNAME }}'
+            echo 'DB_PASSWORD=${{ secrets.DB_PASSWORD }}'
+            echo 'SESSION_DRIVER=database'
+            echo 'SESSION_LIFETIME=120'
+            echo 'SESSION_SECURE_COOKIE=true'
+            echo 'SESSION_SAME_SITE=lax'
+            echo 'QUEUE_CONNECTION=sync'
+            echo 'CACHE_STORE=database'
+            echo 'FILESYSTEM_DISK=public'
+            echo 'LOG_CHANNEL=stack'
+            echo 'LOG_LEVEL=error'
+            echo 'BROADCAST_CONNECTION=log'
+            echo 'MAIL_MAILER=log'
+            echo 'VITE_APP_NAME="FM Playlist"'
+          } > .env.production
+
+      # Verify SSH connection before doing any real work
+      - name: Test SSH connection
         uses: appleboy/ssh-action@v1.2.5
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          passphrase: ${{ secrets.SSH_PASSPHRASE }}
-          port: 21098
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: echo "SSH connection OK on $(hostname)"
+
+      # Ensure remote app directory exists
+      - name: Ensure remote directories exist
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
           script: |
-            set -e
-            PHP="$(command -v /usr/local/bin/php php 2>/dev/null | head -1)"
-            cd "${{ secrets.DEPLOY_PATH }}"
-            git pull origin main --ff-only
+            mkdir -p "${{ secrets.DEPLOY_PATH }}"
+            mkdir -p "${{ secrets.DEPLOY_PATH }}/storage/framework/cache"
+            mkdir -p "${{ secrets.DEPLOY_PATH }}/storage/framework/sessions"
+            mkdir -p "${{ secrets.DEPLOY_PATH }}/storage/framework/views"
+            mkdir -p "${{ secrets.DEPLOY_PATH }}/storage/logs"
+            mkdir -p "${{ secrets.DEPLOY_PATH }}/bootstrap/cache"
+            echo "Directories ready."
 
-            # Write production .env (always — keeps it in sync with the secret)
-            cat > .env << 'ENVEOF'
-            ${{ secrets.PRODUCTION_ENV }}
-            ENVEOF
-            chmod 600 .env
+      # Deploy app via rsync — excludes .env, storage, and node_modules
+      - name: Deploy app files
+        uses: burnett01/rsync-deployments@5.2
+        with:
+          switches: >-
+            -azr --delete
+            --exclude='.git'
+            --exclude='.github'
+            --exclude='node_modules'
+            --exclude='.env'
+            --exclude='.env.production'
+            --exclude='storage/'
+          path: ./
+          remote_path: ${{ secrets.DEPLOY_PATH }}/
+          remote_host: ${{ secrets.DEPLOY_HOST }}
+          remote_user: ${{ secrets.DEPLOY_USER }}
+          remote_key: ${{ secrets.DEPLOY_KEY }}
+          remote_port: ${{ secrets.DEPLOY_PORT }}
 
-            # Ensure writable dirs exist
-            mkdir -p storage/framework/cache storage/framework/sessions \
-                     storage/framework/views storage/logs bootstrap/cache
-            chmod -R 775 storage bootstrap/cache
-
-            /usr/local/bin/composer install \
-              --no-dev \
-              --optimize-autoloader \
-              --no-interaction \
-              --quiet
-
-            $PHP artisan down || true
-
-      # Step 2: upload the built assets that git doesn't track
-      - name: Upload built frontend assets
+      # Upload production .env (written in runner — no YAML/heredoc quoting issues)
+      - name: Upload .env to server
         uses: appleboy/scp-action@v1.0.0
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          passphrase: ${{ secrets.SSH_PASSPHRASE }}
-          port: 21098
-          source: "public/build/"
-          target: ${{ secrets.DEPLOY_PATH }}/public/
-          strip_components: 1
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          source: ".env.production"
+          target: ${{ secrets.DEPLOY_PATH }}/
 
-      # Step 3: migrate, cache, link storage, bring site back up
-      - name: Migrate, cache, and bring up
+      # Harden permissions
+      - name: Harden permissions
         uses: appleboy/ssh-action@v1.2.5
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          passphrase: ${{ secrets.SSH_PASSPHRASE }}
-          port: 21098
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
           script: |
-            set -e
-            PHP="$(command -v /usr/local/bin/php php 2>/dev/null | head -1)"
+            APP_DIR="${{ secrets.DEPLOY_PATH }}"
+            chmod -R 775 "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
+            mv "$APP_DIR/.env.production" "$APP_DIR/.env"
+            chmod 600 "$APP_DIR/.env"
+
+      # Run Laravel artisan commands
+      - name: Run Laravel artisan commands
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
             cd "${{ secrets.DEPLOY_PATH }}"
-            $PHP artisan migrate --force
-            $PHP artisan optimize:clear
-            $PHP artisan config:cache
-            $PHP artisan route:cache
-            $PHP artisan view:cache
-            $PHP artisan event:cache
-            $PHP artisan storage:link || true
-            $PHP artisan optimize
-            $PHP artisan up
+            if command -v php >/dev/null 2>&1; then PHP_BIN="php"; else PHP_BIN="/usr/local/bin/php"; fi
+            echo "PHP: $($PHP_BIN -v | head -n1)"
+            $PHP_BIN artisan down || true
+            /usr/local/bin/composer install \
+              --no-dev --optimize-autoloader --no-interaction --quiet
+            $PHP_BIN artisan migrate --force
+            $PHP_BIN artisan optimize:clear
+            $PHP_BIN artisan config:cache
+            $PHP_BIN artisan route:cache
+            $PHP_BIN artisan view:cache
+            $PHP_BIN artisan event:cache
+            $PHP_BIN artisan storage:link || true
+            $PHP_BIN artisan optimize
+            $PHP_BIN artisan up
             echo "Deploy complete: $(date)"
