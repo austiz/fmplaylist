@@ -162,8 +162,11 @@ jobs:
             cd "${{ secrets.DEPLOY_PATH }}"
             mv .env.production .env
             chmod 600 .env
-            /usr/local/bin/composer install \
-              --no-dev --optimize-autoloader --no-interaction --quiet
+            if command -v composer >/dev/null 2>&1; then COMPOSER_BIN="composer"
+            elif [ -f "/usr/local/bin/composer" ]; then COMPOSER_BIN="/usr/local/bin/composer"
+            elif [ -f "$HOME/bin/composer" ]; then COMPOSER_BIN="$HOME/bin/composer"
+            else echo "composer not found" >&2; exit 1; fi
+            $COMPOSER_BIN install --no-dev --optimize-autoloader --no-interaction --quiet
             if command -v php >/dev/null 2>&1; then PHP_BIN="php"; else PHP_BIN="/usr/local/bin/php"; fi
             echo "PHP: $($PHP_BIN -v | head -n1)"
             $PHP_BIN artisan migrate --force
