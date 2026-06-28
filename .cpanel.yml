@@ -1,0 +1,16 @@
+---
+# cPanel Git Version Control — post-deploy tasks
+# Triggered by: cPanel → Git Version Control → Deploy HEAD Commit
+#
+# Note: public/build/ is gitignored and NOT built here (no Node.js on shared hosting).
+# Built assets are uploaded by GitHub Actions (see .github/workflows/deploy.yml).
+# Use this file for manual redeploys from the cPanel UI when Actions isn't available.
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/$USER/fmplaylist
+    - /bin/bash -c "cd $DEPLOYPATH && /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --quiet"
+    - /bin/bash -c "cd $DEPLOYPATH && php artisan migrate --force"
+    - /bin/bash -c "cd $DEPLOYPATH && php artisan config:cache"
+    - /bin/bash -c "cd $DEPLOYPATH && php artisan route:cache"
+    - /bin/bash -c "cd $DEPLOYPATH && php artisan view:cache"
+    - /bin/bash -c "cd $DEPLOYPATH && php artisan event:cache"

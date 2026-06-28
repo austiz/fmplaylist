@@ -1,0 +1,111 @@
+name: Deploy to Namecheap
+
+on:
+  push:
+    branches: [main]
+
+# Only one deploy runs at a time; a new push cancels the in-flight one
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Test ────────────────────────────────────────────────────────────────
+  test:
+    name: Test (PHP 8.3)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: composer install --no-interaction --prefer-dist --optimize-autoloader
+      - run: cp .env.example .env
+      - run: php artisan key:generate
+      - run: npm run build
+      - run: php artisan test
+
+  # ── 2. Deploy ──────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Build frontend assets (public/build/ is gitignored; must be built here)
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npm run build
+
+      # Step 1: pull latest code + install PHP dependencies on the server
+      - name: Pull code and install Composer dependencies
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 21098
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            git pull origin main --ff-only
+            /usr/local/bin/composer install \
+              --no-dev \
+              --optimize-autoloader \
+              --no-interaction \
+              --quiet
+
+      # Step 2: upload the built assets that git doesn't track
+      - name: Upload built frontend assets
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -az --delete
+          path: public/build/
+          remote_path: ${{ secrets.DEPLOY_PATH }}/public/build/
+          remote_host: ${{ secrets.SSH_HOST }}
+          remote_port: 21098
+          remote_user: ${{ secrets.SSH_USERNAME }}
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Step 3: run migrations and rebuild caches
+      - name: Migrate and cache
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 21098
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            php artisan migrate --force
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+            php artisan event:cache
+            echo "Deploy complete: $(date)"
