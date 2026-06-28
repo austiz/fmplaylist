@@ -201,3 +201,30 @@ jobs:
             $PHP_BIN artisan optimize
             $PHP_BIN artisan up
             echo "Deploy complete: $(date)"
+
+      # Keep public_html in sync (document root is locked to public_html on shared hosting)
+      - name: Sync public_html
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            DOCROOT="$HOME/public_html"
+            APP="$HOME/fmplaylist"
+            # Proxy index.php — routes all PHP requests into the Laravel app
+            echo '<?php require "/home/fmplyomq/fmplaylist/public/index.php";' > "$DOCROOT/index.php"
+            # Keep .htaccess up to date (HTTPS redirect, security headers)
+            cp "$APP/public/.htaccess" "$DOCROOT/.htaccess"
+            # Symlink build assets so Vite hashed files are served from public_html
+            if [ ! -L "$DOCROOT/build" ]; then
+              rm -rf "$DOCROOT/build"
+              ln -s "$APP/public/build" "$DOCROOT/build"
+            fi
+            # Symlink storage for user-uploaded files
+            if [ ! -L "$DOCROOT/storage" ]; then
+              rm -rf "$DOCROOT/storage"
+              ln -s "$APP/storage/app/public" "$DOCROOT/storage"
+            fi
+            echo "public_html synced."
