@@ -13,6 +13,32 @@ use Illuminate\Support\Facades\DB;
 
 class QueueService
 {
+    /**
+     * Read-only peek at the next $limit pending songs — no state changes.
+     * Used by the Pi to pre-decode upcoming songs before they're needed.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function peekUpcoming(int $limit = 3): array
+    {
+        return QueueItem::with('song')
+            ->pending()
+            ->skip(1)           // skip 'next' (already returned by getNextForPi)
+            ->take($limit)
+            ->get()
+            ->map(fn (QueueItem $item) => [
+                'queue_item_id' => $item->id,
+                'song' => [
+                    'id'               => $item->song->id,
+                    'title'            => $item->song->title,
+                    'artist'           => $item->song->artist,
+                    'filename'         => $item->song->filename,
+                    'duration_seconds' => $item->song->duration_seconds,
+                ],
+            ])
+            ->all();
+    }
+
     /** @return array<string, mixed> */
     public function getNextForPi(): array
     {
