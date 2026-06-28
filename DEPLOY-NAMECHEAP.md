@@ -9,7 +9,7 @@ CI/CD via GitHub Actions: tests run on every push; if they pass, the app is depl
 - **Namecheap plan** — Stellar, Stellar Plus, or Stellar Business (all include SSH)
 - **Domain** already pointed at Namecheap nameservers
 - **GitHub repo** for the project (public or private)
-- PHP 8.3 or newer — selected in cPanel
+- PHP 8.4 or newer — selected in cPanel (8.3 is not supported — composer.lock requires 8.4+)
 
 ---
 
@@ -29,7 +29,7 @@ Your home directory is `/home/yourusername/`. The default web root is `public_ht
 
 ### 2 — Set PHP 8.3
 
-In **cPanel → Software → MultiPHP Manager**, set PHP 8.3 (or 8.4) for your domain's directory.
+In **cPanel → Software → MultiPHP Manager**, set PHP **8.4** for your domain's directory.
 
 Confirm in SSH:
 
