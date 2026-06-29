@@ -41,6 +41,7 @@ SCRIPT_DIR  = os.path.dirname(os.path.realpath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, 'config.json')
 BINARY_PATH = os.path.join(SCRIPT_DIR, 'pi_fm_rds')
 RTMP_PORT   = 1935
+FM_CTL_FIFO = '/tmp/fm_ctl'   # named pipe for live RDS updates (pi_fm_rds -ctl)
 
 SAMPLE_RATE    = 44100
 CHANNELS       = 2
@@ -506,6 +507,25 @@ def _write_streaming_wav_header(pipe) -> None:
     pipe.flush()
 
 
+def _update_rds(ps: str, rt: str) -> None:
+    """Push a live PS/RT update to pi_fm_rds via its control FIFO.
+
+    Uses O_NONBLOCK so the audio thread never blocks waiting for a reader.
+    Silently drops the update if the FIFO isn't ready (FM not running yet) —
+    the startup -ps/-rt args already set the correct initial text.
+    """
+    if not os.path.exists(FM_CTL_FIFO):
+        return
+    try:
+        fd = os.open(FM_CTL_FIFO, os.O_WRONLY | os.O_NONBLOCK)
+        with os.fdopen(fd, 'w') as f:
+            f.write(f'ps {ps[:8].ljust(8)}\n')
+            f.write(f'rt {rt[:64]}\n')
+        print(f'[{_ts()}][rds] ps="{ps.strip()}"  rt="{rt[:50]}"')
+    except OSError:
+        pass   # no reader yet or FM not running — startup args cover this case
+
+
 def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
     global _fm_proc
     if _fm_proc is not None and _fm_proc.poll() is None:
@@ -513,6 +533,14 @@ def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
     _ps = ps or rds_ps(cfg)
     _rt = rt or rds_rt(cfg)
     print(f'[{_ts()}][FM] starting at {cfg["freq"]} MHz  ps="{_ps.strip()}"')
+
+    # Named pipe for live RDS updates without restarting pi_fm_rds
+    if not os.path.exists(FM_CTL_FIFO):
+        try:
+            os.mkfifo(FM_CTL_FIFO)
+        except OSError:
+            pass
+
     try:
         _fm_proc = subprocess.Popen(
             _PI_CMD + [
@@ -521,6 +549,7 @@ def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
                 '-audio', '-',
                 '-ps',   _ps,
                 '-rt',   _rt,
+                '-ctl',  FM_CTL_FIFO,
             ],
             stdin=subprocess.PIPE,
         )
@@ -715,12 +744,17 @@ def _audio_write_loop(cfg: dict, local: dict) -> None:
     start_offset = 0   # bytes into current.pcm already played (from crossfade head)
 
     while not _stop_event.is_set() and not _freq_interrupt.is_set():
-        if not _ensure_fm_running(cfg,
-                                  ps=rds_ps(cfg),
-                                  rt=rds_rt(cfg, current.title, current.artist)):
+        _ps = rds_ps(cfg)
+        _rt = rds_rt(cfg, current.title, current.artist)
+
+        if not _ensure_fm_running(cfg, ps=_ps, rt=_rt):
             print(f'[{_ts()}][audio] FM failed to start — retrying in 5s')
             time.sleep(5)
             continue
+
+        # Push current song's RDS via control FIFO — covers the common case
+        # where FM was already running and _ensure_fm_running returned early
+        _update_rds(_ps, _rt)
 
         xfade_bytes = int(CROSSFADE_SECS * BYTES_PER_SEC)
         if current.duration_s < CROSSFADE_SECS + 1.0:
@@ -873,6 +907,10 @@ def _scheduler_loop(local: dict) -> None:
             send_heartbeat(cfg, 'playing', 'normal')
             last_hb = time.time()
             local   = load_local_config()   # pick up freq changes saved by heartbeat
+            # In custom RDS mode push admin-set text immediately after heartbeat
+            # (auto mode is driven per-song by the audio thread)
+            if _remote_cfg.get('rds_rt_mode') == 'custom':
+                _update_rds(rds_ps(cfg), rds_rt(cfg))
 
         # ── Library sync every hour ───────────────────────────────────────────
         if time.time() - last_sync > 3600:
