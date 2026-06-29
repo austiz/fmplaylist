@@ -42,6 +42,8 @@ class QueueService
     /** @return array<string, mixed> */
     public function getNextForPi(): array
     {
+        $this->autoFillQueue();
+
         // ── Commercial scheduling ─────────────────────────────────────────
         $commercial = null;
         $forcedCommercialId = (int) Setting::get('force_commercial_id', 0);
@@ -139,6 +141,42 @@ class QueueService
             Cache::put('sse.now_playing', $npPayload, 3600);
             $this->bumpQueueVersion();
         });
+    }
+
+    private function autoFillQueue(int $target = 10): void
+    {
+        $pendingCount = QueueItem::where('status', 'pending')->count();
+        $needed = $target - $pendingCount;
+
+        if ($needed <= 0) {
+            return;
+        }
+
+        // Exclude songs already pending or currently playing
+        $excludeIds = QueueItem::whereIn('status', ['pending', 'playing'])->pluck('song_id');
+
+        $songs = Song::available()
+            ->whereNotIn('id', $excludeIds)
+            ->orderByRaw('(SELECT MAX(played_at) FROM queue_items WHERE queue_items.song_id = songs.id AND queue_items.status = "played") ASC')
+            ->take($needed)
+            ->get();
+
+        if ($songs->isEmpty()) {
+            return;
+        }
+
+        $maxPos = QueueItem::where('status', 'pending')->max('position') ?? 0;
+
+        foreach ($songs as $song) {
+            QueueItem::create([
+                'song_id'           => $song->id,
+                'requested_by_name' => null,
+                'position'          => ++$maxPos,
+                'status'            => 'pending',
+            ]);
+        }
+
+        $this->bumpQueueVersion();
     }
 
     private function onSongPlayed(?int $queueItemId): void
