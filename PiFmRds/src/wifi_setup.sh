@@ -41,6 +41,33 @@ echo "[wifi] reading config from $CONF"
 SSID=""
 PASSWORD=""
 COUNTRY="US"
+
+eval "$(python3 - "$CONF" <<'PY'
+import pathlib
+import shlex
+import sys
+
+path = pathlib.Path(sys.argv[1])
+values = {}
+
+for raw in path.read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+
+    key, value = line.split("=", 1)
+    key = key.strip()
+    value = value.strip()
+
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1]
+
+    values[key] = value
+
+for key in ("SSID", "PASSWORD", "COUNTRY"):
+    print(f"{key}={shlex.quote(values.get(key, ''))}")
+PY
+)"
 # shellcheck disable=SC1090
 source "$CONF"
 
