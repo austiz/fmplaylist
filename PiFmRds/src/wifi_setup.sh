@@ -38,13 +38,14 @@ fi
 echo "[wifi] reading config from $CONF"
 
 # Source the config — expects SSID, PASSWORD, COUNTRY
+# Read config without relying on shell parsing
 SSID=""
 PASSWORD=""
 COUNTRY="US"
 
 eval "$(python3 - "$CONF" <<'PY'
+import json
 import pathlib
-import shlex
 import sys
 
 path = pathlib.Path(sys.argv[1])
@@ -65,7 +66,7 @@ for raw in path.read_text(encoding="utf-8").splitlines():
     values[key] = value
 
 for key in ("SSID", "PASSWORD", "COUNTRY"):
-    print(f"{key}={shlex.quote(values.get(key, ''))}")
+    print(f"{key}={json.dumps(values.get(key, ''))}")
 PY
 )"
 # shellcheck disable=SC1090
