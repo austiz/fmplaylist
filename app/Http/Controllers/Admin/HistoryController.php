@@ -29,8 +29,8 @@ class HistoryController extends Controller
                 'created_at' => $item->created_at->toDateTimeString(),
                 'played_at' => $item->played_at?->toDateTimeString(),
                 'song' => [
-                    'title' => $item->song->title,
-                    'artist' => $item->song->artist,
+                    'title' => $item->song?->title ?? '(deleted)',
+                    'artist' => $item->song?->artist ?? '',
                 ],
             ]);
 

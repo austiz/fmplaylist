@@ -20,13 +20,13 @@ class QueueController extends Controller
             'position' => $item->position,
             'requested_by_name' => $item->requested_by_name,
             'song' => [
-                'title' => $item->song->title,
-                'artist' => $item->song->artist,
-                'duration_seconds' => $item->song->duration_seconds,
+                'title' => $item->song?->title ?? '(deleted)',
+                'artist' => $item->song?->artist ?? '',
+                'duration_seconds' => $item->song?->duration_seconds,
             ],
         ]);
 
-        $waitSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song->duration_seconds ?? 0);
+        $waitSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song?->duration_seconds ?? 0);
 
         return Inertia::render('queue', [
             'nowPlaying' => $nowPlaying ? [
