@@ -1,153 +1,156 @@
 #!/usr/bin/env bash
+# wifi_setup.sh — Connect Pi to a WiFi network with automatic rollback
+# Called by pi_daemon.py when admin requests a WiFi change via the web UI.
 #
-# wifi_setup.sh — Apply wifi.conf to the Pi's WiFi configuration
+# Usage: sudo bash wifi_setup.sh "SSID" "PASSWORD"
+#        sudo bash wifi_setup.sh "OpenNet" ""   # open / no password
 #
-# Reads wifi.conf from the boot partition (editable from Windows) and connects
-# the Pi to the configured network. Supports both:
-#   - Raspberry Pi OS Bullseye and earlier (wpa_supplicant)
-#   - Raspberry Pi OS Bookworm and later (NetworkManager / nmcli)
-#
-# Usage:
-#   sudo bash wifi_setup.sh
-#
-# To run automatically on boot, add to /etc/rc.local before "exit 0":
-#   bash /home/pi/PiFmRds/src/wifi_setup.sh
+# Exit codes:
+#   0 = connected successfully
+#   1 = failed; previous network restored
 
-set -euo pipefail
+set -eo pipefail
 
-# ── Locate wifi.conf ───────────────────────────────────────────────────────────
-# Check the FAT boot partition first (visible from Windows), then fall back to
-# a copy next to this script.
-CONF=""
-for candidate in \
-    /boot/firmware/wifi.conf \
-    /boot/wifi.conf \
-    "$(dirname "$(readlink -f "$0")")/../wifi.conf"; do
-  if [[ -f "$candidate" ]]; then
-    CONF="$candidate"
-    break
-  fi
-done
+SSID="${1:-}"
+PASSWORD="${2:-}"
+IFACE="${3:-wlan0}"
+TEST_HOST="8.8.8.8"
+CONNECT_TIMEOUT=35  # seconds to wait for IP + internet
 
-if [[ -z "$CONF" ]]; then
-  echo "ERROR: wifi.conf not found."
-  echo "  Copy PiFmRds/wifi.conf to the SD card boot partition and edit it."
-  exit 1
+if [ -z "$SSID" ]; then
+    echo "[wifi] ERROR: SSID required" >&2
+    echo "  Usage: sudo bash wifi_setup.sh \"SSID\" \"PASSWORD\"" >&2
+    exit 1
 fi
 
-echo "[wifi] reading config from $CONF"
+echo "[wifi] Connecting to: \"$SSID\""
 
-# Source the config — expects SSID, PASSWORD, COUNTRY
-# Read config without relying on shell parsing
-SSID=""
-PASSWORD=""
-COUNTRY="US"
-
-eval "$(python3 - "$CONF" <<'PY'
-import json
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-values = {}
-
-for raw in path.read_text(encoding="utf-8").splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-
-    key, value = line.split("=", 1)
-    key = key.strip()
-    value = value.strip()
-
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-        value = value[1:-1]
-
-    values[key] = value
-
-for key in ("SSID", "PASSWORD", "COUNTRY"):
-    print(f"{key}={json.dumps(values.get(key, ''))}")
-PY
-)"
-# shellcheck disable=SC1090
-source "$CONF"
-
-if [[ -z "$SSID" || -z "$PASSWORD" ]]; then
-  echo "ERROR: SSID and PASSWORD must both be set in wifi.conf"
-  exit 1
-fi
-
-echo "[wifi] SSID=$SSID  COUNTRY=$COUNTRY"
-
-# ── Apply config ───────────────────────────────────────────────────────────────
+# ── Detect network manager ─────────────────────────────────────────────────────
+USE_NM=false
 if command -v nmcli &>/dev/null && systemctl is-active --quiet NetworkManager 2>/dev/null; then
-  # ── Bookworm / NetworkManager path ─────────────────────────────────────────
-  echo "[wifi] detected NetworkManager"
-
-  # Set country code
-  raspi-config nonint do_wifi_country "$COUNTRY" 2>/dev/null || true
-
-  # Remove any existing saved connection with the same name to avoid duplicates
-  nmcli connection delete "hotspot-pi" &>/dev/null || true
-
-  # Add the new WiFi connection
-  nmcli connection add \
-    type wifi \
-    ifname wlan0 \
-    con-name "hotspot-pi" \
-    ssid "$SSID" \
-    -- \
-    wifi-sec.key-mgmt wpa-psk \
-    wifi-sec.psk "$PASSWORD" \
-    connection.autoconnect yes \
-    connection.autoconnect-priority 10
-
-  echo "[wifi] connecting..."
-  nmcli connection up "hotspot-pi" && echo "[wifi] connected!" || echo "[wifi] will connect when hotspot is in range"
-
-else
-  # ── Bullseye / wpa_supplicant path ─────────────────────────────────────────
-  echo "[wifi] detected wpa_supplicant"
-
-  WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
-
-  # Set country and ensure config file exists
-  raspi-config nonint do_wifi_country "$COUNTRY" 2>/dev/null || true
-
-  # Generate the network block (wpa_passphrase hashes the password securely)
-  NETWORK_BLOCK=$(wpa_passphrase "$SSID" "$PASSWORD")
-
-  # If this SSID is already in the file, replace its block; otherwise append.
-  if grep -qF "ssid=\"$SSID\"" "$WPA_CONF" 2>/dev/null; then
-    echo "[wifi] updating existing entry for $SSID"
-    # Remove old block for this SSID (simple sed approach)
-    python3 - "$WPA_CONF" "$SSID" <<'PYEOF'
-import sys, re
-path, ssid = sys.argv[1], sys.argv[2]
-with open(path) as f:
-    text = f.read()
-# Remove any network{} block containing this ssid
-pattern = r'network\s*\{[^}]*ssid="' + re.escape(ssid) + r'"[^}]*\}'
-text = re.sub(pattern, '', text, flags=re.DOTALL)
-with open(path, 'w') as f:
-    f.write(text.strip() + '\n')
-PYEOF
-  fi
-
-  # Append the new network block
-  echo "" >> "$WPA_CONF"
-  echo "$NETWORK_BLOCK" >> "$WPA_CONF"
-  echo "[wifi] network block added to $WPA_CONF"
-
-  # Reload wpa_supplicant and reconnect
-  wpa_cli -i wlan0 reconfigure &>/dev/null || true
-  sleep 3
-
-  if wpa_cli -i wlan0 status | grep -q "wpa_state=COMPLETED"; then
-    echo "[wifi] connected!"
-  else
-    echo "[wifi] will connect when hotspot is in range"
-  fi
+    USE_NM=true
 fi
 
-echo "[wifi] done. Run 'ip addr show wlan0' to check your IP address."
+# ── Wait for IP + internet ─────────────────────────────────────────────────────
+wait_for_internet() {
+    for i in $(seq 1 "$CONNECT_TIMEOUT"); do
+        local ip
+        ip=$(ip -4 addr show "$IFACE" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+        if [ -n "$ip" ] && ping -c 2 -W 3 "$TEST_HOST" >/dev/null 2>&1; then
+            echo "[wifi] ✓ Connected (IP: $ip)"
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NetworkManager path (Raspberry Pi OS Bookworm+)
+# ══════════════════════════════════════════════════════════════════════════════
+if $USE_NM; then
+    echo "[wifi] using NetworkManager"
+
+    # Save current active connection for rollback
+    PREV_CON=$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null \
+        | grep ":$IFACE" | head -1 | cut -d: -f1 || true)
+    echo "[wifi] current connection: ${PREV_CON:-none}"
+
+    # Remove any previous fmplaylist-managed connection
+    nmcli connection delete "fmplaylist-wifi" &>/dev/null || true
+
+    # Add the new connection
+    if [ -n "$PASSWORD" ]; then
+        nmcli connection add \
+            type wifi ifname "$IFACE" con-name "fmplaylist-wifi" ssid "$SSID" \
+            -- wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$PASSWORD" \
+            connection.autoconnect yes connection.autoconnect-priority 20
+    else
+        nmcli connection add \
+            type wifi ifname "$IFACE" con-name "fmplaylist-wifi" ssid "$SSID" \
+            -- wifi-sec.key-mgmt none \
+            connection.autoconnect yes connection.autoconnect-priority 20
+    fi
+
+    echo "[wifi] activating..."
+    nmcli connection up "fmplaylist-wifi" &>/dev/null || true
+    sleep 5
+
+    if wait_for_internet; then
+        echo "[wifi] ✓ Connected to \"$SSID\""
+        exit 0
+    fi
+
+    # ── Rollback ───────────────────────────────────────────────────────────────
+    echo "[wifi] ✗ Failed — rolling back to \"${PREV_CON:-previous}\""
+    nmcli connection delete "fmplaylist-wifi" &>/dev/null || true
+    if [ -n "$PREV_CON" ]; then
+        nmcli connection up "$PREV_CON" &>/dev/null || true
+        sleep 5
+    fi
+    exit 1
+
+# ══════════════════════════════════════════════════════════════════════════════
+# wpa_supplicant path (Raspberry Pi OS Bullseye and earlier)
+# ══════════════════════════════════════════════════════════════════════════════
+else
+    echo "[wifi] using wpa_supplicant"
+    WPA_CONF="/etc/wpa_supplicant/wpa_supplicant.conf"
+    BACKUP="/tmp/wpa_backup_$(date +%s).conf"
+    cp "$WPA_CONF" "$BACKUP"
+
+    rollback() {
+        echo "[wifi] rolling back wpa_supplicant config..."
+        cp "$BACKUP" "$WPA_CONF"
+        wpa_cli -i "$IFACE" reconfigure >/dev/null 2>&1 || true
+        sleep 8
+        rm -f "$BACKUP"
+        echo "[wifi] rollback complete"
+    }
+
+    # Write new network block using Python so quoting is always safe
+    python3 - "$WPA_CONF" "$SSID" "$PASSWORD" <<'PYEOF'
+import sys, re, subprocess
+
+conf_path = sys.argv[1]
+ssid      = sys.argv[2]
+password  = sys.argv[3]
+
+with open(conf_path) as f:
+    content = f.read()
+
+# Remove any existing block for this exact SSID to avoid duplicates
+pattern = r'\nnetwork\s*=\s*\{[^}]*ssid\s*=\s*"' + re.escape(ssid) + r'"[^}]*\}'
+content = re.sub(pattern, '', content, flags=re.DOTALL)
+
+if password:
+    r = subprocess.run(['wpa_passphrase', ssid, password], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"[wifi] ERROR: wpa_passphrase failed: {r.stderr.strip()}", file=sys.stderr)
+        sys.exit(1)
+    # Strip comment lines that contain the plain-text password, then add priority
+    lines = [l for l in r.stdout.splitlines() if not l.strip().startswith('#')]
+    lines.insert(-1, '\tpriority=20')
+    new_block = '\n' + '\n'.join(lines) + '\n'
+else:
+    new_block = f'\nnetwork={{\n\tssid="{ssid}"\n\tkey_mgmt=NONE\n\tpriority=20\n}}\n'
+
+with open(conf_path, 'w') as f:
+    f.write(content.rstrip() + new_block)
+
+print(f'[wifi] network block written for: {ssid}')
+PYEOF
+
+    wpa_cli -i "$IFACE" reconfigure >/dev/null 2>&1 || true
+    echo "[wifi] reconfiguring — waiting up to ${CONNECT_TIMEOUT}s..."
+
+    if wait_for_internet; then
+        echo "[wifi] ✓ Connected to \"$SSID\""
+        rm -f "$BACKUP"
+        exit 0
+    fi
+
+    echo "[wifi] ✗ Failed after ${CONNECT_TIMEOUT}s — rolling back"
+    rollback
+    exit 1
+fi

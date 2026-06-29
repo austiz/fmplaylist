@@ -90,6 +90,10 @@ _recently_pushed: collections.deque = collections.deque(maxlen=30)
 # Pre-decoded fallback PCM — loaded at boot, available instantly to audio thread
 _fallback_pcm: 'bytes | None' = None
 
+# WiFi state — reported back to server via heartbeat so admin can see result
+_wifi_applied_ssid: str = ''   # set after successful wifi_setup.sh run
+_wifi_failed_ssid:  str = ''   # set after failed run
+
 
 @dataclasses.dataclass
 class AudioSegment:
@@ -227,19 +231,142 @@ def api_post(cfg: dict, path: str, body: dict, _retries: int = 3):
     return None
 
 
+def _get_wifi_info() -> dict:
+    """Return current SSID + a list of nearby networks for the admin UI."""
+    try:
+        import re as _re
+        current = ''
+        networks: list[dict] = []
+
+        if subprocess.run(['which', 'nmcli'], capture_output=True).returncode == 0:
+            # NetworkManager (Bookworm) — cleaner output
+            r = subprocess.run(
+                ['nmcli', '-t', '-f', 'IN-USE,SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list'],
+                capture_output=True, text=True, timeout=10,
+            )
+            seen: set[str] = set()
+            for line in r.stdout.splitlines():
+                parts = line.split(':')
+                if len(parts) < 4:
+                    continue
+                in_use, ssid, signal_s, security = parts[0], parts[1], parts[2], ':'.join(parts[3:])
+                ssid = ssid.strip()
+                if not ssid or ssid in seen:
+                    continue
+                seen.add(ssid)
+                active = in_use.strip() == '*'
+                if active:
+                    current = ssid
+                networks.append({
+                    'ssid': ssid,
+                    'signal': int(signal_s) if signal_s.isdigit() else 0,
+                    'security': security.strip() or 'Open',
+                    'active': active,
+                })
+        else:
+            # wpa_supplicant (Bullseye) — parse iwlist output
+            r_id = subprocess.run(['iwgetid', '-r', 'wlan0'], capture_output=True, text=True, timeout=3)
+            current = r_id.stdout.strip()
+
+            r_scan = subprocess.run(
+                ['iwlist', 'wlan0', 'scan'],
+                capture_output=True, text=True, timeout=15,
+                env={**os.environ, 'LANG': 'C'},
+            )
+            seen2: set[str] = set()
+            for cell in r_scan.stdout.split('Cell ')[1:]:
+                m_ssid = _re.search(r'ESSID:"([^"]*)"', cell)
+                m_sig  = _re.search(r'Signal level=(-?\d+)', cell)
+                m_enc  = _re.search(r'Encryption key:(on|off)', cell)
+                ssid = m_ssid.group(1) if m_ssid else ''
+                if not ssid or ssid in seen2:
+                    continue
+                seen2.add(ssid)
+                signal_dbm = int(m_sig.group(1)) if m_sig else -100
+                # Convert dBm (-30 best, -90 worst) to 0-100 scale
+                signal_pct = max(0, min(100, 2 * (signal_dbm + 100)))
+                encrypted = m_enc and m_enc.group(1) == 'on'
+                networks.append({
+                    'ssid': ssid,
+                    'signal': signal_pct,
+                    'security': 'WPA2' if encrypted else 'Open',
+                    'active': ssid == current,
+                })
+
+        # Sort: active first, then by signal strength
+        networks.sort(key=lambda n: (0 if n['active'] else 1, -n['signal']))
+        return {'current': current, 'networks': networks}
+
+    except Exception as exc:
+        print(f'[{_ts()}][wifi] scan error: {exc}')
+        return {'current': '', 'networks': []}
+
+
+def _apply_wifi(pending: dict) -> None:
+    """Run wifi_setup.sh in a daemon thread; report result via next heartbeat."""
+    global _wifi_applied_ssid, _wifi_failed_ssid
+    ssid     = pending.get('ssid', '')
+    password = pending.get('password', '')
+    script   = os.path.join(SCRIPT_DIR, 'wifi_setup.sh')
+
+    if not ssid:
+        print(f'[{_ts()}][wifi] pending_wifi has no SSID — skipping')
+        return
+    if not os.path.exists(script):
+        print(f'[{_ts()}][wifi] wifi_setup.sh not found at {script}')
+        return
+
+    print(f'[{_ts()}][wifi] applying new network: "{ssid}"')
+    try:
+        r = subprocess.run(
+            ['sudo', 'bash', script, ssid, password],
+            capture_output=False, timeout=90,
+        )
+        if r.returncode == 0:
+            print(f'[{_ts()}][wifi] ✓ connected to "{ssid}"')
+            _wifi_applied_ssid = ssid
+            _wifi_failed_ssid  = ''
+        else:
+            print(f'[{_ts()}][wifi] ✗ failed to connect to "{ssid}" — rolled back')
+            _wifi_failed_ssid  = ssid
+            _wifi_applied_ssid = ''
+    except Exception as exc:
+        print(f'[{_ts()}][wifi] ERROR running wifi_setup.sh: {exc}')
+        _wifi_failed_ssid  = ssid
+        _wifi_applied_ssid = ''
+
+
+# SSID being applied right now — prevents re-triggering while script is running
+_wifi_pending_ssid: str = ''
+
+
 def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
-    result = api_post(cfg, '/api/pi/heartbeat', {
-        'status': status,
-        'mode':   mode,
-        'ip':     get_local_ip(),
-    })
+    global _wifi_applied_ssid, _wifi_failed_ssid, _wifi_pending_ssid
+
+    wifi_info = _get_wifi_info()
+
+    payload: dict = {
+        'status':         status,
+        'mode':           mode,
+        'ip':             get_local_ip(),
+        'wifi_ssid':      wifi_info['current'],
+        'wifi_networks':  wifi_info['networks'],
+    }
+    if _wifi_applied_ssid:
+        payload['wifi_applied'] = _wifi_applied_ssid
+        _wifi_applied_ssid = ''
+    if _wifi_failed_ssid:
+        payload['wifi_failed'] = _wifi_failed_ssid
+        _wifi_failed_ssid = ''
+
+    result = api_post(cfg, '/api/pi/heartbeat', payload)
     if result:
         global _remote_cfg
         _remote_cfg = result
         bm = result.get('broadcast_mode', 'normal')
         dl = len(result.get('pending_downloads', []))
         rm = len(result.get('pending_deletes', []))
-        print(f'[{_ts()}][hb] status={status} mode={bm} downloads={dl} deletes={rm}')
+        print(f'[{_ts()}][hb] status={status} mode={bm} wifi={wifi_info["current"]!r} downloads={dl} deletes={rm}')
         _process_pending_downloads(cfg, result)
         _process_pending_deletes(cfg, result)
 
@@ -254,6 +381,13 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
             save_local_config(_local)
             _freq_interrupt.set()
             _stop_fm()
+
+        pending_wifi = result.get('pending_wifi')
+        if pending_wifi and pending_wifi.get('ssid') and pending_wifi['ssid'] != _wifi_pending_ssid:
+            _wifi_pending_ssid = pending_wifi['ssid']
+            threading.Thread(
+                target=_apply_wifi, args=(pending_wifi,), daemon=True,
+            ).start()
     else:
         print(f'[{_ts()}][hb] WARNING heartbeat failed')
     return result

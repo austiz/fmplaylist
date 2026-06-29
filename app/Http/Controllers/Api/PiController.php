@@ -71,10 +71,32 @@ class PiController extends Controller
     public function heartbeat(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'status' => ['required', 'in:idle,playing,live'],
-            'mode' => ['required', 'string', 'max:30'],
-            'ip' => ['nullable', 'string', 'max:45'],
+            'status'        => ['required', 'in:idle,playing,live'],
+            'mode'          => ['required', 'string', 'max:30'],
+            'ip'            => ['nullable', 'string', 'max:45'],
+            'wifi_ssid'     => ['nullable', 'string', 'max:100'],
+            'wifi_networks' => ['nullable', 'array'],
+            'wifi_applied'  => ['nullable', 'string', 'max:100'],
+            'wifi_failed'   => ['nullable', 'string', 'max:100'],
         ]);
+
+        // Cache latest WiFi scan from Pi for the admin settings page
+        if (isset($data['wifi_ssid'])) {
+            Cache::put('pi.wifi_ssid', $data['wifi_ssid'], 300);
+        }
+        if (isset($data['wifi_networks'])) {
+            Cache::put('pi.wifi_networks', $data['wifi_networks'], 300);
+        }
+
+        // WiFi switch result — clear pending and store outcome
+        if ($data['wifi_applied'] ?? null) {
+            Setting::set('pending_wifi_ssid', '');
+            Setting::set('pending_wifi_password', '');
+            Setting::set('last_wifi_status', 'connected:' . $data['wifi_applied']);
+        }
+        if ($data['wifi_failed'] ?? null) {
+            Setting::set('last_wifi_status', 'failed:' . $data['wifi_failed']);
+        }
 
         /** @var PiToken|null $token */
         $token = $request->attributes->get('pi_token');
@@ -254,6 +276,8 @@ class PiController extends Controller
                 ->map(fn ($sb) => ['type' => 'sound_byte', 'item_id' => $sb->id, 'filename' => $sb->filename])
         );
 
+        $pendingWifiSsid = Setting::get('pending_wifi_ssid', '');
+
         return [
             'freq' => (float) Setting::get('frequency', '96.9'),
             'broadcast_mode' => Setting::get('broadcast_mode', 'normal'),
@@ -267,6 +291,10 @@ class PiController extends Controller
             'fade_in_duration' => (float) Setting::get('fade_in_duration', 0.5),
             'pending_downloads' => $pendingDownloads->values(),
             'pending_deletes' => $pendingDeletes->values(),
+            'pending_wifi' => $pendingWifiSsid ? [
+                'ssid'     => $pendingWifiSsid,
+                'password' => Setting::get('pending_wifi_password', ''),
+            ] : null,
         ];
     }
 }
