@@ -22,8 +22,8 @@ class HomeController extends Controller
                 'position' => $item->position,
                 'requested_by_name' => $item->requested_by_name,
                 'song' => [
-                    'title' => $item->song->title,
-                    'artist' => $item->song->artist,
+                    'title' => $item->song?->title ?? '(deleted)',
+                    'artist' => $item->song?->artist ?? '',
                 ],
             ]);
 
