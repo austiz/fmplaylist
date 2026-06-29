@@ -16,7 +16,7 @@ class DashboardController extends Controller
 
         $pendingItems = QueueItem::with('song')->pending()->get();
 
-        $queueRuntimeSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song->duration_seconds ?? 0);
+        $queueRuntimeSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song?->duration_seconds ?? 0);
 
         $recentRequests = QueueItem::with('song')
             ->orderByDesc('created_at')
@@ -28,7 +28,7 @@ class DashboardController extends Controller
                 'requested_by_name' => $item->requested_by_name,
                 'created_at' => $item->created_at->toDateTimeString(),
                 'played_at' => $item->played_at?->toDateTimeString(),
-                'song' => ['title' => $item->song->title, 'artist' => $item->song->artist],
+                'song' => ['title' => $item->song?->title ?? '(deleted)', 'artist' => $item->song?->artist ?? ''],
             ]);
 
         return Inertia::render('admin/dashboard', [
