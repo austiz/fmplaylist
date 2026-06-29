@@ -65,6 +65,7 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::delete('/sound-bytes/{soundByte}', [SoundByteController::class, 'destroy'])->name('sound-bytes.destroy');
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    Route::post('/settings/wifi', [SettingsController::class, 'connectWifi'])->name('settings.wifi');
     Route::get('/tokens', [TokenController::class, 'index'])->name('tokens');
     Route::post('/tokens/regenerate', [TokenController::class, 'regenerate'])->name('tokens.regenerate');
     Route::get('/history', [HistoryController::class, 'index'])->name('history');
