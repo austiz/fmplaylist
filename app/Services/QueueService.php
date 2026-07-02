@@ -89,12 +89,13 @@ class QueueService
                 'rds_ps'   => $soundByte->rds_ps,
             ] : null,
             'next' => $next ? [
-                'queue_item_id' => $next->id,
+                'queue_item_id'     => $next->id,
+                'requested_by_name' => $next->requested_by_name,
                 'song' => [
-                    'id' => $next->song->id,
-                    'title' => $next->song->title,
-                    'artist' => $next->song->artist,
-                    'filename' => $next->song->filename,
+                    'id'               => $next->song->id,
+                    'title'            => $next->song->title,
+                    'artist'           => $next->song->artist,
+                    'filename'         => $next->song->filename,
                     'duration_seconds' => $next->song->duration_seconds,
                 ],
             ] : null,
@@ -286,7 +287,7 @@ class QueueService
         }
     }
 
-    private function bumpQueueVersion(): void
+    public function bumpQueueVersion(): void
     {
         Cache::put('sse.queue_version', (string) microtime(true), 3600);
     }

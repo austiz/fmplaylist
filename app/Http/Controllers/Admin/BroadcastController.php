@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Commercial;
 use App\Models\NowPlaying;
 use App\Models\PiToken;
+use App\Models\QueueItem;
 use App\Models\Setting;
 use App\Models\Song;
 use App\Models\SoundByte;
@@ -123,5 +124,14 @@ class BroadcastController extends Controller
         Setting::set('force_sound_byte_id', $data['sound_byte_id']);
 
         return back()->with('success', 'Sound byte will play on next Pi poll (within 30 s).');
+    }
+
+    public function emergency(): RedirectResponse
+    {
+        QueueItem::pending()->update(['status' => 'skipped', 'played_at' => now()]);
+        Setting::set('pi_emergency', '1');
+        PiToken::latest('last_seen_at')->first()?->update(['pi_skip_next' => true]);
+        $this->queueService->bumpQueueVersion();
+        return back()->with('success', 'Emergency broadcast triggered — Pi switches within 30 s.');
     }
 }

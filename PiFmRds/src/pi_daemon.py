@@ -24,6 +24,7 @@ import json
 import math
 import os
 import queue
+import shutil
 import signal
 import socket
 import struct
@@ -103,9 +104,10 @@ class AudioSegment:
     artist:        str
     queue_item_id: 'int | None'
     media_type:    str              # 'song' | 'commercial' | 'sound_byte' | 'fallback'
-    item_id:       'int | None' = None    # commercial / sound_byte DB id
-    pcm:           'bytes | None' = None  # set by DecoderThread after decode
-    duration_s:    float = 0.0
+    item_id:            'int | None' = None    # commercial / sound_byte DB id
+    pcm:                'bytes | None' = None  # set by DecoderThread after decode
+    duration_s:         float = 0.0
+    delete_after_decode: bool = False          # temp TTS files deleted after decode
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
@@ -341,6 +343,27 @@ def _apply_wifi(pending: dict) -> None:
 _wifi_pending_ssid: str = ''
 
 
+def _handle_emergency(cfg: dict, filename: str) -> None:
+    """Drain queues, push emergency audio segment, and set skip so it plays immediately."""
+    filepath = os.path.join(cfg['song_dir'], filename)
+    if not os.path.exists(filepath):
+        print(f'[{_ts()}][emergency] file not found: {filepath}')
+        return
+    print(f'[{_ts()}][emergency] EMERGENCY BROADCAST: {filename}')
+    for q in (_schedule_q, _ready_q):
+        while not q.empty():
+            try:
+                q.get_nowait()
+            except queue.Empty:
+                break
+    _recently_pushed.clear()
+    _schedule_q.put(AudioSegment(
+        filepath=filepath, title='Emergency Broadcast',
+        artist='', queue_item_id=None, media_type='sound_byte',
+    ))
+    _skip_event.set()
+
+
 def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
     global _wifi_applied_ssid, _wifi_failed_ssid, _wifi_pending_ssid
 
@@ -389,6 +412,9 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
             threading.Thread(
                 target=_apply_wifi, args=(pending_wifi,), daemon=True,
             ).start()
+
+        if result.get('emergency') and result.get('emergency_file'):
+            _handle_emergency(cfg, result['emergency_file'])
     else:
         print(f'[{_ts()}][hb] WARNING heartbeat failed')
     return result
@@ -700,6 +726,11 @@ def _decoder_loop() -> None:
             )
             seg.pcm = ff.stdout.read()
             ff.wait()
+            if seg.delete_after_decode and os.path.exists(seg.filepath):
+                try:
+                    os.remove(seg.filepath)
+                except OSError:
+                    pass
         except Exception as e:
             print(f'[{_ts()}][decoder] ERROR "{seg.title}": {e}')
             continue
@@ -974,6 +1005,32 @@ def _scheduler_loop(local: dict) -> None:
 
             if key in _recently_pushed:
                 continue
+
+            # TTS shoutout before the song if a requester name is present
+            if media_type == 'song':
+                requested_by = item.get('requested_by_name', '').strip()
+                if requested_by and shutil.which('espeak'):
+                    shout_key = f'shoutout:{item["queue_item_id"]}'
+                    if shout_key not in _recently_pushed:
+                        wav_path = f'/tmp/shoutout_{item["queue_item_id"]}.wav'
+                        try:
+                            r = subprocess.run(
+                                ['espeak', '-v', 'en', '-s', '145', '-w', wav_path,
+                                 f'Coming up for {requested_by}'],
+                                capture_output=True, timeout=5,
+                            )
+                            if r.returncode == 0:
+                                _recently_pushed.append(shout_key)
+                                _schedule_q.put(AudioSegment(
+                                    filepath=wav_path,
+                                    title=f'Shoutout for {requested_by}',
+                                    artist='', queue_item_id=None,
+                                    media_type='sound_byte',
+                                    delete_after_decode=True,
+                                ))
+                                print(f'[{_ts()}][shoutout] queued for {requested_by}')
+                        except Exception as e:
+                            print(f'[{_ts()}][shoutout] ERROR: {e}')
 
             _recently_pushed.append(key)
             _schedule_q.put(seg)
