@@ -28,7 +28,23 @@ class QueueController extends Controller
 
         $waitSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song?->duration_seconds ?? 0);
 
+        $history = QueueItem::with('song')
+            ->where('status', 'played')
+            ->orderByDesc('played_at')
+            ->take(30)
+            ->get()
+            ->map(fn (QueueItem $item) => [
+                'id'                => $item->id,
+                'played_at'         => $item->played_at?->diffForHumans(),
+                'requested_by_name' => $item->requested_by_name,
+                'song' => [
+                    'title'  => $item->song?->title ?? '(deleted)',
+                    'artist' => $item->song?->artist ?? '',
+                ],
+            ]);
+
         return Inertia::render('queue', [
+            'history' => $history,
             'nowPlaying' => $nowPlaying ? [
                 'type' => $nowPlaying->type,
                 'song' => match ($nowPlaying->type) {

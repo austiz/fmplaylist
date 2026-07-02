@@ -1,11 +1,21 @@
 import { Link, usePage } from '@inertiajs/react';
-import { List, Music, Radio } from 'lucide-react';
+import { List, MessageCircle, Music, Radio } from 'lucide-react';
 import type { PropsWithChildren } from 'react';
 
+// Desktop nav — Queue and Chat both surface the queue page
+const navLinks = [
+    { href: '/',      label: 'Home'  },
+    { href: '/songs', label: 'Songs' },
+    { href: '/queue', label: 'Queue' },
+    { href: '/queue', label: 'Chat'  },
+];
+
+// Mobile tab bar — 4 icons; Chat replaces Queue for discovery
 const tabs = [
     { href: '/',      label: 'Home',  Icon: Radio },
     { href: '/songs', label: 'Songs', Icon: Music },
     { href: '/queue', label: 'Queue', Icon: List  },
+    { href: '/queue', label: 'Chat',  Icon: MessageCircle },
 ];
 
 export function PublicLayout({ children }: PropsWithChildren) {
@@ -32,9 +42,9 @@ export function PublicLayout({ children }: PropsWithChildren) {
                     </Link>
                     {/* Desktop nav only */}
                     <nav className="hidden items-center gap-6 text-sm font-medium text-muted-foreground sm:flex">
-                        {tabs.map(({ href, label }) => (
+                        {navLinks.map(({ href, label }) => (
                             <Link
-                                key={href}
+                                key={label}
                                 href={href}
                                 className={`py-1 transition-colors ${active(href) ? 'text-foreground' : 'hover:text-foreground'}`}
                             >
@@ -66,7 +76,7 @@ export function PublicLayout({ children }: PropsWithChildren) {
             >
                 {tabs.map(({ href, label, Icon }) => (
                     <Link
-                        key={href}
+                        key={label}
                         href={href}
                         className={`flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                             active(href)

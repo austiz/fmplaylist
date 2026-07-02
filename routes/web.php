@@ -50,6 +50,7 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::post('/broadcast/play-now', [BroadcastController::class, 'playNow'])->name('broadcast.play-now');
     Route::post('/broadcast/force-commercial', [BroadcastController::class, 'forceCommercial'])->name('broadcast.force-commercial');
     Route::post('/broadcast/force-sound-byte', [BroadcastController::class, 'forceSoundByte'])->name('broadcast.force-sound-byte');
+    Route::post('/broadcast/emergency', [BroadcastController::class, 'emergency'])->name('broadcast.emergency');
     Route::get('/sounds', [SoundsController::class, 'index'])->name('sounds');
     Route::post('/songs/upload', [SongAdminController::class, 'upload'])->name('songs.upload');
     Route::patch('/songs/{song}', [SongAdminController::class, 'update'])->name('songs.update');

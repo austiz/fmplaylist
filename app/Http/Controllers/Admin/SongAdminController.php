@@ -38,14 +38,14 @@ class SongAdminController extends Controller
     public function upload(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'file' => ['required', 'file', 'mimes:wav', 'max:51200'],
+            'file' => ['required', 'file', 'mimes:wav,mp3', 'max:51200'],
             'title' => ['required', 'string', 'max:255'],
             'artist' => ['nullable', 'string', 'max:255'],
         ]);
 
         $file = $data['file'];
         $slug = Str::slug($data['title']);
-        $filename = $slug.'_'.time().'.wav';
+        $filename = $slug.'_'.time().'.'.$file->getClientOriginalExtension();
         $path = $file->storeAs('songs', $filename, 'public');
 
         Song::create([

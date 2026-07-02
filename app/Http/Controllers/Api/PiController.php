@@ -118,7 +118,14 @@ class PiController extends Controller
             ], 180);
         }
 
-        return response()->json([...self::buildConfig(), 'skip_next' => $skipNext]);
+        $config = self::buildConfig();
+
+        // Consume emergency flag after including it in this response
+        if ($config['emergency'] ?? false) {
+            Setting::set('pi_emergency', '0');
+        }
+
+        return response()->json([...$config, 'skip_next' => $skipNext]);
     }
 
     public function confirmDownload(Request $request): JsonResponse
@@ -295,6 +302,8 @@ class PiController extends Controller
                 'ssid'     => $pendingWifiSsid,
                 'password' => Setting::get('pending_wifi_password', ''),
             ] : null,
+            'emergency'      => (bool) Setting::get('pi_emergency', '0'),
+            'emergency_file' => Setting::get('emergency_announcement', 'announcement.wav'),
         ];
     }
 }

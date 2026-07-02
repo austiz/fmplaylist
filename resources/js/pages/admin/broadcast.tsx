@@ -69,8 +69,9 @@ export default function Broadcast({ songs, commercials, soundBytes, settings, pi
         rds_ps:      settings.rds_ps      ?? '',
     });
 
-    const skipForm    = useForm({});
-    const playNowForm = useForm({ song_id: '' });
+    const skipForm      = useForm({});
+    const emergencyForm = useForm({});
+    const playNowForm   = useForm({ song_id: '' });
     const commercialForm = useForm({ commercial_id: '' });
     const soundByteForm = useForm({ sound_byte_id: '' });
     const [songSearch, setSongSearch] = useState('');
@@ -98,6 +99,30 @@ export default function Broadcast({ songs, commercials, soundBytes, settings, pi
                     {props.flash.success}
                 </div>
             )}
+
+            {/* Emergency Broadcast */}
+            <div className="mb-6 border border-red-500/40 bg-red-500/5 p-4">
+                <div className="flex items-start justify-between gap-6">
+                    <div>
+                        <p className="font-display text-xs font-bold uppercase tracking-widest text-red-500">Emergency Broadcast</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            Immediately cuts the current song, clears the queue, and plays <code>announcement.wav</code> from the Pi.
+                        </p>
+                    </div>
+                    <Button
+                        type="button"
+                        disabled={emergencyForm.processing}
+                        className="shrink-0 h-12 bg-red-600 font-display font-bold uppercase tracking-wide text-white hover:bg-red-700 disabled:opacity-60"
+                        onClick={() => {
+                            if (confirm('⚠ This will cut the current song, clear the entire queue, and play the emergency announcement on air. Continue?')) {
+                                emergencyForm.post('/admin/broadcast/emergency');
+                            }
+                        }}
+                    >
+                        🚨 EMERGENCY
+                    </Button>
+                </div>
+            </div>
 
             {/* Pi Status Card */}
             <div className={`mb-5 border p-4 ${pi.online ? 'border-green-500/30 bg-green-500/5' : 'border-border bg-card'}`}>
