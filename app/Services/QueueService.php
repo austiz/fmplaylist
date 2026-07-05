@@ -19,9 +19,10 @@ class QueueService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function peekUpcoming(int $limit = 3): array
+    public function peekUpcoming(int $stationId, int $limit = 3): array
     {
         return QueueItem::with('song')
+            ->where('station_id', $stationId)
             ->pending()
             ->skip(1)           // skip 'next' (already returned by getNextForPi)
             ->take($limit)
@@ -40,40 +41,40 @@ class QueueService
     }
 
     /** @return array<string, mixed> */
-    public function getNextForPi(): array
+    public function getNextForPi(int $stationId): array
     {
-        $this->autoFillQueue();
+        $this->autoFillQueue($stationId);
 
         // ── Commercial scheduling ─────────────────────────────────────────
         $commercial = null;
-        $forcedCommercialId = (int) Setting::get('force_commercial_id', 0);
+        $forcedCommercialId = (int) Setting::get('force_commercial_id', 0, $stationId);
         if ($forcedCommercialId) {
             $commercial = Commercial::active()->find($forcedCommercialId);
         }
         if (! $commercial) {
-            $comInterval = (int) Setting::get('commercial_interval', 0);
-            $songsSinceCom = (int) Setting::get('songs_since_last_commercial', 0);
+            $comInterval = (int) Setting::get('commercial_interval', 0, $stationId);
+            $songsSinceCom = (int) Setting::get('songs_since_last_commercial', 0, $stationId);
             if ($comInterval > 0 && $songsSinceCom >= $comInterval) {
-                $commercial = Commercial::nextInRotation();
+                $commercial = Commercial::nextInRotation($stationId);
             }
         }
 
         // ── Sound byte scheduling ─────────────────────────────────────────
         $soundByte = null;
-        $forcedSoundByteId = (int) Setting::get('force_sound_byte_id', 0);
+        $forcedSoundByteId = (int) Setting::get('force_sound_byte_id', 0, $stationId);
         if ($forcedSoundByteId) {
             $soundByte = SoundByte::active()->find($forcedSoundByteId);
         }
         if (! $soundByte) {
-            $sbInterval = (int) Setting::get('sound_byte_interval', 0);
-            $songsSinceSb = (int) Setting::get('songs_since_last_sound_byte', 0);
+            $sbInterval = (int) Setting::get('sound_byte_interval', 0, $stationId);
+            $songsSinceSb = (int) Setting::get('songs_since_last_sound_byte', 0, $stationId);
             if ($sbInterval > 0 && $songsSinceSb >= $sbInterval) {
                 $soundByte = SoundByte::active()->inRandomOrder()->first();
             }
         }
 
         // ── Next queued song ──────────────────────────────────────────────
-        $next = QueueItem::with('song')->pending()->first();
+        $next = QueueItem::with('song')->where('station_id', $stationId)->pending()->first();
 
         return [
             'commercial' => $commercial ? [
@@ -102,10 +103,10 @@ class QueueService
         ];
     }
 
-    public function markNowPlaying(string $type, ?int $queueItemId, ?string $filename, ?int $itemId = null): void
+    public function markNowPlaying(int $stationId, string $type, ?int $queueItemId, ?string $filename, ?int $itemId = null): void
     {
-        DB::transaction(function () use ($type, $queueItemId, $filename, $itemId) {
-            QueueItem::where('status', 'playing')->update([
+        DB::transaction(function () use ($stationId, $type, $queueItemId, $filename, $itemId) {
+            QueueItem::where('station_id', $stationId)->where('status', 'playing')->update([
                 'status' => 'played',
                 'played_at' => now(),
             ]);
@@ -118,7 +119,7 @@ class QueueService
             }
 
             NowPlaying::updateOrCreate(
-                ['id' => 1],
+                ['station_id' => $stationId],
                 [
                     'song_id' => $songId,
                     'queue_item_id' => $queueItemId,
@@ -128,33 +129,36 @@ class QueueService
             );
 
             match ($type) {
-                'commercial' => $this->onCommercialPlayed($itemId),
-                'sound_byte' => $this->onSoundBytePlayed(),
-                default => $this->onSongPlayed($queueItemId), // 'song'
+                'commercial' => $this->onCommercialPlayed($stationId, $itemId),
+                'sound_byte' => $this->onSoundBytePlayed($stationId),
+                default => $this->onSongPlayed($stationId, $queueItemId), // 'song'
             };
 
             // Push SSE events
             $npPayload = match ($type) {
                 'commercial' => ['type' => 'commercial', 'song' => ['id' => null, 'title' => 'Commercial Break', 'artist' => null], 'queue_item_id' => null, 'started_at' => now()->toIso8601String()],
                 'sound_byte' => ['type' => 'sound_byte',  'song' => ['id' => null, 'title' => 'Radio Drop',       'artist' => null], 'queue_item_id' => null, 'started_at' => now()->toIso8601String()],
-                default       => ['type' => 'song', 'song' => $song ? ['id' => $song->id, 'title' => $song->title, 'artist' => $song->artist] : null, 'queue_item_id' => $queueItemId, 'started_at' => now()->toIso8601String()],
+                default       => ['type' => 'song', 'song' => $song ? ['id' => $song->id, 'title' => $song->title, 'artist' => $song->artist, 'duration_seconds' => $song->duration_seconds] : null, 'queue_item_id' => $queueItemId, 'started_at' => now()->toIso8601String()],
             };
-            Cache::put('sse.now_playing', $npPayload, 3600);
-            $this->bumpQueueVersion();
+            Cache::put("sse.now_playing.{$stationId}", $npPayload, 3600);
+            $this->bumpQueueVersion($stationId);
         });
     }
 
-    private function autoFillQueue(int $target = 10): void
+    private function autoFillQueue(int $stationId, int $target = 10): void
     {
-        $pendingCount = QueueItem::where('status', 'pending')->count();
+        $pendingCount = QueueItem::where('station_id', $stationId)->where('status', 'pending')->count();
         $needed = $target - $pendingCount;
 
         if ($needed <= 0) {
             return;
         }
 
-        // Exclude songs already pending or currently playing
-        $excludeIds = QueueItem::whereIn('status', ['pending', 'playing'])->pluck('song_id');
+        // Exclude songs already pending or currently playing on THIS station
+        // (the song library is shared across stations, so other stations' queues don't matter here)
+        $excludeIds = QueueItem::where('station_id', $stationId)
+            ->whereIn('status', ['pending', 'playing'])
+            ->pluck('song_id');
 
         $songs = Song::available()
             ->whereNotIn('id', $excludeIds)
@@ -166,10 +170,11 @@ class QueueService
             return;
         }
 
-        $maxPos = QueueItem::where('status', 'pending')->max('position') ?? 0;
+        $maxPos = QueueItem::where('station_id', $stationId)->where('status', 'pending')->max('position') ?? 0;
 
         foreach ($songs as $song) {
             QueueItem::create([
+                'station_id'        => $stationId,
                 'song_id'           => $song->id,
                 'requested_by_name' => null,
                 'position'          => ++$maxPos,
@@ -177,67 +182,69 @@ class QueueService
             ]);
         }
 
-        $this->bumpQueueVersion();
+        $this->bumpQueueVersion($stationId);
     }
 
-    private function onSongPlayed(?int $queueItemId): void
+    private function onSongPlayed(int $stationId, ?int $queueItemId): void
     {
-        Setting::inc('songs_since_last_commercial');
-        Setting::inc('songs_since_last_sound_byte');
+        Setting::inc('songs_since_last_commercial', 1, $stationId);
+        Setting::inc('songs_since_last_sound_byte', 1, $stationId);
 
         if ($queueItemId) {
             QueueItem::where('id', $queueItemId)->update(['status' => 'playing']);
-            $this->compactPositions();
+            $this->compactPositions($stationId);
         }
     }
 
-    private function onCommercialPlayed(?int $commercialId): void
+    private function onCommercialPlayed(int $stationId, ?int $commercialId): void
     {
-        Setting::set('songs_since_last_commercial', 0);
-        Setting::set('force_commercial_id', 0);
+        Setting::set('songs_since_last_commercial', 0, $stationId);
+        Setting::set('force_commercial_id', 0, $stationId);
         if ($commercialId) {
-            Setting::set('last_commercial_id', $commercialId);
+            Setting::set('last_commercial_id', $commercialId, $stationId);
             Commercial::where('id', $commercialId)->increment('play_count');
         }
     }
 
-    private function onSoundBytePlayed(): void
+    private function onSoundBytePlayed(int $stationId): void
     {
-        Setting::set('songs_since_last_sound_byte', 0);
-        Setting::set('force_sound_byte_id', 0);
+        Setting::set('songs_since_last_sound_byte', 0, $stationId);
+        Setting::set('force_sound_byte_id', 0, $stationId);
     }
 
-    public function addToQueue(int $songId, ?string $name): QueueItem
+    public function addToQueue(int $stationId, int $songId, ?string $name): QueueItem
     {
-        $maxPos = QueueItem::where('status', 'pending')->max('position') ?? 0;
+        $maxPos = QueueItem::where('station_id', $stationId)->where('status', 'pending')->max('position') ?? 0;
 
         $item = QueueItem::create([
+            'station_id' => $stationId,
             'song_id' => $songId,
             'requested_by_name' => $name,
             'position' => $maxPos + 1,
             'status' => 'pending',
         ]);
 
-        $this->bumpQueueVersion();
+        $this->bumpQueueVersion($stationId);
 
         return $item;
     }
 
-    public function skipCurrent(): void
+    public function skipCurrent(int $stationId): void
     {
-        QueueItem::where('status', 'playing')->update([
+        QueueItem::where('station_id', $stationId)->where('status', 'playing')->update([
             'status' => 'skipped',
             'played_at' => now(),
         ]);
     }
 
-    public function playNow(int $songId, ?string $name = null): QueueItem
+    public function playNow(int $stationId, int $songId, ?string $name = null): QueueItem
     {
-        return DB::transaction(function () use ($songId, $name) {
-            $this->skipCurrent();
-            QueueItem::where('status', 'pending')->increment('position');
+        return DB::transaction(function () use ($stationId, $songId, $name) {
+            $this->skipCurrent($stationId);
+            QueueItem::where('station_id', $stationId)->where('status', 'pending')->increment('position');
 
             return QueueItem::create([
+                'station_id' => $stationId,
                 'song_id' => $songId,
                 'requested_by_name' => $name ?? 'Admin',
                 'position' => 1,
@@ -279,16 +286,16 @@ class QueueService
         return compact('added', 'unchanged', 'removed');
     }
 
-    private function compactPositions(): void
+    private function compactPositions(int $stationId): void
     {
-        $items = QueueItem::pending()->get();
+        $items = QueueItem::where('station_id', $stationId)->pending()->get();
         foreach ($items as $i => $item) {
             $item->update(['position' => $i + 1]);
         }
     }
 
-    public function bumpQueueVersion(): void
+    public function bumpQueueVersion(int $stationId): void
     {
-        Cache::put('sse.queue_version', (string) microtime(true), 3600);
+        Cache::put("sse.queue_version.{$stationId}", (string) microtime(true), 3600);
     }
 }

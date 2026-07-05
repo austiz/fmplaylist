@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ChatMessage;
+use App\Models\Station;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -11,7 +12,11 @@ class SseController extends Controller
 {
     public function stream(): StreamedResponse
     {
-        return response()->stream(function () {
+        // Public SSE isn't station-aware yet (out of scope for the admin multi-station
+        // rollout) — always streams the default station's now-playing/pi-status/queue events.
+        $stationId = Station::defaultId();
+
+        return response()->stream(function () use ($stationId) {
             set_time_limit(0);
 
             $lastNpHash   = '';
@@ -19,9 +24,9 @@ class SseController extends Controller
             $lastQueueVer = '';
             $lastChatVer  = '';
 
-            $np      = Cache::get('sse.now_playing');
-            $pi      = Cache::get('sse.pi_status');
-            $qv      = Cache::get('sse.queue_version', '0');
+            $np      = Cache::get("sse.now_playing.{$stationId}");
+            $pi      = Cache::get("sse.pi_status.{$stationId}");
+            $qv      = Cache::get("sse.queue_version.{$stationId}", '0');
             $chatVer = Cache::get('sse.chat_version', '0');
 
             // Send initial state immediately so the client is current on connect
@@ -40,9 +45,9 @@ class SseController extends Controller
             $deadline = time() + 55;
 
             while (time() < $deadline && ! connection_aborted()) {
-                $np      = Cache::get('sse.now_playing');
-                $pi      = Cache::get('sse.pi_status');
-                $qv      = Cache::get('sse.queue_version', '0');
+                $np      = Cache::get("sse.now_playing.{$stationId}");
+                $pi      = Cache::get("sse.pi_status.{$stationId}");
+                $qv      = Cache::get("sse.queue_version.{$stationId}", '0');
                 $chatVer = Cache::get('sse.chat_version', '0');
 
                 $npHash = md5(json_encode($np, JSON_THROW_ON_ERROR));

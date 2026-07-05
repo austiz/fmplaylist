@@ -1,7 +1,10 @@
 import { Link, router, usePage } from '@inertiajs/react';
+import { ChevronDown } from 'lucide-react';
 import type { PropsWithChildren } from 'react';
 import { useEffect, useState } from 'react';
-import type { PiStatus } from '@/types/fm';
+import { StationMenuContent } from '@/components/station-menu-content';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import type { PiStatus, Station } from '@/types/fm';
 
 const nav = [
     { href: '/admin',           label: 'Dashboard' },
@@ -12,14 +15,15 @@ const nav = [
     { href: '/admin/history',   label: 'History'   },
 ];
 
-function PiStatusBar() {
+function PiStatusBar({ stationSlug }: { stationSlug?: string }) {
     const [pi, setPi] = useState<PiStatus | null>(null);
     const [updating, setUpdating] = useState(false);
 
     useEffect(() => {
         const poll = async () => {
             try {
-                const res = await fetch('/api/pi-status');
+                const url = stationSlug ? `/api/pi-status?station=${stationSlug}` : '/api/pi-status';
+                const res = await fetch(url);
 
                 if (res.ok) {
 setPi(await res.json());
@@ -30,7 +34,7 @@ setPi(await res.json());
         const id = setInterval(poll, 30_000);
 
         return () => clearInterval(id);
-    }, []);
+    }, [stationSlug]);
 
     if (!pi) {
 return null;
@@ -90,28 +94,43 @@ return null;
 }
 
 export function AdminLayout({ children, title }: PropsWithChildren<{ title?: string }>) {
-    const { url } = usePage();
+    const { url, props } = usePage<{ activeStation: Station | null; stations: Station[] | null }>();
     const active = (href: string) =>
         href === '/admin' ? url === '/admin' : url.startsWith(href);
+
+    const { activeStation, stations } = props;
 
     return (
         <div className="min-h-screen bg-background">
             <header className="border-b border-border bg-card">
                 <div className="mx-auto max-w-6xl px-4">
-                    {/* Top row: logo + logout */}
+                    {/* Top row: logo + station switcher + logout */}
                     <div className="flex items-center justify-between py-3">
                         <Link href="/" className="flex items-center gap-1">
                             <span className="font-display font-bold text-red-500">FM</span>
                             <span className="font-display font-bold text-foreground">PLAYLIST</span>
                         </Link>
-                        <Link
-                            href="/logout"
-                            method="post"
-                            as="button"
-                            className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                        >
-                            Logout
-                        </Link>
+                        <div className="flex items-center gap-4">
+                            {activeStation && stations && stations.length > 0 && (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+                                        {activeStation.name}
+                                        <ChevronDown className="h-3 w-3" />
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-56">
+                                        <StationMenuContent stations={stations} activeStation={activeStation} />
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            )}
+                            <Link
+                                href="/logout"
+                                method="post"
+                                as="button"
+                                className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                                Logout
+                            </Link>
+                        </div>
                     </div>
                     {/* Nav row — scrollable on mobile */}
                     <nav className="-mx-4 flex overflow-x-auto px-4 scrollbar-none">
@@ -133,7 +152,7 @@ export function AdminLayout({ children, title }: PropsWithChildren<{ title?: str
             </header>
 
             {/* Pi status bar — always visible across all admin pages */}
-            <PiStatusBar />
+            <PiStatusBar stationSlug={activeStation?.slug} />
 
             <main className="mx-auto max-w-6xl px-4 py-5">
                 {title && (

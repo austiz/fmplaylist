@@ -425,13 +425,21 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
 
     wifi_info = _get_wifi_info()
 
+    try:
+        disk = shutil.disk_usage(cfg.get('song_dir', SCRIPT_DIR))
+        disk_free_bytes, disk_total_bytes = disk.free, disk.total
+    except OSError:
+        disk_free_bytes, disk_total_bytes = None, None
+
     payload: dict = {
-        'status':         status,
-        'mode':           mode,
-        'ip':             get_local_ip(),
-        'wifi_ssid':      wifi_info['current'],
-        'wifi_networks':  wifi_info['networks'],
-        'daemon_hash':    DAEMON_HASH,
+        'status':            status,
+        'mode':              mode,
+        'ip':                get_local_ip(),
+        'wifi_ssid':         wifi_info['current'],
+        'wifi_networks':     wifi_info['networks'],
+        'daemon_hash':       DAEMON_HASH,
+        'disk_free_bytes':   disk_free_bytes,
+        'disk_total_bytes':  disk_total_bytes,
     }
     if _wifi_applied_ssid:
         payload['wifi_applied'] = _wifi_applied_ssid

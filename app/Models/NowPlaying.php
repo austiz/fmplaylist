@@ -13,6 +13,7 @@ class NowPlaying extends Model
     protected $table = 'now_playing';
 
     protected $fillable = [
+        'station_id',
         'song_id',
         'queue_item_id',
         'type',
@@ -33,5 +34,16 @@ class NowPlaying extends Model
     public function queueItem(): BelongsTo
     {
         return $this->belongsTo(QueueItem::class);
+    }
+
+    /** @return BelongsTo<Station, $this> */
+    public function station(): BelongsTo
+    {
+        return $this->belongsTo(Station::class);
+    }
+
+    public static function forStation(int $stationId): ?self
+    {
+        return static::with('song')->where('station_id', $stationId)->first();
     }
 }

@@ -49,7 +49,12 @@ export interface QueueItem {
 
 export interface NowPlayingData {
     type: 'song' | 'commercial' | 'sound_byte';
-    song: { id?: number | null; title: string; artist: string | null } | null;
+    song: {
+        id?: number | null;
+        title: string;
+        artist: string | null;
+        duration_seconds?: number | null;
+    } | null;
     queue_item_id?: number | null;
     started_at: string | null;
 }
@@ -60,6 +65,28 @@ export interface PiStatus {
     mode: 'normal' | 'phone_stream' | 'usb_input' | 'custom_stream';
     ip: string | null;
     update_available: boolean;
+    last_seen?: string | null;
+    device_count?: number;
+}
+
+export interface Station {
+    id: number;
+    name: string;
+    slug: string;
+    is_default?: boolean;
+}
+
+export interface PiDevice {
+    id: number;
+    label: string;
+    station: Pick<Station, 'id' | 'name'> | null;
+    online: boolean;
+    last_seen_at: string | null;
+    disk_free_bytes: number | null;
+    disk_total_bytes: number | null;
+    downloads_done: number;
+    downloads_total: number;
+    created_at: string;
 }
 
 export interface PaginatedResponse<T> {

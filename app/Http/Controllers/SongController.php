@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Song;
+use App\Models\Station;
 use App\Services\QueueService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,7 +41,7 @@ class SongController extends Controller
             'name' => ['nullable', 'string', 'max:50'],
         ]);
 
-        $this->queueService->addToQueue($song->id, $data['name'] ?? null);
+        $this->queueService->addToQueue(Station::defaultId(), $song->id, $data['name'] ?? null);
 
         return back()->with('success', "\"{$song->title}\" added to the queue!");
     }

@@ -15,8 +15,9 @@ class QueueAdminController extends Controller
             return back()->with('error', 'Only pending requests can be removed.');
         }
 
+        $stationId = $queueItem->station_id;
         $queueItem->delete();
-        Cache::put('sse.queue_version', (string) microtime(true), 3600);
+        Cache::put("sse.queue_version.{$stationId}", (string) microtime(true), 3600);
 
         return back()->with('success', 'Request removed from queue.');
     }
