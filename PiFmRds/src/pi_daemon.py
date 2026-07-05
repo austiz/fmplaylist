@@ -1018,6 +1018,7 @@ def _scheduler_loop(local: dict) -> None:
     print(f'[{_ts()}][scheduler] started')
     last_hb   = 0.0
     last_sync = time.time()
+    last_poll = 0.0
 
     while not _stop_event.is_set():
         cfg = merged_cfg(local)
@@ -1050,7 +1051,15 @@ def _scheduler_loop(local: dict) -> None:
             last_sync = time.time()
 
         # ── Skip polling when queue is already healthy ────────────────────────
-        if _schedule_q.qsize() + _ready_q.qsize() >= 4:
+        # _ready_q's maxsize=3 backpressure means this combined depth sits at
+        # or above 4 for nearly all of steady-state playback — so without a
+        # staleness cap, this shortcut would starve real polling almost
+        # entirely and admin "force commercial/sound byte" actions (and
+        # interval-based rotation, which is only ever discovered via this same
+        # poll) could go unnoticed indefinitely. Force a real poll at least
+        # every 15s regardless of local pipeline depth.
+        queue_healthy = _schedule_q.qsize() + _ready_q.qsize() >= 4
+        if queue_healthy and time.time() - last_poll < 15:
             time.sleep(2)
             continue
 
@@ -1060,6 +1069,7 @@ def _scheduler_loop(local: dict) -> None:
             print(f'[{_ts()}][scheduler] API unreachable — retrying in 5s')
             time.sleep(5)
             continue
+        last_poll = time.time()
 
         candidates: list[tuple[str, dict]] = []
         if queue_data.get('commercial'):
