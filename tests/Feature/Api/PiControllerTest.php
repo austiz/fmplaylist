@@ -6,7 +6,9 @@ use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Song;
 use App\Models\Station;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class PiControllerTest extends TestCase
@@ -224,5 +226,32 @@ class PiControllerTest extends TestCase
             'disk_free_bytes' => 1_000_000,
             'disk_total_bytes' => 8_000_000,
         ]);
+    }
+
+    public function test_heartbeat_succeeds_when_optional_columns_are_missing(): void
+    {
+        Schema::drop('pi_tokens');
+        Schema::create('pi_tokens', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('station_id')->nullable();
+            $table->string('token_hash', 64);
+            $table->string('label')->default('Raspberry Pi');
+            $table->timestamp('last_seen_at')->nullable();
+            $table->timestamps();
+            $table->string('pi_status', 20)->default('offline');
+            $table->string('pi_mode', 30)->default('normal');
+            $table->string('pi_ip', 45)->nullable();
+            $table->boolean('pi_skip_next')->default(false);
+        });
+
+        ['raw' => $rawToken] = PiToken::generate('Legacy Pi');
+
+        $response = $this->postJson('/api/pi/heartbeat', [
+            'status' => 'idle',
+            'mode' => 'normal',
+        ], ['X-Pi-Token' => $rawToken]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('pi_tokens', ['pi_status' => 'idle', 'pi_mode' => 'normal']);
     }
 }

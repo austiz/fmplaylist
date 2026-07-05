@@ -33,7 +33,9 @@ const MY_REQUEST_KEY = 'fm.my_request';
  * instead of one per component.
  */
 export function FmLiveProvider({ children }: PropsWithChildren) {
-    const [nowPlaying, setNowPlaying] = useState<NowPlayingData | null | undefined>(undefined);
+    const [nowPlaying, setNowPlaying] = useState<
+        NowPlayingData | null | undefined
+    >(undefined);
     const [piStatus, setPiStatus] = useState<PiStatus | null>(null);
     const [queueVersion, setQueueVersion] = useState<string | null>(null);
     const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
@@ -52,7 +54,10 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
                 }
             })
             .catch(() => {});
-        return () => { cancelled = true; };
+
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     useEffect(() => {
@@ -68,16 +73,26 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
             // Did the user's own request just hit the air?
             try {
                 const stored = localStorage.getItem(MY_REQUEST_KEY);
+
                 if (stored && data?.song?.id) {
-                    const { songId, title } = JSON.parse(stored) as { songId: number; title: string };
+                    const { songId, title } = JSON.parse(stored) as {
+                        songId: number;
+                        title: string;
+                    };
+
                     if (data.song.id === songId) {
                         localStorage.removeItem(MY_REQUEST_KEY);
                         setOnAirTitle(title);
                         clearTimeout(onAirTimer.current);
-                        onAirTimer.current = setTimeout(() => setOnAirTitle(null), 9000);
+                        onAirTimer.current = setTimeout(
+                            () => setOnAirTitle(null),
+                            9000,
+                        );
                     }
                 }
-            } catch { /* private mode may block localStorage */ }
+            } catch {
+                /* private mode may block localStorage */
+            }
         });
 
         es.addEventListener('pi-status', (e) => {
@@ -116,21 +131,34 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
         connected,
     };
 
-    return <FmLiveContext.Provider value={value}>{children}</FmLiveContext.Provider>;
+    return (
+        <FmLiveContext.Provider value={value}>
+            {children}
+        </FmLiveContext.Provider>
+    );
 }
 
 export function useFmLive(): FmLiveValue {
     const ctx = useContext(FmLiveContext);
+
     if (!ctx) {
         throw new Error('useFmLive must be used within an <FmLiveProvider>');
     }
+
     return ctx;
 }
 
 /** Merge two chat lists, deduping by id and keeping ascending order. */
 function mergeChat(a: ChatMsg[], b: ChatMsg[]): ChatMsg[] {
     const byId = new Map<number, ChatMsg>();
-    for (const m of a) byId.set(m.id, m);
-    for (const m of b) byId.set(m.id, m);
+
+    for (const m of a) {
+        byId.set(m.id, m);
+    }
+
+    for (const m of b) {
+        byId.set(m.id, m);
+    }
+
     return [...byId.values()].sort((x, y) => x.id - y.id);
 }

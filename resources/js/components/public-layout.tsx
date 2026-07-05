@@ -1,21 +1,19 @@
 import { Link, usePage } from '@inertiajs/react';
-import { List, MessageCircle, Music, Radio } from 'lucide-react';
+import { Gauge, List, Music, Radio } from 'lucide-react';
 import type { PropsWithChildren } from 'react';
 
-// Desktop nav — Queue and Chat both surface the queue page
 const navLinks = [
-    { href: '/',      label: 'Home'  },
+    { href: '/', label: 'Home' },
     { href: '/songs', label: 'Songs' },
     { href: '/queue', label: 'Queue' },
-    { href: '/queue', label: 'Chat'  },
+    { href: '/drive', label: 'Drive' },
 ];
 
-// Mobile tab bar — 4 icons; Chat replaces Queue for discovery
 const tabs = [
-    { href: '/',      label: 'Home',  Icon: Radio },
+    { href: '/', label: 'Home', Icon: Radio },
     { href: '/songs', label: 'Songs', Icon: Music },
-    { href: '/queue', label: 'Queue', Icon: List  },
-    { href: '/queue', label: 'Chat',  Icon: MessageCircle },
+    { href: '/queue', label: 'Queue', Icon: List },
+    { href: '/drive', label: 'Drive', Icon: Gauge },
 ];
 
 export function PublicLayout({ children }: PropsWithChildren) {
@@ -36,11 +34,10 @@ export function PublicLayout({ children }: PropsWithChildren) {
                         <span className="font-display text-xl font-bold tracking-tight text-foreground transition-colors group-hover:text-foreground/70">
                             PLAYLIST
                         </span>
-                        <span className="ml-1 border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 font-sans text-[10px] font-bold uppercase tracking-widest text-red-500">
+                        <span className="ml-1 border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 font-sans text-[10px] font-bold tracking-widest text-red-500 uppercase">
                             {freq}
                         </span>
                     </Link>
-                    {/* Desktop nav only */}
                     <nav className="hidden items-center gap-6 text-sm font-medium text-muted-foreground sm:flex">
                         {navLinks.map(({ href, label }) => (
                             <Link
@@ -56,12 +53,12 @@ export function PublicLayout({ children }: PropsWithChildren) {
             </header>
 
             {/* Page content — extra bottom padding on mobile for the tab bar */}
-            <main className="mx-auto max-w-5xl px-4 py-6 pb-20 sm:pb-8">{children}</main>
+            <main className="mx-auto max-w-5xl px-4 py-6 pb-20 sm:pb-8">
+                {children}
+            </main>
 
-            <footer
-                className="hidden border-t border-border py-5 text-center sm:block"
-            >
-                <p className="font-display text-xs font-bold uppercase tracking-[0.3em] text-muted-foreground">
+            <footer className="hidden border-t border-border py-5 text-center sm:block">
+                <p className="font-display text-xs font-bold tracking-[0.3em] text-muted-foreground uppercase">
                     {freq} FM
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground/50">
@@ -71,14 +68,14 @@ export function PublicLayout({ children }: PropsWithChildren) {
 
             {/* Mobile bottom tab bar — hidden on desktop */}
             <nav
-                className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-background/95 backdrop-blur-sm sm:hidden"
+                className="fixed right-0 bottom-0 left-0 z-50 flex border-t border-border bg-background/95 backdrop-blur-sm sm:hidden"
                 style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
             >
                 {tabs.map(({ href, label, Icon }) => (
                     <Link
                         key={label}
                         href={href}
-                        className={`flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                        className={`flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-bold tracking-wider uppercase transition-colors ${
                             active(href)
                                 ? 'text-red-500'
                                 : 'text-muted-foreground hover:text-foreground'

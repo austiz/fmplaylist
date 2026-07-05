@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class PiController extends Controller
 {
@@ -115,15 +116,27 @@ class PiController extends Controller
         $skipNext = false;
         if ($token) {
             $skipNext = (bool) $token->pi_skip_next;
-            $token->update([
-                'pi_status'         => $data['status'],
-                'pi_mode'           => $data['mode'],
-                'pi_ip'             => $data['ip'] ?? $token->pi_ip,
-                'pi_skip_next'      => false,  // consume the flag
-                'pi_daemon_hash'    => $data['daemon_hash'] ?? $token->pi_daemon_hash,
-                'disk_free_bytes'   => $data['disk_free_bytes'] ?? $token->disk_free_bytes,
-                'disk_total_bytes'  => $data['disk_total_bytes'] ?? $token->disk_total_bytes,
-            ]);
+
+            $updates = [
+                'pi_status' => $data['status'],
+                'pi_mode' => $data['mode'],
+                'pi_ip' => $data['ip'] ?? $token->pi_ip,
+            ];
+
+            if ($this->piTokenHasColumn('pi_skip_next')) {
+                $updates['pi_skip_next'] = false;
+            }
+            if ($this->piTokenHasColumn('pi_daemon_hash')) {
+                $updates['pi_daemon_hash'] = $data['daemon_hash'] ?? $token->pi_daemon_hash;
+            }
+            if ($this->piTokenHasColumn('disk_free_bytes')) {
+                $updates['disk_free_bytes'] = $data['disk_free_bytes'] ?? $token->disk_free_bytes;
+            }
+            if ($this->piTokenHasColumn('disk_total_bytes')) {
+                $updates['disk_total_bytes'] = $data['disk_total_bytes'] ?? $token->disk_total_bytes;
+            }
+
+            $token->update($updates);
 
             Cache::put("sse.pi_status.{$stationId}", [
                 'online' => true,
@@ -299,6 +312,11 @@ class PiController extends Controller
     }
 
     /** @return array<string, mixed> */
+    private function piTokenHasColumn(string $column): bool
+    {
+        return Schema::hasColumn((new PiToken())->getTable(), $column);
+    }
+
     private function buildConfig(Station $station, PiToken $token): array
     {
         $pendingWifiSsid = Setting::get('pending_wifi_ssid', '', $station->id);
