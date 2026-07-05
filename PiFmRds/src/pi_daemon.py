@@ -49,12 +49,27 @@ STATUS_PATH = os.path.join(SCRIPT_DIR, 'status.json')   # local health snapshot,
 
 
 def _own_daemon_hash() -> str:
-    """Short hash of this running file — reported to the server so admin can see if a newer daemon is available."""
+    """Short hash of the installed Pi source payload."""
     try:
-        with open(os.path.realpath(__file__), 'rb') as f:
-            return hashlib.sha256(f.read()).hexdigest()[:12]
+        hashes = {}
+        for name in os.listdir(SCRIPT_DIR):
+            path = os.path.join(SCRIPT_DIR, name)
+            if not os.path.isfile(path) or not _is_source_manifest_file(name):
+                continue
+            with open(path, 'rb') as f:
+                hashes[name] = hashlib.sha256(f.read()).hexdigest()
+        payload = json.dumps(hashes, sort_keys=True, separators=(',', ':')).encode()
+        return hashlib.sha256(payload).hexdigest()[:12]
     except Exception:
         return ''
+
+
+def _is_source_manifest_file(name: str) -> bool:
+    return (
+        name == 'Makefile'
+        or name == 'FTPA.wav'
+        or name.endswith(('.c', '.h', '.py', '.sh'))
+    )
 
 
 DAEMON_HASH = _own_daemon_hash()
@@ -182,7 +197,15 @@ def media_dir(cfg: dict, media_type: str) -> str:
 
 
 def media_path(cfg: dict, media_type: str, filename: str) -> str:
-    return os.path.join(media_dir(cfg, media_type), filename)
+    if not filename or '/' in filename or '\\' in filename or filename in ('.', '..'):
+        raise ValueError(f'unsafe media filename: {filename!r}')
+
+    base = os.path.realpath(media_dir(cfg, media_type))
+    path = os.path.realpath(os.path.join(base, filename))
+    if os.path.commonpath([base, path]) != base:
+        raise ValueError(f'unsafe media filename: {filename!r}')
+
+    return path
 
 
 def ensure_media_dirs(cfg: dict) -> None:
@@ -405,37 +428,40 @@ def _apply_wifi(pending: dict) -> None:
 
 def _apply_daemon_update(cfg: dict) -> None:
     """
-    Download the latest pi_daemon.py from the server, verify it compiles, and
-    swap it in. Exits the process so systemd (Restart=always) relaunches with
-    the new code — safer than trying to hot-swap code in a running process.
+    Download and run the robust installer. Exits the process so systemd
+    (Restart=always) relaunches after the source payload is refreshed.
     """
     global _update_in_progress
     if _update_in_progress:
         return
     _update_in_progress = True
 
-    dest    = os.path.realpath(__file__)
-    tmp     = dest + '.new'
-    print(f'[{_ts()}][update] downloading latest daemon...')
+    tmp = os.path.join('/tmp', f'fmplaylist-setup-{os.getpid()}.sh')
+    print(f'[{_ts()}][update] downloading latest installer...')
     try:
-        url = cfg['server_url'].rstrip('/') + '/pi/pi_daemon.py'
+        url = cfg['server_url'].rstrip('/') + '/pi/setup.sh'
         req = urllib.request.Request(url, headers={'X-Pi-Token': cfg['api_key']})
         # Code that's about to run with root privileges must never skip certificate
         # validation — no `context=_ssl_ctx(cfg)` here, even if the admin has set
         # verify_ssl=false for convenience on normal API calls.
         with urllib.request.urlopen(req, timeout=30) as resp:
-            new_code = resp.read()
-        if not new_code:
+            installer = resp.read()
+        if not installer:
             raise ValueError('empty download')
 
         with open(tmp, 'wb') as f:
-            f.write(new_code)
+            f.write(installer)
+        os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-        import py_compile
-        py_compile.compile(tmp, doraise=True)
+        result = subprocess.run(
+            ['bash', tmp, cfg['api_key']],
+            timeout=900,
+            cwd=SCRIPT_DIR,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f'installer exited {result.returncode}')
 
-        os.replace(tmp, dest)
-        print(f'[{_ts()}][update] daemon updated — restarting')
+        print(f'[{_ts()}][update] installer completed — restarting')
         _stop_event.set()
         _stop_fm()
         os._exit(0)   # systemd relaunches the service with the new file

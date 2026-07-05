@@ -126,14 +126,58 @@ class PiControllerTest extends TestCase
         $this->postJson('/api/pi/sync-library', ['songs' => []], $this->piHeaders())->assertOk();
     }
 
-    public function test_sync_library_marks_missing_songs_unavailable(): void
+    public function test_sync_library_does_not_mark_missing_songs_unavailable(): void
     {
-        // Song is available in DB but Pi reports it has no songs — DB should mark it unavailable
         $song = Song::factory()->create(['available' => true]);
 
         $this->postJson('/api/pi/sync-library', ['songs' => []], $this->piHeaders())->assertOk();
 
-        $this->assertFalse((bool) $song->fresh()->available);
+        $this->assertTrue((bool) $song->fresh()->available);
+    }
+
+    public function test_second_device_empty_sync_does_not_affect_global_song_availability(): void
+    {
+        $song = Song::factory()->create(['available' => true]);
+        ['raw' => $rawB] = PiToken::generate('Pi B');
+
+        $this->postJson('/api/pi/sync-library', ['songs' => []], ['X-Pi-Token' => $rawB])->assertOk();
+
+        $this->assertTrue((bool) $song->fresh()->available);
+    }
+
+    public function test_sync_library_ignores_runtime_files_without_creating_songs(): void
+    {
+        $song = Song::factory()->create(['available' => true]);
+
+        $this->postJson('/api/pi/sync-library', [
+            'songs' => [
+                ['filename' => 'FTPA.wav', 'file_size' => 123],
+                ['filename' => 'station_id.wav', 'file_size' => 456],
+            ],
+        ], $this->piHeaders())->assertOk();
+
+        $this->assertTrue((bool) $song->fresh()->available);
+        $this->assertDatabaseMissing('songs', ['filename' => 'FTPA.wav']);
+        $this->assertDatabaseMissing('songs', ['filename' => 'station_id.wav']);
+    }
+
+    public function test_sync_library_records_known_song_for_this_device_only(): void
+    {
+        $song = Song::factory()->create(['available' => true, 'filename' => 'known-song.wav']);
+
+        $this->postJson('/api/pi/sync-library', [
+            'songs' => [
+                ['filename' => 'known-song.wav', 'file_size' => 123],
+            ],
+        ], $this->piHeaders())->assertOk();
+
+        $token = PiToken::findByRaw($this->rawToken);
+        $this->assertDatabaseHas('device_downloads', [
+            'pi_token_id' => $token->id,
+            'media_type' => 'song',
+            'media_id' => $song->id,
+        ]);
+        $this->assertTrue((bool) $song->fresh()->available);
     }
 
     public function test_config_endpoint_returns_expected_keys(): void

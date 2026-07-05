@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\Commercial;
+use App\Models\DeviceDownload;
 use App\Models\NowPlaying;
+use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Setting;
 use App\Models\Song;
@@ -43,10 +45,10 @@ class QueueService
             ->map(fn (QueueItem $item) => [
                 'queue_item_id' => $item->id,
                 'song' => [
-                    'id'               => $item->song->id,
-                    'title'            => $item->song->title,
-                    'artist'           => $item->song->artist,
-                    'filename'         => $item->song->filename,
+                    'id' => $item->song->id,
+                    'title' => $item->song->title,
+                    'artist' => $item->song->artist,
+                    'filename' => $item->song->filename,
                     'duration_seconds' => $item->song->duration_seconds,
                 ],
             ])
@@ -96,20 +98,20 @@ class QueueService
                 'title' => $commercial->title,
             ] : null,
             'sound_byte' => $soundByte ? [
-                'id'       => $soundByte->id,
+                'id' => $soundByte->id,
                 'filename' => $soundByte->filename,
-                'title'    => $soundByte->title,
+                'title' => $soundByte->title,
                 'category' => $soundByte->category,
-                'rds_ps'   => $soundByte->rds_ps,
+                'rds_ps' => $soundByte->rds_ps,
             ] : null,
             'next' => $next ? [
-                'queue_item_id'     => $next->id,
+                'queue_item_id' => $next->id,
                 'requested_by_name' => $next->requested_by_name,
                 'song' => [
-                    'id'               => $next->song->id,
-                    'title'            => $next->song->title,
-                    'artist'           => $next->song->artist,
-                    'filename'         => $next->song->filename,
+                    'id' => $next->song->id,
+                    'title' => $next->song->title,
+                    'artist' => $next->song->artist,
+                    'filename' => $next->song->filename,
                     'duration_seconds' => $next->song->duration_seconds,
                 ],
             ] : null,
@@ -151,7 +153,7 @@ class QueueService
             $npPayload = match ($type) {
                 'commercial' => ['type' => 'commercial', 'song' => ['id' => null, 'title' => 'Commercial Break', 'artist' => null], 'queue_item_id' => null, 'started_at' => now()->toIso8601String()],
                 'sound_byte' => ['type' => 'sound_byte',  'song' => ['id' => null, 'title' => 'Radio Drop',       'artist' => null], 'queue_item_id' => null, 'started_at' => now()->toIso8601String()],
-                default       => ['type' => 'song', 'song' => $song ? ['id' => $song->id, 'title' => $song->title, 'artist' => $song->artist, 'duration_seconds' => $song->duration_seconds] : null, 'queue_item_id' => $queueItemId, 'started_at' => now()->toIso8601String()],
+                default => ['type' => 'song', 'song' => $song ? ['id' => $song->id, 'title' => $song->title, 'artist' => $song->artist, 'duration_seconds' => $song->duration_seconds] : null, 'queue_item_id' => $queueItemId, 'started_at' => now()->toIso8601String()],
             };
             Cache::put("sse.now_playing.{$stationId}", $npPayload, 3600);
             $this->bumpQueueVersion($stationId);
@@ -190,11 +192,11 @@ class QueueService
 
             foreach ($songs as $song) {
                 QueueItem::create([
-                    'station_id'        => $stationId,
-                    'song_id'           => $song->id,
+                    'station_id' => $stationId,
+                    'song_id' => $song->id,
                     'requested_by_name' => null,
-                    'position'          => ++$maxPos,
-                    'status'            => 'pending',
+                    'position' => ++$maxPos,
+                    'status' => 'pending',
                 ]);
             }
 
@@ -276,36 +278,52 @@ class QueueService
     }
 
     /**
-     * @param array<int, array{filename: string, file_size?: int|null}> $songs
+     * @param  array<int, array{filename: string, file_size?: int|null}>  $songs
      * @return array{added: int, unchanged: int, removed: int}
      */
-    public function syncLibrary(array $songs): array
+    public function syncLibrary(PiToken $token, array $songs): array
     {
-        $filenames = collect($songs)->pluck('filename')->all();
         $added = 0;
         $unchanged = 0;
 
         foreach ($songs as $data) {
-            $exists = Song::where('filename', $data['filename'])->first();
-            if ($exists) {
-                $exists->update(['available' => true, 'file_size' => $data['file_size'] ?? null]);
-                $unchanged++;
-            } else {
-                Song::create([
-                    'title' => pathinfo($data['filename'], PATHINFO_FILENAME),
-                    'artist' => '',
-                    'filename' => $data['filename'],
-                    'file_size' => $data['file_size'] ?? null,
-                    'available' => true,
-                ]);
+            $filename = (string) ($data['filename'] ?? '');
+            if ($this->isRuntimePiFile($filename)) {
+                continue;
+            }
+
+            $song = Song::where('filename', $filename)->first();
+            if (! $song) {
+                continue;
+            }
+
+            $download = DeviceDownload::firstOrCreate(
+                ['pi_token_id' => $token->id, 'media_type' => 'song', 'media_id' => $song->id],
+                ['downloaded_at' => now()]
+            );
+
+            if ($download->wasRecentlyCreated) {
                 $added++;
+            } else {
+                $unchanged++;
             }
         }
 
-        $removed = Song::whereNotIn('filename', $filenames)->where('available', true)->count();
-        Song::whereNotIn('filename', $filenames)->update(['available' => false]);
+        $removed = 0;
 
         return compact('added', 'unchanged', 'removed');
+    }
+
+    private function isRuntimePiFile(string $filename): bool
+    {
+        if ($filename === '' || basename($filename) !== $filename) {
+            return true;
+        }
+
+        return in_array(strtolower($filename), [
+            'ftpa.wav',
+            'station_id.wav',
+        ], true);
     }
 
     private function compactPositions(int $stationId): void

@@ -37,11 +37,11 @@ class SettingsController extends Controller
         return Inertia::render('admin/settings', [
             'settings' => $settings,
             'wifi' => [
-                'current_ssid'  => Cache::get('pi.wifi_ssid', ''),
-                'networks'      => Cache::get('pi.wifi_networks', []),
-                'pending_ssid'  => Setting::get('pending_wifi_ssid', '', $station->id),
-                'last_status'   => $wifiStatusType,   // 'connected' | 'failed' | ''
-                'last_ssid'     => $wifiStatusSsid,
+                'current_ssid' => Cache::get('pi.wifi_ssid', ''),
+                'networks' => Cache::get('pi.wifi_networks', []),
+                'pending_ssid' => Setting::get('pending_wifi_ssid', '', $station->id),
+                'last_status' => $wifiStatusType,   // 'connected' | 'failed' | ''
+                'last_ssid' => $wifiStatusSsid,
             ],
         ]);
     }
@@ -71,7 +71,7 @@ class SettingsController extends Controller
         $station = $this->activeStation($request);
 
         $data = $request->validate([
-            'ssid'     => ['required', 'string', 'max:100'],
+            'ssid' => ['required', 'string', 'max:100'],
             'password' => ['nullable', 'string', 'max:128'],
         ]);
 
@@ -88,6 +88,6 @@ class SettingsController extends Controller
 
         Setting::set('pi_update_requested', '1', $station->id);
 
-        return back()->with('success', 'Update queued — Pi will pull the latest daemon and restart within 30 seconds.');
+        return back()->with('success', 'Update queued — Pi will refresh the full source payload and restart within 30 seconds.');
     }
 }

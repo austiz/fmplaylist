@@ -7,6 +7,8 @@ use App\Models\Song;
 use App\Models\SoundByte;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class SoundsTest extends TestCase
@@ -103,6 +105,21 @@ class SoundsTest extends TestCase
         $this->assertFalse((bool) $commercial->fresh()->active);
     }
 
+    public function test_commercial_upload_uses_slug_safe_filename(): void
+    {
+        Storage::fake('public');
+
+        $this->actingAs($this->admin)
+            ->post('/admin/commercials/upload', [
+                'title' => 'Wild Sale / 50% Off!',
+                'file' => UploadedFile::fake()->create('spot.wav', 100, 'audio/wav'),
+            ])
+            ->assertRedirect();
+
+        $commercial = Commercial::firstOrFail();
+        $this->assertMatchesRegularExpression('/^wild-sale-50-off_\d+\.wav$/', $commercial->filename);
+    }
+
     public function test_sound_byte_can_be_toggled(): void
     {
         $sb = SoundByte::factory()->create(['active' => true]);
@@ -112,5 +129,21 @@ class SoundsTest extends TestCase
             ->assertRedirect();
 
         $this->assertFalse((bool) $sb->fresh()->active);
+    }
+
+    public function test_sound_byte_upload_uses_slug_safe_filename(): void
+    {
+        Storage::fake('public');
+
+        $this->actingAs($this->admin)
+            ->post('/admin/sound-bytes/upload', [
+                'title' => 'DJ Drop / Wow!',
+                'category' => 'drop',
+                'file' => UploadedFile::fake()->create('drop.wav', 100, 'audio/wav'),
+            ])
+            ->assertRedirect();
+
+        $soundByte = SoundByte::firstOrFail();
+        $this->assertMatchesRegularExpression('/^dj-drop-wow_\d+\.wav$/', $soundByte->filename);
     }
 }

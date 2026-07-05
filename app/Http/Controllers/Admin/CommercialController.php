@@ -8,6 +8,7 @@ use App\Support\AudioDuration;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -28,16 +29,16 @@ class CommercialController extends Controller
         ]);
 
         $file = $data['file'];
-        $filename = time().'_'.str_replace(' ', '_', $data['title']).'.'.$file->extension();
+        $filename = Str::slug($data['title']).'_'.time().'.'.$file->extension();
         $path = $file->storeAs('commercials', $filename, 'public');
 
         Commercial::create([
-            'title'             => $data['title'],
-            'filename'          => $filename,
-            'storage_path'      => $path,
-            'file_size'         => $file->getSize(),
-            'duration_seconds'  => AudioDuration::extract(Storage::disk('public')->path($path)),
-            'active'            => true,
+            'title' => $data['title'],
+            'filename' => $filename,
+            'storage_path' => $path,
+            'file_size' => $file->getSize(),
+            'duration_seconds' => AudioDuration::extract(Storage::disk('public')->path($path)),
+            'active' => true,
             'needs_pi_download' => true,
         ]);
 

@@ -64,7 +64,10 @@ class PiController extends Controller
             'songs.*.file_size' => ['nullable', 'integer'],
         ]);
 
-        $counts = $this->queueService->syncLibrary($data['songs']);
+        /** @var PiToken $token */
+        $token = $request->attributes->get('pi_token');
+
+        $counts = $this->queueService->syncLibrary($token, $data['songs']);
 
         return response()->json(['ok' => true, ...$counts]);
     }
@@ -249,10 +252,10 @@ class PiController extends Controller
             'status' => $status,
             'mode' => $this->piTokenHasColumn('pi_mode') ? ($primary->pi_mode ?? 'normal') : 'normal',
             'ip' => $this->piTokenHasColumn('pi_ip') ? $primary->pi_ip : null,
-            // null hash means the running daemon predates hash-reporting — don't nag until it's known
+            // null hash means the running Pi install predates hash-reporting; don't nag until it's known.
             'update_available' => $this->piTokenHasColumn('pi_daemon_hash')
                 && $primary->pi_daemon_hash !== null
-                && $primary->pi_daemon_hash !== self::currentDaemonHash(),
+                && $primary->pi_daemon_hash !== self::currentPiSourceHash(),
         ]);
     }
 
@@ -366,14 +369,39 @@ class PiController extends Controller
         ];
     }
 
-    /** Short hash of the daemon source currently on the server — compared against what each Pi reports. */
-    private static function currentDaemonHash(): string
+    /** Short hash of the Pi source payload currently on the server, compared against what each Pi reports. */
+    private static function currentPiSourceHash(): string
     {
-        return Cache::remember('pi.latest_daemon_hash', 300, function () {
-            $path = base_path('PiFmRds/src/pi_daemon.py');
-            $contents = file_exists($path) ? file_get_contents($path) : false;
+        return Cache::remember('pi.latest_source_hash', 300, function () {
+            $dir = base_path('PiFmRds/src');
+            $files = glob($dir.'/*') ?: [];
+            $hashes = [];
 
-            return $contents !== false ? substr(hash('sha256', $contents), 0, 12) : '';
+            foreach ($files as $path) {
+                $name = basename($path);
+                if (! is_file($path) || ! self::isPiSourceManifestFile($name)) {
+                    continue;
+                }
+
+                $contents = file_get_contents($path);
+                if ($contents !== false) {
+                    $hashes[$name] = hash('sha256', $contents);
+                }
+            }
+
+            ksort($hashes);
+
+            return substr(hash('sha256', json_encode($hashes, JSON_THROW_ON_ERROR)), 0, 12);
         });
+    }
+
+    private static function isPiSourceManifestFile(string $name): bool
+    {
+        return $name === 'Makefile'
+            || $name === 'FTPA.wav'
+            || str_ends_with($name, '.c')
+            || str_ends_with($name, '.h')
+            || str_ends_with($name, '.py')
+            || str_ends_with($name, '.sh');
     }
 }
