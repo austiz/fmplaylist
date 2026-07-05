@@ -25,6 +25,7 @@ import json
 import math
 import os
 import queue
+import stat
 import shutil
 import signal
 import socket
@@ -92,6 +93,9 @@ _stop_event     = threading.Event()   # set on SIGTERM/SIGINT
 _stop_live      = threading.Event()
 _freq_interrupt = threading.Event()   # set when freq changes — audio loop returns
 _skip_event     = threading.Event()   # set when admin presses skip
+_emergency_event = threading.Event()  # set by _handle_emergency — audio loop waits
+                                       # longer for this segment so it can't lose a
+                                       # race to the fallback song
 
 _local: dict = {}
 
@@ -110,6 +114,11 @@ _fallback_pcm: 'bytes | None' = None
 # WiFi state — reported back to server via heartbeat so admin can see result
 _wifi_applied_ssid: str = ''   # set after successful wifi_setup.sh run
 _wifi_failed_ssid:  str = ''   # set after failed run
+
+# A wifi scan is a heavy, blocking op (nmcli/iwlist) on Pi Zero 2 W's weaker
+# wifi chip — cache results instead of re-scanning on every 30 s heartbeat
+_WIFI_SCAN_INTERVAL_S = 120.0
+_wifi_cache: dict = {'ts': 0.0, 'data': {'current': '', 'networks': []}}
 
 # Guards against re-triggering a self-update while one is already downloading/restarting
 _update_in_progress: bool = False
@@ -253,6 +262,20 @@ def api_post(cfg: dict, path: str, body: dict, _retries: int = 3):
 
 
 def _get_wifi_info() -> dict:
+    """Cached wrapper around `_scan_wifi_info` — the admin UI doesn't need
+    fresher than `_WIFI_SCAN_INTERVAL_S`, and scanning on every 30 s heartbeat
+    was a heavy, blocking op competing with the audio path for CPU.
+    """
+    now = time.time()
+    if now - _wifi_cache['ts'] < _WIFI_SCAN_INTERVAL_S:
+        return _wifi_cache['data']
+    data = _scan_wifi_info()
+    _wifi_cache['data'] = data
+    _wifi_cache['ts']   = now
+    return data
+
+
+def _scan_wifi_info() -> dict:
     """Return current SSID + a list of nearby networks for the admin UI."""
     try:
         import re as _re
@@ -264,6 +287,7 @@ def _get_wifi_info() -> dict:
             r = subprocess.run(
                 ['nmcli', '-t', '-f', 'IN-USE,SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list'],
                 capture_output=True, text=True, timeout=10,
+                preexec_fn=_low_priority,
             )
             seen: set[str] = set()
             for line in r.stdout.splitlines():
@@ -293,6 +317,7 @@ def _get_wifi_info() -> dict:
                 ['iwlist', 'wlan0', 'scan'],
                 capture_output=True, text=True, timeout=15,
                 env={**os.environ, 'LANG': 'C'},
+                preexec_fn=_low_priority,
             )
             seen2: set[str] = set()
             for cell in r_scan.stdout.split('Cell ')[1:]:
@@ -325,36 +350,46 @@ def _get_wifi_info() -> dict:
 
 def _apply_wifi(pending: dict) -> None:
     """Run wifi_setup.sh in a daemon thread; report result via next heartbeat."""
-    global _wifi_applied_ssid, _wifi_failed_ssid
+    global _wifi_applied_ssid, _wifi_failed_ssid, _wifi_pending_ssid
     ssid     = pending.get('ssid', '')
     password = pending.get('password', '')
     script   = os.path.join(SCRIPT_DIR, 'wifi_setup.sh')
 
-    if not ssid:
-        print(f'[{_ts()}][wifi] pending_wifi has no SSID — skipping')
-        return
-    if not os.path.exists(script):
-        print(f'[{_ts()}][wifi] wifi_setup.sh not found at {script}')
-        return
-
-    print(f'[{_ts()}][wifi] applying new network: "{ssid}"')
     try:
-        r = subprocess.run(
-            ['sudo', 'bash', script, ssid, password],
-            capture_output=False, timeout=90,
-        )
-        if r.returncode == 0:
-            print(f'[{_ts()}][wifi] ✓ connected to "{ssid}"')
-            _wifi_applied_ssid = ssid
-            _wifi_failed_ssid  = ''
-        else:
-            print(f'[{_ts()}][wifi] ✗ failed to connect to "{ssid}" — rolled back')
+        if not ssid:
+            print(f'[{_ts()}][wifi] pending_wifi has no SSID — skipping')
+            return
+        if not os.path.exists(script):
+            print(f'[{_ts()}][wifi] wifi_setup.sh not found at {script}')
+            return
+
+        print(f'[{_ts()}][wifi] applying new network: "{ssid}"')
+        try:
+            # Password goes over stdin (script reads it when arg 2 is "-"), not argv —
+            # argv is visible to any local process via `ps`/`/proc/<pid>/cmdline` for
+            # the whole ~90s connection attempt.
+            r = subprocess.run(
+                ['sudo', 'bash', script, ssid, '-'],
+                input=(password + '\n').encode(),
+                capture_output=False, timeout=90,
+            )
+            if r.returncode == 0:
+                print(f'[{_ts()}][wifi] ✓ connected to "{ssid}"')
+                _wifi_applied_ssid = ssid
+                _wifi_failed_ssid  = ''
+            else:
+                print(f'[{_ts()}][wifi] ✗ failed to connect to "{ssid}" — rolled back')
+                _wifi_failed_ssid  = ssid
+                _wifi_applied_ssid = ''
+        except Exception as exc:
+            print(f'[{_ts()}][wifi] ERROR running wifi_setup.sh: {exc}')
             _wifi_failed_ssid  = ssid
             _wifi_applied_ssid = ''
-    except Exception as exc:
-        print(f'[{_ts()}][wifi] ERROR running wifi_setup.sh: {exc}')
-        _wifi_failed_ssid  = ssid
-        _wifi_applied_ssid = ''
+    finally:
+        # Allow the same SSID to be retried later (e.g. admin fixes a bad password) —
+        # without this, a failed attempt permanently blocks retrying this SSID for the
+        # rest of the daemon's uptime.
+        _wifi_pending_ssid = ''
 
 
 def _apply_daemon_update(cfg: dict) -> None:
@@ -373,8 +408,11 @@ def _apply_daemon_update(cfg: dict) -> None:
     print(f'[{_ts()}][update] downloading latest daemon...')
     try:
         url = cfg['server_url'].rstrip('/') + '/pi/pi_daemon.py'
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx(cfg)) as resp:
+        req = urllib.request.Request(url, headers={'X-Pi-Token': cfg['api_key']})
+        # Code that's about to run with root privileges must never skip certificate
+        # validation — no `context=_ssl_ctx(cfg)` here, even if the admin has set
+        # verify_ssl=false for convenience on normal API calls.
+        with urllib.request.urlopen(req, timeout=30) as resp:
             new_code = resp.read()
         if not new_code:
             raise ValueError('empty download')
@@ -419,6 +457,7 @@ def _handle_emergency(cfg: dict, filename: str) -> None:
         filepath=filepath, title='Emergency Broadcast',
         artist='', queue_item_id=None, media_type='sound_byte',
     ))
+    _emergency_event.set()
     _skip_event.set()
 
 
@@ -519,7 +558,13 @@ def _process_pending_downloads(cfg: dict, heartbeat: dict) -> None:
                 req = urllib.request.Request(safe_url)
                 with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx(cfg)) as resp:
                     with open(dest, 'wb') as f:
-                        f.write(resp.read())
+                        # Stream in chunks rather than resp.read() — songs/commercials
+                        # can be tens of MB and this runs on memory-constrained Pis.
+                        while True:
+                            chunk = resp.read(1 << 20)   # 1 MB
+                            if not chunk:
+                                break
+                            f.write(chunk)
                 print(f'[download] saved {filename} ({os.path.getsize(dest) // 1024} KB)')
                 api_post(cfg, '/api/pi/confirm-download', {'type': media_type, 'item_id': item_id})
                 break
@@ -622,6 +667,30 @@ def _update_rds(ps: str, rt: str) -> None:
         pass   # no reader yet or FM not running — startup args cover this case
 
 
+def _rt_priority() -> None:
+    """preexec_fn for pi_fm_rds: real-time (SCHED_FIFO) scheduling so its 5 ms
+    DMA-refill loop always gets a CPU slot, even when ffmpeg/espeak/nmcli are
+    saturating all four cores on a Pi Zero 2 W. os.nice alone doesn't guarantee
+    this — nice only weights the fair scheduler, it doesn't preempt.
+    """
+    try:
+        os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(10))
+    except OSError:
+        pass
+
+
+def _low_priority() -> None:
+    """preexec_fn for CPU-heavy, non-time-critical children (ffmpeg decode,
+    espeak TTS, wifi scans). These inherit the daemon's nice=-15 by default,
+    which puts them on equal footing with pi_fm_rds and lets them starve it
+    under load — explicitly de-prioritize them so they yield instead.
+    """
+    try:
+        os.nice(12)
+    except OSError:
+        pass
+
+
 def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
     global _fm_proc
     with _fm_lock:
@@ -631,12 +700,19 @@ def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
         _rt = rt or rds_rt(cfg)
         print(f'[{_ts()}][FM] starting at {cfg["freq"]} MHz  ps="{_ps.strip()}"')
 
-        # Named pipe for live RDS updates without restarting pi_fm_rds
+        # Named pipe for live RDS updates without restarting pi_fm_rds. Failures here
+        # are loud, not swallowed — a silently-missing/wrong-type FIFO means every
+        # future _update_rds() call becomes a no-op (or writes into a regular file)
+        # with zero indication that live RDS text updates have stopped working.
         if not os.path.exists(FM_CTL_FIFO):
             try:
                 os.mkfifo(FM_CTL_FIFO)
-            except OSError:
-                pass
+            except OSError as e:
+                print(f'[{_ts()}][FM] ERROR: could not create control FIFO {FM_CTL_FIFO}: {e} '
+                      f'— live RDS updates disabled until this is fixed')
+        elif not stat.S_ISFIFO(os.stat(FM_CTL_FIFO).st_mode):
+            print(f'[{_ts()}][FM] ERROR: {FM_CTL_FIFO} exists but is not a FIFO — '
+                  f'live RDS updates disabled until this path is removed')
 
         try:
             _fm_proc = subprocess.Popen(
@@ -649,6 +725,7 @@ def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
                     '-ctl',  FM_CTL_FIFO,
                 ],
                 stdin=subprocess.PIPE,
+                preexec_fn=_rt_priority,
             )
             _write_streaming_wav_header(_fm_proc.stdin)
             return True
@@ -785,6 +862,16 @@ def _make_fallback_seg(cfg: dict, local: dict) -> 'AudioSegment | None':
     )
 
 
+def _cleanup_temp_segment(seg: 'AudioSegment') -> None:
+    """Removes a delete-after-decode temp file (e.g. a TTS shoutout wav) regardless of
+    whether decode succeeded — otherwise a failed decode leaks it in /tmp forever."""
+    if seg.delete_after_decode and os.path.exists(seg.filepath):
+        try:
+            os.remove(seg.filepath)
+        except OSError:
+            pass
+
+
 def _decoder_loop() -> None:
     """
     DecoderThread — runs forever.
@@ -799,63 +886,80 @@ def _decoder_loop() -> None:
         except queue.Empty:
             continue
 
-        if not os.path.exists(seg.filepath):
-            print(f'[{_ts()}][decoder] MISSING {os.path.basename(seg.filepath)} — skipping')
-            continue
-
-        t0 = time.monotonic()
-        print(f'[{_ts()}][decoder] decoding "{seg.title}"')
         try:
-            ff = subprocess.Popen(
-                ['ffmpeg', '-hide_banner', '-loglevel', 'error',
-                 '-i', seg.filepath,
-                 '-f', 's16le', '-ar', str(SAMPLE_RATE), '-ac', str(CHANNELS), 'pipe:1'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
+            _decode_one(seg)
         except Exception as e:
-            print(f'[{_ts()}][decoder] ERROR spawning ffmpeg for "{seg.title}": {e}')
-            continue
+            # Nothing supervises/restarts this thread — an unexpected exception here
+            # must never be allowed to kill it silently, or decoding stops forever.
+            print(f'[{_ts()}][decoder] ERROR unexpected exception on "{seg.title}": {e} — continuing')
 
+
+def _decode_one(seg: 'AudioSegment') -> None:
+    """Decode one AudioSegment to PCM and push it to _ready_q."""
+    if not os.path.exists(seg.filepath):
+        print(f'[{_ts()}][decoder] MISSING {os.path.basename(seg.filepath)} — skipping')
+        return
+
+    t0 = time.monotonic()
+    print(f'[{_ts()}][decoder] decoding "{seg.title}"')
+    try:
+        ff = subprocess.Popen(
+            ['ffmpeg', '-hide_banner', '-loglevel', 'error',
+             '-i', seg.filepath,
+             '-f', 's16le', '-ar', str(SAMPLE_RATE), '-ac', str(CHANNELS), 'pipe:1'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            preexec_fn=_low_priority,
+        )
+    except Exception as e:
+        print(f'[{_ts()}][decoder] ERROR spawning ffmpeg for "{seg.title}": {e}')
+        _cleanup_temp_segment(seg)
+        return
+
+    try:
+        seg.pcm = ff.stdout.read()
+        ff.wait(timeout=10)
+    except Exception as e:
+        print(f'[{_ts()}][decoder] ERROR "{seg.title}": {e}')
+        # This loop runs 24/7 — an occasional corrupt/oversized file must not leave
+        # the ffmpeg child as an unreaped zombie or its stdout pipe fd leaked.
         try:
-            seg.pcm = ff.stdout.read()
-            ff.wait(timeout=10)
-        except Exception as e:
-            print(f'[{_ts()}][decoder] ERROR "{seg.title}": {e}')
-            # This loop runs 24/7 — an occasional corrupt/oversized file must not leave
-            # the ffmpeg child as an unreaped zombie or its stdout pipe fd leaked.
-            try:
-                ff.kill()
-                ff.wait(timeout=3)
-            except Exception:
-                pass
-            continue
-        finally:
-            try:
-                ff.stdout.close()
-            except Exception:
-                pass
+            ff.kill()
+            ff.wait(timeout=3)
+        except Exception:
+            pass
+        _cleanup_temp_segment(seg)
+        return
+    finally:
+        try:
+            ff.stdout.close()
+        except Exception:
+            pass
 
-        if seg.delete_after_decode and os.path.exists(seg.filepath):
-            try:
-                os.remove(seg.filepath)
-            except OSError:
-                pass
+    _cleanup_temp_segment(seg)
 
-        if not seg.pcm:
-            print(f'[{_ts()}][decoder] empty PCM for "{seg.title}" — skipping')
-            continue
+    if not seg.pcm:
+        print(f'[{_ts()}][decoder] empty PCM for "{seg.title}" — skipping')
+        return
 
-        seg.duration_s = len(seg.pcm) / BYTES_PER_SEC
+    seg.duration_s = len(seg.pcm) / BYTES_PER_SEC
 
-        if FADE_IN_SECS > 0 and seg.media_type != 'fallback':
-            seg.pcm = _apply_fade_in(seg.pcm, int(FADE_IN_SECS * BYTES_PER_SEC))
+    # Decoded PCM is fully memory-resident (needed for the numpy crossfade math),
+    # bounded in the common case by _ready_q's maxsize=3 backpressure. An abnormally
+    # long file (e.g. a DJ mix uploaded as a "song" by mistake) blows past that
+    # budget silently — surface it so it shows up in logs, not just as an OOM later.
+    if seg.duration_s > 1200:
+        print(f'[{_ts()}][decoder] WARNING "{seg.title}" is {seg.duration_s / 60:.1f} min '
+              f'({len(seg.pcm) // (1 << 20)}MB PCM) — unusually large for a queued item')
 
-        elapsed = time.monotonic() - t0
-        print(f'[{_ts()}][decoder] ready "{seg.title}" '
-              f'{seg.duration_s:.1f}s in {elapsed:.1f}s ({len(seg.pcm) // 1024}KB PCM)')
+    if FADE_IN_SECS > 0 and seg.media_type != 'fallback':
+        seg.pcm = _apply_fade_in(seg.pcm, int(FADE_IN_SECS * BYTES_PER_SEC))
 
-        _ready_q.put(seg)   # blocks when _ready_q is full — natural backpressure
+    elapsed = time.monotonic() - t0
+    print(f'[{_ts()}][decoder] ready "{seg.title}" '
+          f'{seg.duration_s:.1f}s in {elapsed:.1f}s ({len(seg.pcm) // 1024}KB PCM)')
+
+    _ready_q.put(seg)   # blocks when _ready_q is full — natural backpressure
 
 
 def _audio_write_loop(cfg: dict, local: dict) -> None:
@@ -942,8 +1046,14 @@ def _audio_write_loop(cfg: dict, local: dict) -> None:
             continue
 
         # ── Transition to next segment ────────────────────────────────────────
-        # Get next from _ready_q (silence fill while waiting)
-        timeout_s = 2.0 if skipped else 5.0
+        # Get next from _ready_q (silence fill while waiting). An emergency broadcast
+        # gets a much longer wait so a busy decoder can't make it lose the race to the
+        # fallback song — normal skips stay snappy at 2s.
+        if _emergency_event.is_set():
+            timeout_s = 15.0
+            _emergency_event.clear()
+        else:
+            timeout_s = 2.0 if skipped else 5.0
         nxt: 'AudioSegment | None' = _get_next_decoded(timeout=timeout_s)
 
         if nxt is None:
@@ -1016,145 +1126,173 @@ def _scheduler_loop(local: dict) -> None:
     Never touches the FM pipe or reads/writes audio data.
     """
     print(f'[{_ts()}][scheduler] started')
-    last_hb   = 0.0
-    last_sync = time.time()
-    last_poll = 0.0
+    state = {'local': local, 'last_hb': 0.0, 'last_sync': time.time(), 'last_poll': 0.0}
 
     while not _stop_event.is_set():
-        cfg = merged_cfg(local)
-
-        # ── Now-playing events from audio thread ──────────────────────────────
-        while not _now_playing_q.empty():
-            try:
-                ev = _now_playing_q.get_nowait()
-            except queue.Empty:
-                break
-            body = {k: v for k, v in ev.items() if v is not None}
-            threading.Thread(
-                target=api_post, args=(cfg, '/api/pi/now-playing', body),
-                daemon=True,
-            ).start()
-
-        # ── Heartbeat every 30 s ──────────────────────────────────────────────
-        if time.time() - last_hb > 30:
-            send_heartbeat(cfg, 'playing', 'normal')
-            last_hb = time.time()
-            local   = load_local_config()   # pick up freq changes saved by heartbeat
-            # In custom RDS mode push admin-set text immediately after heartbeat
-            # (auto mode is driven per-song by the audio thread)
-            if _remote_cfg.get('rds_rt_mode') == 'custom':
-                _update_rds(rds_ps(cfg), rds_rt(cfg))
-
-        # ── Library sync every hour ───────────────────────────────────────────
-        if time.time() - last_sync > 3600:
-            threading.Thread(target=sync_library, args=(local,), daemon=True).start()
-            last_sync = time.time()
-
-        # ── Skip polling when queue is already healthy ────────────────────────
-        # _ready_q's maxsize=3 backpressure means this combined depth sits at
-        # or above 4 for nearly all of steady-state playback — so without a
-        # staleness cap, this shortcut would starve real polling almost
-        # entirely and admin "force commercial/sound byte" actions (and
-        # interval-based rotation, which is only ever discovered via this same
-        # poll) could go unnoticed indefinitely. Force a real poll at least
-        # every 15s regardless of local pipeline depth.
-        queue_healthy = _schedule_q.qsize() + _ready_q.qsize() >= 4
-        if queue_healthy and time.time() - last_poll < 15:
+        try:
+            _scheduler_tick(state)
+        except Exception as e:
+            # Nothing supervises/restarts this thread — an unexpected exception (e.g.
+            # an unexpected server response shape) must never be allowed to kill it
+            # silently: that would silently stop all future heartbeats and queue
+            # polling for the rest of the daemon's uptime, with no crash to trigger
+            # systemd's Restart=always.
+            print(f'[{_ts()}][scheduler] ERROR unexpected exception: {e} — continuing')
             time.sleep(2)
-            continue
 
-        # ── Poll server for upcoming items ────────────────────────────────────
-        queue_data = api_get(cfg, '/api/pi/queue?lookahead=3')
-        if not queue_data:
-            print(f'[{_ts()}][scheduler] API unreachable — retrying in 5s')
-            time.sleep(5)
-            continue
-        last_poll = time.time()
 
-        candidates: list[tuple[str, dict]] = []
-        if queue_data.get('commercial'):
-            candidates.append(('commercial', queue_data['commercial']))
-        if queue_data.get('sound_byte'):
-            candidates.append(('sound_byte', queue_data['sound_byte']))
-        if queue_data.get('next'):
-            candidates.append(('song', queue_data['next']))
-        for upcoming_item in queue_data.get('upcoming', []):
-            candidates.append(('song', upcoming_item))
+def _scheduler_tick(state: dict) -> None:
+    """One scheduler iteration: drain now-playing events, heartbeat, sync, poll+queue."""
+    local = state['local']
+    cfg = merged_cfg(local)
 
-        pushed_any = False
-        for media_type, item in candidates:
-            try:
-                if media_type == 'commercial':
-                    key = f'commercial:{item["id"]}'
-                    seg = AudioSegment(
-                        filepath      = media_path(local, 'commercial', item['filename']),
-                        title         = item['title'],
-                        artist        = '',
-                        queue_item_id = None,
-                        media_type    = 'commercial',
-                        item_id       = item['id'],
-                    )
-                elif media_type == 'sound_byte':
-                    key = f'sound_byte:{item["id"]}'
-                    seg = AudioSegment(
-                        filepath      = media_path(local, 'sound_byte', item['filename']),
-                        title         = item['title'],
-                        artist        = '',
-                        queue_item_id = None,
-                        media_type    = 'sound_byte',
-                        item_id       = item['id'],
-                    )
-                else:   # song
-                    key  = f'song:{item["queue_item_id"]}'
-                    song = item['song']
-                    seg  = AudioSegment(
-                        filepath      = os.path.join(local['song_dir'], song['filename']),
-                        title         = song['title'],
-                        artist        = song.get('artist') or '',
-                        queue_item_id = item['queue_item_id'],
-                        media_type    = 'song',
-                    )
+    # ── Now-playing events from audio thread ──────────────────────────────
+    while not _now_playing_q.empty():
+        try:
+            ev = _now_playing_q.get_nowait()
+        except queue.Empty:
+            break
+        body = {k: v for k, v in ev.items() if v is not None}
+        threading.Thread(
+            target=api_post, args=(cfg, '/api/pi/now-playing', body),
+            daemon=True,
+        ).start()
 
-                if key in _recently_pushed:
-                    continue
+    # ── Heartbeat every 30 s ──────────────────────────────────────────────
+    if time.time() - state['last_hb'] > 30:
+        send_heartbeat(cfg, 'playing', 'normal')
+        state['last_hb'] = time.time()
+        local = load_local_config()   # pick up freq changes saved by heartbeat
+        state['local'] = local
+        # In custom RDS mode push admin-set text immediately after heartbeat
+        # (auto mode is driven per-song by the audio thread)
+        if _remote_cfg.get('rds_rt_mode') == 'custom':
+            _update_rds(rds_ps(cfg), rds_rt(cfg))
 
-                # TTS shoutout before the song if a requester name is present
-                if media_type == 'song':
-                    requested_by = _shoutout_name(item)
-                    if requested_by and shutil.which('espeak'):
-                        shout_key = f'shoutout:{item["queue_item_id"]}'
-                        if shout_key not in _recently_pushed:
-                            wav_path = f'/tmp/shoutout_{item["queue_item_id"]}.wav'
-                            try:
-                                r = subprocess.run(
-                                    ['espeak', '-v', 'en', '-s', '145', '-w', wav_path,
-                                     f'Coming up for {requested_by}'],
-                                    capture_output=True, timeout=5,
-                                )
-                                if r.returncode == 0:
-                                    _recently_pushed.append(shout_key)
-                                    _schedule_q.put(AudioSegment(
-                                        filepath=wav_path,
-                                        title=f'Shoutout for {requested_by}',
-                                        artist='', queue_item_id=None,
-                                        media_type='sound_byte',
-                                        delete_after_decode=True,
-                                    ))
-                                    print(f'[{_ts()}][shoutout] queued for {requested_by}')
-                            except Exception as e:
-                                print(f'[{_ts()}][shoutout] ERROR: {e}')
+    # ── Library sync every hour ───────────────────────────────────────────
+    if time.time() - state['last_sync'] > 3600:
+        threading.Thread(target=sync_library, args=(local,), daemon=True).start()
+        state['last_sync'] = time.time()
 
-                _recently_pushed.append(key)
-                _schedule_q.put(seg)
-                pushed_any = True
-                print(f'[{_ts()}][scheduler] queued for decode: "{seg.title}" ({media_type})')
-            except Exception as e:
-                print(f'[{_ts()}][scheduler] ERROR processing {media_type} item {item!r}: {e} — skipping')
+    # ── Skip polling when queue is already healthy ────────────────────────
+    # _ready_q's maxsize=3 backpressure means this combined depth sits at
+    # or above 4 for nearly all of steady-state playback — so without a
+    # staleness cap, this shortcut would starve real polling almost
+    # entirely and admin "force commercial/sound byte" actions (and
+    # interval-based rotation, which is only ever discovered via this same
+    # poll) could go unnoticed indefinitely. Force a real poll at least
+    # every 15s regardless of local pipeline depth.
+    queue_healthy = _schedule_q.qsize() + _ready_q.qsize() >= 4
+    if queue_healthy and time.time() - state['last_poll'] < 15:
+        time.sleep(2)
+        return
 
-        if not pushed_any and not queue_data.get('next'):
-            print(f'[{_ts()}][scheduler] server queue empty')
-
+    # ── Poll server for upcoming items ────────────────────────────────────
+    queue_data = api_get(cfg, '/api/pi/queue?lookahead=3')
+    if not queue_data:
+        print(f'[{_ts()}][scheduler] API unreachable — retrying in 5s')
         time.sleep(5)
+        return
+    state['last_poll'] = time.time()
+
+    candidates: list[tuple[str, dict]] = []
+    if queue_data.get('commercial'):
+        candidates.append(('commercial', queue_data['commercial']))
+    if queue_data.get('sound_byte'):
+        candidates.append(('sound_byte', queue_data['sound_byte']))
+    if queue_data.get('next'):
+        candidates.append(('song', queue_data['next']))
+    for upcoming_item in queue_data.get('upcoming', []):
+        candidates.append(('song', upcoming_item))
+
+    pushed_any = False
+    for media_type, item in candidates:
+        try:
+            if media_type == 'commercial':
+                key = f'commercial:{item["id"]}'
+                seg = AudioSegment(
+                    filepath      = media_path(local, 'commercial', item['filename']),
+                    title         = item['title'],
+                    artist        = '',
+                    queue_item_id = None,
+                    media_type    = 'commercial',
+                    item_id       = item['id'],
+                )
+            elif media_type == 'sound_byte':
+                key = f'sound_byte:{item["id"]}'
+                seg = AudioSegment(
+                    filepath      = media_path(local, 'sound_byte', item['filename']),
+                    title         = item['title'],
+                    artist        = '',
+                    queue_item_id = None,
+                    media_type    = 'sound_byte',
+                    item_id       = item['id'],
+                )
+            else:   # song
+                key  = f'song:{item["queue_item_id"]}'
+                song = item['song']
+                seg  = AudioSegment(
+                    filepath      = os.path.join(local['song_dir'], song['filename']),
+                    title         = song['title'],
+                    artist        = song.get('artist') or '',
+                    queue_item_id = item['queue_item_id'],
+                    media_type    = 'song',
+                )
+
+            if key in _recently_pushed:
+                continue
+
+            # TTS shoutout before the song if a requester name is present
+            if media_type == 'song':
+                requested_by = _shoutout_name(item)
+                if requested_by and shutil.which('espeak'):
+                    shout_key = f'shoutout:{item["queue_item_id"]}'
+                    if shout_key not in _recently_pushed:
+                        wav_path = f'/tmp/shoutout_{item["queue_item_id"]}.wav'
+                        # Mark this shoutout as handled regardless of outcome — a failure
+                        # is a nice-to-have miss, not worth retrying every 5s scheduler
+                        # poll until the song finally plays.
+                        _recently_pushed.append(shout_key)
+                        try:
+                            r = subprocess.run(
+                                ['espeak', '-v', 'en', '-s', '145', '-w', wav_path,
+                                 f'Coming up for {requested_by}'],
+                                capture_output=True, timeout=5,
+                                preexec_fn=_low_priority,
+                            )
+                            if r.returncode == 0:
+                                _schedule_q.put(AudioSegment(
+                                    filepath=wav_path,
+                                    title=f'Shoutout for {requested_by}',
+                                    artist='', queue_item_id=None,
+                                    media_type='sound_byte',
+                                    delete_after_decode=True,
+                                ))
+                                print(f'[{_ts()}][shoutout] queued for {requested_by}')
+                            else:
+                                print(f'[{_ts()}][shoutout] ERROR espeak exit={r.returncode} '
+                                      f'stderr={r.stderr.decode(errors="replace")[:200]!r}')
+                                if os.path.exists(wav_path):
+                                    os.remove(wav_path)
+                        except Exception as e:
+                            print(f'[{_ts()}][shoutout] ERROR: {e}')
+                            if os.path.exists(wav_path):
+                                try:
+                                    os.remove(wav_path)
+                                except OSError:
+                                    pass
+
+            _recently_pushed.append(key)
+            _schedule_q.put(seg)
+            pushed_any = True
+            print(f'[{_ts()}][scheduler] queued for decode: "{seg.title}" ({media_type})')
+        except Exception as e:
+            print(f'[{_ts()}][scheduler] ERROR processing {media_type} item {item!r}: {e} — skipping')
+
+    if not pushed_any and not queue_data.get('next'):
+        print(f'[{_ts()}][scheduler] server queue empty')
+
+    time.sleep(5)
 
 
 # ── Live Stream ───────────────────────────────────────────────────────────────

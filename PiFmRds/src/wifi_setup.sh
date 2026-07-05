@@ -4,6 +4,10 @@
 #
 # Usage: sudo bash wifi_setup.sh "SSID" "PASSWORD"
 #        sudo bash wifi_setup.sh "OpenNet" ""   # open / no password
+#        sudo bash wifi_setup.sh "SSID" -       # password read from stdin instead
+#                                                # of argv (keeps it out of `ps`/
+#                                                # /proc/<pid>/cmdline) — this is
+#                                                # what pi_daemon.py uses.
 #
 # Exit codes:
 #   0 = connected successfully
@@ -12,7 +16,11 @@
 set -eo pipefail
 
 SSID="${1:-}"
-PASSWORD="${2:-}"
+if [ "${2:-}" = "-" ]; then
+    IFS= read -r PASSWORD
+else
+    PASSWORD="${2:-}"
+fi
 IFACE="${3:-wlan0}"
 TEST_HOST="8.8.8.8"
 CONNECT_TIMEOUT=35  # seconds to wait for IP + internet
