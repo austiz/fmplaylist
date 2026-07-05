@@ -9,11 +9,13 @@ use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SongAdminController;
 use App\Http\Controllers\Admin\SoundByteController;
 use App\Http\Controllers\Admin\SoundsController;
+use App\Http\Controllers\Admin\StationController;
 use App\Http\Controllers\Admin\TokenController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\PiSetupController;
 use App\Http\Controllers\QueueController;
 use App\Http\Controllers\SongController;
+use App\Http\Middleware\EnsureActiveStation;
 use Illuminate\Support\Facades\Route;
 
 // Pi setup download routes
@@ -37,11 +39,15 @@ Route::post('/songs/{song}/request', [SongController::class, 'request'])
     ->name('songs.request')
     ->middleware('throttle:5,1');
 Route::get('/queue', [QueueController::class, 'index'])->name('queue.index');
+Route::get('/drive', [HomeController::class, 'drive'])->name('drive');
 
 // Admin (dashboard alias for Wayfinder compatibility)
 Route::middleware(['auth'])->get('/dashboard', fn () => redirect('/admin'))->name('dashboard');
 
-Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () {
+Route::middleware(['auth', EnsureActiveStation::class])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/stations', [StationController::class, 'index'])->name('stations');
+    Route::post('/stations', [StationController::class, 'store'])->name('stations.store');
+    Route::post('/stations/switch', [StationController::class, 'switch'])->name('stations.switch');
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/broadcast', [BroadcastController::class, 'index'])->name('broadcast');
     Route::post('/broadcast/mode', [BroadcastController::class, 'setMode'])->name('broadcast.mode');
@@ -69,7 +75,10 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::post('/settings/wifi', [SettingsController::class, 'connectWifi'])->name('settings.wifi');
     Route::post('/pi/update', [SettingsController::class, 'pushDaemonUpdate'])->name('pi.update');
     Route::get('/tokens', [TokenController::class, 'index'])->name('tokens');
-    Route::post('/tokens/regenerate', [TokenController::class, 'regenerate'])->name('tokens.regenerate');
+    Route::post('/tokens', [TokenController::class, 'store'])->name('tokens.store');
+    Route::patch('/tokens/{token}', [TokenController::class, 'update'])->name('tokens.update');
+    Route::post('/tokens/{token}/regenerate', [TokenController::class, 'regenerate'])->name('tokens.regenerate');
+    Route::delete('/tokens/{token}', [TokenController::class, 'destroy'])->name('tokens.destroy');
     Route::get('/history', [HistoryController::class, 'index'])->name('history');
     Route::delete('/queue/{queueItem}', [QueueAdminController::class, 'destroy'])->name('queue.destroy');
 });

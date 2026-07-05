@@ -2,23 +2,30 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Controller;
 use App\Models\NowPlaying;
 use App\Models\QueueItem;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function index(): Response
-    {
-        $nowPlaying = NowPlaying::with('song')->find(1);
+    use HasActiveStation;
 
-        $pendingItems = QueueItem::with('song')->pending()->get();
+    public function index(Request $request): Response
+    {
+        $station = $this->activeStation($request);
+
+        $nowPlaying = NowPlaying::forStation($station->id);
+
+        $pendingItems = QueueItem::with('song')->where('station_id', $station->id)->pending()->get();
 
         $queueRuntimeSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song?->duration_seconds ?? 0);
 
         $recentRequests = QueueItem::with('song')
+            ->where('station_id', $station->id)
             ->orderByDesc('created_at')
             ->take(20)
             ->get()
@@ -41,8 +48,8 @@ class DashboardController extends Controller
             'queueRuntimeSeconds' => $queueRuntimeSeconds,
             'recentRequests' => $recentRequests,
             'stats' => [
-                'requestsToday' => QueueItem::whereDate('created_at', today())->count(),
-                'songsPlayedToday' => QueueItem::played()->whereDate('played_at', today())->count(),
+                'requestsToday' => QueueItem::where('station_id', $station->id)->whereDate('created_at', today())->count(),
+                'songsPlayedToday' => QueueItem::where('station_id', $station->id)->played()->whereDate('played_at', today())->count(),
             ],
         ]);
     }

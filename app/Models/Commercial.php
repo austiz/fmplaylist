@@ -39,9 +39,9 @@ class Commercial extends Model
     }
 
     /** Next in sequential rotation after the last-played id. Wraps around. */
-    public static function nextInRotation(): ?self
+    public static function nextInRotation(?int $stationId = null): ?self
     {
-        $lastId = (int) Setting::get('last_commercial_id', 0);
+        $lastId = (int) Setting::get('last_commercial_id', 0, $stationId);
 
         return static::active()->where('id', '>', $lastId)->orderBy('rotation_order')->orderBy('id')->first()
             ?? static::active()->orderBy('rotation_order')->orderBy('id')->first();

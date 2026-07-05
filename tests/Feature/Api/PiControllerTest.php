@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Song;
+use App\Models\Station;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -52,6 +53,7 @@ class PiControllerTest extends TestCase
         // not omit the key — the Pi daemon relies on the key always being present.
         $song = Song::factory()->create(['available' => true]);
         QueueItem::create([
+            'station_id' => \App\Models\Station::defaultId(),
             'song_id' => $song->id,
             'requested_by_name' => null,
             'position' => 1,
@@ -68,6 +70,7 @@ class PiControllerTest extends TestCase
     {
         $song = Song::factory()->create(['available' => true]);
         QueueItem::create([
+            'station_id' => \App\Models\Station::defaultId(),
             'song_id' => $song->id,
             'requested_by_name' => 'Alex',
             'position' => 1,
@@ -141,5 +144,85 @@ class PiControllerTest extends TestCase
     {
         $response = $this->getJson('/api/pi/config', $this->piHeaders())->assertOk();
         $this->assertArrayNotHasKey('station_id_interval', $response->json());
+    }
+
+    public function test_two_devices_on_different_stations_get_different_queues(): void
+    {
+        $stationB = Station::create(['name' => 'Station B', 'slug' => 'station-b']);
+        ['raw' => $rawB] = PiToken::generate('Pi B', $stationB->id);
+
+        $songA = Song::factory()->create(['available' => true]);
+        QueueItem::create([
+            'station_id' => Station::defaultId(),
+            'song_id' => $songA->id,
+            'position' => 1,
+            'status' => 'pending',
+        ]);
+
+        $songB = Song::factory()->create(['available' => true]);
+        QueueItem::create([
+            'station_id' => $stationB->id,
+            'song_id' => $songB->id,
+            'position' => 1,
+            'status' => 'pending',
+        ]);
+
+        $responseA = $this->getJson('/api/pi/queue', $this->piHeaders())->assertOk();
+        $responseB = $this->getJson('/api/pi/queue', ['X-Pi-Token' => $rawB])->assertOk();
+
+        $this->assertSame($songA->id, $responseA->json('next.song.id'));
+        $this->assertSame($songB->id, $responseB->json('next.song.id'));
+    }
+
+    public function test_confirm_download_is_per_device(): void
+    {
+        $song = Song::factory()->create(['available' => true, 'needs_pi_download' => true]);
+        ['raw' => $rawB] = PiToken::generate('Pi B');
+
+        // Device A confirms the download...
+        $this->postJson('/api/pi/confirm-download', ['type' => 'song', 'item_id' => $song->id], $this->piHeaders())
+            ->assertOk();
+
+        // ...but device B, which never confirmed it, must still see it as pending.
+        $responseB = $this->getJson('/api/pi/config', ['X-Pi-Token' => $rawB])->assertOk();
+        $pendingIdsB = collect($responseB->json('pending_downloads'))->pluck('item_id')->all();
+        $this->assertContains($song->id, $pendingIdsB);
+
+        $responseA = $this->getJson('/api/pi/config', $this->piHeaders())->assertOk();
+        $pendingIdsA = collect($responseA->json('pending_downloads'))->pluck('item_id')->all();
+        $this->assertNotContains($song->id, $pendingIdsA);
+    }
+
+    public function test_confirm_delete_only_purges_after_all_devices_confirm(): void
+    {
+        $song = Song::factory()->create(['available' => true, 'pi_delete_requested' => true]);
+        ['raw' => $rawB] = PiToken::generate('Pi B');
+
+        // Both devices have this song locally.
+        $this->postJson('/api/pi/confirm-download', ['type' => 'song', 'item_id' => $song->id], $this->piHeaders())->assertOk();
+        $this->postJson('/api/pi/confirm-download', ['type' => 'song', 'item_id' => $song->id], ['X-Pi-Token' => $rawB])->assertOk();
+
+        // Device A confirms the delete — the row must survive since device B still holds it.
+        $this->postJson('/api/pi/confirm-delete', ['type' => 'song', 'item_id' => $song->id], $this->piHeaders())->assertOk();
+        $this->assertDatabaseHas('songs', ['id' => $song->id]);
+
+        // Device B confirms too — now that no device holds it, the row is purged.
+        $this->postJson('/api/pi/confirm-delete', ['type' => 'song', 'item_id' => $song->id], ['X-Pi-Token' => $rawB])->assertOk();
+        $this->assertDatabaseMissing('songs', ['id' => $song->id]);
+    }
+
+    public function test_heartbeat_persists_disk_stats(): void
+    {
+        $this->postJson('/api/pi/heartbeat', [
+            'status' => 'idle',
+            'mode' => 'normal',
+            'disk_free_bytes' => 1_000_000,
+            'disk_total_bytes' => 8_000_000,
+        ], $this->piHeaders())->assertOk();
+
+        $this->assertDatabaseHas('pi_tokens', [
+            'disk_free_bytes' => 1_000_000,
+            'disk_total_bytes' => 8_000_000,
+        ]);
     }
 }

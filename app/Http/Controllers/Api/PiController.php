@@ -3,29 +3,33 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Commercial;
 use App\Models\NowPlaying;
 use App\Models\PiToken;
 use App\Models\Setting;
-use App\Models\Song;
-use App\Models\SoundByte;
+use App\Models\Station;
+use App\Services\DeviceSyncService;
 use App\Services\QueueService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class PiController extends Controller
 {
-    public function __construct(private QueueService $queueService) {}
+    public function __construct(
+        private QueueService $queueService,
+        private DeviceSyncService $deviceSyncService,
+    ) {}
 
     public function queue(Request $request): JsonResponse
     {
-        $data = $this->queueService->getNextForPi();
+        $stationId = $this->stationIdFor($request);
+
+        $data = $this->queueService->getNextForPi($stationId);
 
         $lookahead = min((int) $request->query('lookahead', 0), 5);
         if ($lookahead > 1 && isset($data['next'])) {
-            $data['upcoming'] = $this->queueService->peekUpcoming($lookahead);
+            $data['upcoming'] = $this->queueService->peekUpcoming($stationId, $lookahead);
         }
 
         return response()->json($data);
@@ -41,6 +45,7 @@ class PiController extends Controller
         ]);
 
         $this->queueService->markNowPlaying(
+            $this->stationIdFor($request),
             $data['type'],
             $data['queue_item_id'] ?? null,
             $data['song_filename'] ?? null,
@@ -63,23 +68,31 @@ class PiController extends Controller
         return response()->json(['ok' => true, ...$counts]);
     }
 
-    public function config(): JsonResponse
+    public function config(Request $request): JsonResponse
     {
-        return response()->json(self::buildConfig());
+        [$station, $token] = $this->resolveStationAndToken($request);
+
+        return response()->json($this->buildConfig($station, $token));
     }
 
     public function heartbeat(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'status'        => ['required', 'in:idle,playing,live'],
-            'mode'          => ['required', 'string', 'max:30'],
-            'ip'            => ['nullable', 'string', 'max:45'],
-            'wifi_ssid'     => ['nullable', 'string', 'max:100'],
-            'wifi_networks' => ['nullable', 'array'],
-            'wifi_applied'  => ['nullable', 'string', 'max:100'],
-            'wifi_failed'   => ['nullable', 'string', 'max:100'],
-            'daemon_hash'   => ['nullable', 'string', 'max:16'],
+            'status'            => ['required', 'in:idle,playing,live'],
+            'mode'              => ['required', 'string', 'max:30'],
+            'ip'                => ['nullable', 'string', 'max:45'],
+            'wifi_ssid'         => ['nullable', 'string', 'max:100'],
+            'wifi_networks'     => ['nullable', 'array'],
+            'wifi_applied'      => ['nullable', 'string', 'max:100'],
+            'wifi_failed'       => ['nullable', 'string', 'max:100'],
+            'daemon_hash'       => ['nullable', 'string', 'max:16'],
+            'disk_free_bytes'   => ['nullable', 'integer'],
+            'disk_total_bytes'  => ['nullable', 'integer'],
         ]);
+
+        /** @var PiToken|null $token */
+        $token = $request->attributes->get('pi_token');
+        $stationId = $this->stationIdFor($request);
 
         // Cache latest WiFi scan from Pi for the admin settings page
         if (isset($data['wifi_ssid'])) {
@@ -91,28 +104,28 @@ class PiController extends Controller
 
         // WiFi switch result — clear pending and store outcome
         if ($data['wifi_applied'] ?? null) {
-            Setting::set('pending_wifi_ssid', '');
-            Setting::set('pending_wifi_password', '');
-            Setting::set('last_wifi_status', 'connected:' . $data['wifi_applied']);
+            Setting::set('pending_wifi_ssid', '', $stationId);
+            Setting::set('pending_wifi_password', '', $stationId);
+            Setting::set('last_wifi_status', 'connected:' . $data['wifi_applied'], $stationId);
         }
         if ($data['wifi_failed'] ?? null) {
-            Setting::set('last_wifi_status', 'failed:' . $data['wifi_failed']);
+            Setting::set('last_wifi_status', 'failed:' . $data['wifi_failed'], $stationId);
         }
 
-        /** @var PiToken|null $token */
-        $token = $request->attributes->get('pi_token');
         $skipNext = false;
         if ($token) {
             $skipNext = (bool) $token->pi_skip_next;
             $token->update([
-                'pi_status'      => $data['status'],
-                'pi_mode'        => $data['mode'],
-                'pi_ip'          => $data['ip'] ?? $token->pi_ip,
-                'pi_skip_next'   => false,  // consume the flag
-                'pi_daemon_hash' => $data['daemon_hash'] ?? $token->pi_daemon_hash,
+                'pi_status'         => $data['status'],
+                'pi_mode'           => $data['mode'],
+                'pi_ip'             => $data['ip'] ?? $token->pi_ip,
+                'pi_skip_next'      => false,  // consume the flag
+                'pi_daemon_hash'    => $data['daemon_hash'] ?? $token->pi_daemon_hash,
+                'disk_free_bytes'   => $data['disk_free_bytes'] ?? $token->disk_free_bytes,
+                'disk_total_bytes'  => $data['disk_total_bytes'] ?? $token->disk_total_bytes,
             ]);
 
-            Cache::put('sse.pi_status', [
+            Cache::put("sse.pi_status.{$stationId}", [
                 'online' => true,
                 'status' => $data['status'],
                 'mode'   => $data['mode'],
@@ -120,14 +133,15 @@ class PiController extends Controller
             ], 180);
         }
 
-        $config = self::buildConfig();
+        $station = Station::find($stationId) ?? Station::findOrFail(Station::defaultId());
+        $config = $this->buildConfig($station, $token);
 
         // Consume emergency / update flags after including them in this response
         if ($config['emergency'] ?? false) {
-            Setting::set('pi_emergency', '0');
+            Setting::set('pi_emergency', '0', $stationId);
         }
         if ($config['apply_update'] ?? false) {
-            Setting::set('pi_update_requested', '0');
+            Setting::set('pi_update_requested', '0', $stationId);
         }
 
         return response()->json([...$config, 'skip_next' => $skipNext]);
@@ -141,15 +155,12 @@ class PiController extends Controller
             'song_id' => ['nullable', 'integer'], // legacy field
         ]);
 
+        $token = $request->attributes->get('pi_token');
         $type = $data['type'] ?? 'song';
         $itemId = $data['item_id'] ?? $data['song_id'] ?? null;
 
-        if ($itemId) {
-            match ($type) {
-                'commercial' => Commercial::where('id', $itemId)->update(['needs_pi_download' => false]),
-                'sound_byte' => SoundByte::where('id', $itemId)->update(['needs_pi_download' => false]),
-                default => Song::where('id', $itemId)->update(['needs_pi_download' => false]),
-            };
+        if ($itemId && $token) {
+            $this->deviceSyncService->recordDownload($token, $type, $itemId);
         }
 
         return response()->json(['ok' => true]);
@@ -163,25 +174,24 @@ class PiController extends Controller
             'song_id' => ['nullable', 'integer'], // legacy field
         ]);
 
+        $token = $request->attributes->get('pi_token');
         $type = $data['type'] ?? 'song';
         $itemId = $data['item_id'] ?? $data['song_id'] ?? null;
 
-        if ($itemId) {
-            match ($type) {
-                'commercial' => Commercial::where('id', $itemId)->delete(),
-                'sound_byte' => SoundByte::where('id', $itemId)->delete(),
-                default => Song::where('id', $itemId)->delete(),
-            };
+        if ($itemId && $token) {
+            $this->deviceSyncService->recordDelete($token, $type, $itemId);
         }
 
         return response()->json(['ok' => true]);
     }
 
-    public function piStatus(): JsonResponse
+    public function piStatus(Request $request): JsonResponse
     {
-        $token = PiToken::latest('last_seen_at')->first();
+        $station = $this->resolvePublicStation($request);
+        $tokens = PiToken::where('station_id', $station->id)->get();
+        $online = $tokens->filter(fn (PiToken $t) => $t->last_seen_at && $t->last_seen_at->diffInSeconds(now()) < 120);
 
-        if (! $token || ! $token->last_seen_at || $token->last_seen_at->diffInSeconds(now()) > 120) {
+        if ($online->isEmpty()) {
             return response()->json([
                 'online' => false,
                 'status' => 'offline',
@@ -191,19 +201,30 @@ class PiController extends Controller
             ]);
         }
 
+        $status = 'idle';
+        foreach (['live', 'playing'] as $candidate) {
+            if ($online->contains(fn (PiToken $t) => $t->pi_status === $candidate)) {
+                $status = $candidate;
+                break;
+            }
+        }
+
+        $primary = $online->sortByDesc('last_seen_at')->first();
+
         return response()->json([
             'online' => true,
-            'status' => $token->pi_status ?? 'idle',
-            'mode' => $token->pi_mode ?? 'normal',
-            'ip' => $token->pi_ip,
+            'status' => $status,
+            'mode' => $primary->pi_mode ?? 'normal',
+            'ip' => $primary->pi_ip,
             // null hash means the running daemon predates hash-reporting — don't nag until it's known
-            'update_available' => $token->pi_daemon_hash !== null && $token->pi_daemon_hash !== self::currentDaemonHash(),
+            'update_available' => $primary->pi_daemon_hash !== null && $primary->pi_daemon_hash !== self::currentDaemonHash(),
         ]);
     }
 
-    public function nowPlayingPublic(): JsonResponse
+    public function nowPlayingPublic(Request $request): JsonResponse
     {
-        $np = NowPlaying::with('song')->find(1);
+        $station = $this->resolvePublicStation($request);
+        $np = NowPlaying::forStation($station->id);
 
         if (! $np) {
             return response()->json(null);
@@ -234,85 +255,74 @@ class PiController extends Controller
         ]);
     }
 
-    /** @return array<string, mixed> */
-    private static function buildConfig(): array
+    /** Resolve the station id for the authenticated device, falling back to the default station for an unassigned token. */
+    private function stationIdFor(Request $request): int
     {
-        // Merge all pending downloads: songs + commercials + sound_bytes
-        $pendingDownloads = collect();
+        /** @var PiToken|null $token */
+        $token = $request->attributes->get('pi_token');
 
-        $pendingDownloads = $pendingDownloads->merge(
-            Song::where('needs_pi_download', true)->where('available', true)
-                ->get(['id', 'filename', 'title', 'artist', 'storage_path'])
-                ->map(fn ($s) => [
-                    'type' => 'song',
-                    'item_id' => $s->id,
-                    'filename' => $s->filename,
-                    'title' => $s->title,
-                    'download_url' => url(Storage::disk('public')->url($s->storage_path)),
-                ])
-        );
+        if ($token && $token->station_id) {
+            return $token->station_id;
+        }
 
-        $pendingDownloads = $pendingDownloads->merge(
-            Commercial::where('needs_pi_download', true)->where('active', true)
-                ->get(['id', 'filename', 'title', 'storage_path'])
-                ->map(fn ($c) => [
-                    'type' => 'commercial',
-                    'item_id' => $c->id,
-                    'filename' => $c->filename,
-                    'title' => $c->title,
-                    'download_url' => url(Storage::disk('public')->url($c->storage_path)),
-                ])
-        );
+        if ($token) {
+            Log::warning('Pi device has no assigned station — falling back to default', ['pi_token_id' => $token->id]);
+        }
 
-        $pendingDownloads = $pendingDownloads->merge(
-            SoundByte::where('needs_pi_download', true)->where('active', true)
-                ->get(['id', 'filename', 'title', 'storage_path'])
-                ->map(fn ($sb) => [
-                    'type' => 'sound_byte',
-                    'item_id' => $sb->id,
-                    'filename' => $sb->filename,
-                    'title' => $sb->title,
-                    'download_url' => url(Storage::disk('public')->url($sb->storage_path)),
-                ])
-        );
+        return Station::defaultId();
+    }
 
-        $pendingDeletes = collect();
+    /** @return array{0: Station, 1: PiToken} */
+    private function resolveStationAndToken(Request $request): array
+    {
+        /** @var PiToken $token */
+        $token = $request->attributes->get('pi_token');
+        $stationId = $this->stationIdFor($request);
+        $station = Station::find($stationId) ?? Station::findOrFail(Station::defaultId());
 
-        $pendingDeletes = $pendingDeletes->merge(
-            Song::where('pi_delete_requested', true)->get(['id', 'filename'])
-                ->map(fn ($s) => ['type' => 'song',       'item_id' => $s->id, 'filename' => $s->filename])
-        );
-        $pendingDeletes = $pendingDeletes->merge(
-            Commercial::where('pi_delete_requested', true)->get(['id', 'filename'])
-                ->map(fn ($c) => ['type' => 'commercial', 'item_id' => $c->id, 'filename' => $c->filename])
-        );
-        $pendingDeletes = $pendingDeletes->merge(
-            SoundByte::where('pi_delete_requested', true)->get(['id', 'filename'])
-                ->map(fn ($sb) => ['type' => 'sound_byte', 'item_id' => $sb->id, 'filename' => $sb->filename])
-        );
+        return [$station, $token];
+    }
 
-        $pendingWifiSsid = Setting::get('pending_wifi_ssid', '');
+    /** Public (unauthenticated) endpoints resolve by an optional ?station=slug query param, defaulting to the default station. */
+    private function resolvePublicStation(Request $request): Station
+    {
+        $slug = $request->query('station');
+
+        if ($slug) {
+            $station = Station::where('slug', $slug)->first();
+            if ($station) {
+                return $station;
+            }
+        }
+
+        return Station::findOrFail(Station::defaultId());
+    }
+
+    /** @return array<string, mixed> */
+    private function buildConfig(Station $station, PiToken $token): array
+    {
+        $pendingWifiSsid = Setting::get('pending_wifi_ssid', '', $station->id);
 
         return [
-            'freq' => (float) Setting::get('frequency', '96.9'),
-            'broadcast_mode' => Setting::get('broadcast_mode', 'normal'),
-            'live_stream_url' => Setting::get('live_stream_url', ''),
-            'live_alsa_device' => Setting::get('live_alsa_device', 'hw:1,0'),
-            'rds_rt_mode' => Setting::get('rds_rt_mode', 'auto'),
-            'rds_rt' => Setting::get('rds_rt', ''),
-            'rds_ps' => Setting::get('rds_ps', ''),
-            'callsign' => Setting::get('callsign', '96.9 FM'),
-            'fallback_song' => Setting::get('fallback_song', 'FTPA.wav'),
-            'fade_in_duration' => (float) Setting::get('fade_in_duration', 0.5),
-            'pending_downloads' => $pendingDownloads->values(),
-            'pending_deletes' => $pendingDeletes->values(),
+            'freq' => (float) Setting::get('frequency', '96.9', $station->id),
+            'broadcast_mode' => Setting::get('broadcast_mode', 'normal', $station->id),
+            'live_stream_url' => Setting::get('live_stream_url', '', $station->id),
+            'live_alsa_device' => Setting::get('live_alsa_device', 'hw:1,0', $station->id),
+            'rds_rt_mode' => Setting::get('rds_rt_mode', 'auto', $station->id),
+            'rds_rt' => Setting::get('rds_rt', '', $station->id),
+            'rds_ps' => Setting::get('rds_ps', '', $station->id),
+            'callsign' => Setting::get('callsign', '96.9 FM', $station->id),
+            'fallback_song' => Setting::get('fallback_song', 'FTPA.wav', $station->id),
+            'fade_in_duration' => (float) Setting::get('fade_in_duration', 0.5, $station->id),
+            'pending_downloads' => $this->deviceSyncService->pendingDownloadsFor($token),
+            'pending_deletes' => $this->deviceSyncService->pendingDeletesFor($token),
             'pending_wifi' => $pendingWifiSsid ? [
                 'ssid'     => $pendingWifiSsid,
-                'password' => Setting::get('pending_wifi_password', ''),
+                'password' => Setting::get('pending_wifi_password', '', $station->id),
             ] : null,
-            'emergency'      => (bool) Setting::get('pi_emergency', '0'),
-            'emergency_file' => Setting::get('emergency_announcement', 'announcement.wav'),
-            'apply_update'   => (bool) Setting::get('pi_update_requested', '0'),
+            'emergency'      => (bool) Setting::get('pi_emergency', '0', $station->id),
+            'emergency_file' => Setting::get('emergency_announcement', 'announcement.wav', $station->id),
+            'apply_update'   => (bool) Setting::get('pi_update_requested', '0', $station->id),
         ];
     }
 
