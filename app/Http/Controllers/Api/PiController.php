@@ -79,16 +79,16 @@ class PiController extends Controller
     public function heartbeat(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'status'            => ['required', 'in:idle,playing,live'],
-            'mode'              => ['required', 'string', 'max:30'],
-            'ip'                => ['nullable', 'string', 'max:45'],
-            'wifi_ssid'         => ['nullable', 'string', 'max:100'],
-            'wifi_networks'     => ['nullable', 'array'],
-            'wifi_applied'      => ['nullable', 'string', 'max:100'],
-            'wifi_failed'       => ['nullable', 'string', 'max:100'],
-            'daemon_hash'       => ['nullable', 'string', 'max:16'],
-            'disk_free_bytes'   => ['nullable', 'integer'],
-            'disk_total_bytes'  => ['nullable', 'integer'],
+            'status' => ['required', 'in:idle,playing,live'],
+            'mode' => ['required', 'string', 'max:30'],
+            'ip' => ['nullable', 'string', 'max:45'],
+            'wifi_ssid' => ['nullable', 'string', 'max:100'],
+            'wifi_networks' => ['nullable', 'array'],
+            'wifi_applied' => ['nullable', 'string', 'max:100'],
+            'wifi_failed' => ['nullable', 'string', 'max:100'],
+            'daemon_hash' => ['nullable', 'string', 'max:16'],
+            'disk_free_bytes' => ['nullable', 'integer'],
+            'disk_total_bytes' => ['nullable', 'integer'],
         ]);
 
         /** @var PiToken|null $token */
@@ -107,21 +107,27 @@ class PiController extends Controller
         if ($data['wifi_applied'] ?? null) {
             Setting::set('pending_wifi_ssid', '', $stationId);
             Setting::set('pending_wifi_password', '', $stationId);
-            Setting::set('last_wifi_status', 'connected:' . $data['wifi_applied'], $stationId);
+            Setting::set('last_wifi_status', 'connected:'.$data['wifi_applied'], $stationId);
         }
         if ($data['wifi_failed'] ?? null) {
-            Setting::set('last_wifi_status', 'failed:' . $data['wifi_failed'], $stationId);
+            Setting::set('last_wifi_status', 'failed:'.$data['wifi_failed'], $stationId);
         }
 
         $skipNext = false;
         if ($token) {
-            $skipNext = (bool) $token->pi_skip_next;
+            $skipNext = $this->piTokenHasColumn('pi_skip_next') ? (bool) $token->pi_skip_next : false;
 
-            $updates = [
-                'pi_status' => $data['status'],
-                'pi_mode' => $data['mode'],
-                'pi_ip' => $data['ip'] ?? $token->pi_ip,
-            ];
+            $updates = [];
+
+            if ($this->piTokenHasColumn('pi_status')) {
+                $updates['pi_status'] = $data['status'];
+            }
+            if ($this->piTokenHasColumn('pi_mode')) {
+                $updates['pi_mode'] = $data['mode'];
+            }
+            if ($this->piTokenHasColumn('pi_ip')) {
+                $updates['pi_ip'] = $data['ip'] ?? $token->pi_ip;
+            }
 
             if ($this->piTokenHasColumn('pi_skip_next')) {
                 $updates['pi_skip_next'] = false;
@@ -136,13 +142,15 @@ class PiController extends Controller
                 $updates['disk_total_bytes'] = $data['disk_total_bytes'] ?? $token->disk_total_bytes;
             }
 
-            $token->update($updates);
+            if ($updates !== []) {
+                $token->update($updates);
+            }
 
             Cache::put("sse.pi_status.{$stationId}", [
                 'online' => true,
                 'status' => $data['status'],
-                'mode'   => $data['mode'],
-                'ip'     => $token->pi_ip,
+                'mode' => $data['mode'],
+                'ip' => $data['ip'] ?? ($this->piTokenHasColumn('pi_ip') ? $token->pi_ip : null),
             ], 180);
         }
 
@@ -201,7 +209,9 @@ class PiController extends Controller
     public function piStatus(Request $request): JsonResponse
     {
         $station = $this->resolvePublicStation($request);
-        $tokens = PiToken::where('station_id', $station->id)->get();
+        $tokens = $this->piTokenHasColumn('station_id')
+            ? PiToken::where('station_id', $station->id)->get()
+            : PiToken::query()->get();
         $online = $tokens->filter(fn (PiToken $t) => $t->last_seen_at && $t->last_seen_at->diffInSeconds(now()) < 120);
 
         if ($online->isEmpty()) {
@@ -216,7 +226,7 @@ class PiController extends Controller
 
         $status = 'idle';
         foreach (['live', 'playing'] as $candidate) {
-            if ($online->contains(fn (PiToken $t) => $t->pi_status === $candidate)) {
+            if ($this->piTokenHasColumn('pi_status') && $online->contains(fn (PiToken $t) => $t->pi_status === $candidate)) {
                 $status = $candidate;
                 break;
             }
@@ -227,10 +237,12 @@ class PiController extends Controller
         return response()->json([
             'online' => true,
             'status' => $status,
-            'mode' => $primary->pi_mode ?? 'normal',
-            'ip' => $primary->pi_ip,
+            'mode' => $this->piTokenHasColumn('pi_mode') ? ($primary->pi_mode ?? 'normal') : 'normal',
+            'ip' => $this->piTokenHasColumn('pi_ip') ? $primary->pi_ip : null,
             // null hash means the running daemon predates hash-reporting — don't nag until it's known
-            'update_available' => $primary->pi_daemon_hash !== null && $primary->pi_daemon_hash !== self::currentDaemonHash(),
+            'update_available' => $this->piTokenHasColumn('pi_daemon_hash')
+                && $primary->pi_daemon_hash !== null
+                && $primary->pi_daemon_hash !== self::currentDaemonHash(),
         ]);
     }
 
@@ -274,7 +286,7 @@ class PiController extends Controller
         /** @var PiToken|null $token */
         $token = $request->attributes->get('pi_token');
 
-        if ($token && $token->station_id) {
+        if ($token && $this->piTokenHasColumn('station_id') && $token->station_id) {
             return $token->station_id;
         }
 
@@ -314,7 +326,7 @@ class PiController extends Controller
     /** @return array<string, mixed> */
     private function piTokenHasColumn(string $column): bool
     {
-        return Schema::hasColumn((new PiToken())->getTable(), $column);
+        return Schema::hasColumn((new PiToken)->getTable(), $column);
     }
 
     private function buildConfig(Station $station, PiToken $token): array
@@ -335,12 +347,12 @@ class PiController extends Controller
             'pending_downloads' => $this->deviceSyncService->pendingDownloadsFor($token),
             'pending_deletes' => $this->deviceSyncService->pendingDeletesFor($token),
             'pending_wifi' => $pendingWifiSsid ? [
-                'ssid'     => $pendingWifiSsid,
+                'ssid' => $pendingWifiSsid,
                 'password' => Setting::get('pending_wifi_password', '', $station->id),
             ] : null,
-            'emergency'      => (bool) Setting::get('pi_emergency', '0', $station->id),
+            'emergency' => (bool) Setting::get('pi_emergency', '0', $station->id),
             'emergency_file' => Setting::get('emergency_announcement', 'announcement.wav', $station->id),
-            'apply_update'   => (bool) Setting::get('pi_update_requested', '0', $station->id),
+            'apply_update' => (bool) Setting::get('pi_update_requested', '0', $station->id),
         ];
     }
 

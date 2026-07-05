@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class PiToken extends Model
@@ -46,11 +47,16 @@ class PiToken extends Model
         $raw = Str::random(48);
         $hash = hash('sha256', $raw);
 
-        $token = static::create([
-            'station_id' => $stationId ?? Station::defaultId(),
+        $attributes = [
             'token_hash' => $hash,
             'label' => $label,
-        ]);
+        ];
+
+        if (Schema::hasColumn((new static)->getTable(), 'station_id')) {
+            $attributes['station_id'] = $stationId ?? Station::defaultId();
+        }
+
+        $token = static::create($attributes);
 
         return ['token' => $token, 'raw' => $raw];
     }

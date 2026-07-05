@@ -3,77 +3,79 @@
 # Usage: curl -fsSL https://fmplaylist.com/pi/setup.sh | sudo bash -s -- YOUR_TOKEN
 set -e
 
+BASE_URL="https://fmplaylist.com"
 TOKEN="${1:-}"
 if [ -z "$TOKEN" ]; then
-  echo "ERROR: Pass your Pi token as an argument."
-  echo "  curl -fsSL https://fmplaylist.com/pi/setup.sh | sudo bash -s -- YOUR_TOKEN"
+  echo "ERROR: pass your Pi token as an argument."
+  echo "  curl -fsSL $BASE_URL/pi/setup.sh | sudo bash -s -- YOUR_TOKEN"
   exit 1
 fi
 
-# Detect the non-root user who invoked sudo
 REAL_USER="${SUDO_USER:-$(logname 2>/dev/null || echo pi)}"
 HOME_DIR="/home/$REAL_USER"
 PI_DIR="$HOME_DIR/PiFmRds"
+DIR="$PI_DIR/src"
+SVC="/etc/systemd/system/fmplaylist.service"
 
-echo "==> Setting up FM Playlist on Pi as user: $REAL_USER"
+echo "==> FM Playlist setup for user: $REAL_USER  dir: $DIR"
 
-# ── 1. Dependencies ─────────────────────────────────────────────────────────
-echo "==> Installing dependencies..."
 apt-get update -qq
 apt-get install -y -qq git ffmpeg build-essential python3 python3-requests libsndfile1-dev espeak
 
-# ── 2. Download / update PiFmRds ─────────────────────────────────────────────
-if [ ! -d "$PI_DIR" ]; then
-  echo "==> Cloning FM Playlist files..."
-  git clone https://github.com/austiz/fmplaylist.git /tmp/fmplaylist-setup
-  cp -r /tmp/fmplaylist-setup/PiFmRds "$PI_DIR"
+mkdir -p "$DIR"
+
+if [ ! -f "$DIR/pi_daemon.py" ] && [ ! -f "$DIR/pi_fm_rds" ]; then
+  echo "==> First install - cloning source files..."
   rm -rf /tmp/fmplaylist-setup
-  chown -R "$REAL_USER:$REAL_USER" "$PI_DIR"
+  git clone --depth 1 https://github.com/austiz/fmplaylist.git /tmp/fmplaylist-setup
+  cp -r /tmp/fmplaylist-setup/PiFmRds/src/. "$DIR/"
+  rm -rf /tmp/fmplaylist-setup
 else
-  echo "==> Updating Pi daemon to latest version..."
-  curl -fsSL "https://raw.githubusercontent.com/austiz/fmplaylist/main/PiFmRds/src/pi_daemon.py" \
-    -o "$PI_DIR/src/pi_daemon.py"
-  chown "$REAL_USER:$REAL_USER" "$PI_DIR/src/pi_daemon.py"
+  echo "==> Existing install - refreshing daemon and helper files..."
+  for file in pi_daemon.py run.sh wifi_setup.sh; do
+    curl -fsSL "$BASE_URL/pi/$file" -o "$DIR/$file"
+  done
 fi
 
-# ── 3. Write config.json ─────────────────────────────────────────────────────
+chown -R "$REAL_USER:$REAL_USER" "$PI_DIR"
+
 echo "==> Writing config.json..."
-cat > "$PI_DIR/src/config.json" << CONF
+cat > "$DIR/config.json" << CONF
 {
-  "server_url": "https://fmplaylist.com",
+  "server_url": "$BASE_URL",
   "api_key": "$TOKEN",
   "freq": 96.9,
   "pi_code": "C0DE",
   "callsign": "96.9 FM ",
-  "song_dir": "$PI_DIR/src",
+  "song_dir": "$DIR",
+  "commercial_dir": "$DIR/commercials",
+  "sound_byte_dir": "$DIR/sound-bytes",
   "fallback_song": "FTPA.wav",
-  "local_station_id_path": "$PI_DIR/src/station_id.wav",
+  "local_station_id_path": "$DIR/station_id.wav",
   "local_station_id_hash": "",
   "poll_interval_seconds": 5,
   "verify_ssl": false
 }
 CONF
-chown "$REAL_USER:$REAL_USER" "$PI_DIR/src/config.json"
+chown "$REAL_USER:$REAL_USER" "$DIR/config.json"
 
-# ── 4. Compile pi_fm_rds ─────────────────────────────────────────────────────
-if [ ! -f "$PI_DIR/src/pi_fm_rds" ]; then
+if [ ! -f "$DIR/pi_fm_rds" ]; then
   echo "==> Compiling pi_fm_rds..."
-  cd "$PI_DIR/src" && make
+  cd "$DIR" && make
 else
   echo "==> pi_fm_rds already compiled, skipping."
 fi
 
-# ── 5. Systemd service ───────────────────────────────────────────────────────
 echo "==> Installing systemd service..."
-cat > /etc/systemd/system/fmplaylist.service << SERVICE
+cat > "$SVC" << SERVICE
 [Unit]
 Description=FM Playlist Daemon
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 -u $PI_DIR/src/pi_daemon.py
-WorkingDirectory=$PI_DIR/src
+ExecStart=/usr/bin/python3 -u $DIR/pi_daemon.py
+WorkingDirectory=$DIR
 Restart=always
 RestartSec=10
 User=root
@@ -87,7 +89,5 @@ systemctl enable fmplaylist
 systemctl restart fmplaylist
 
 echo ""
-echo "✓ Setup complete! FM Playlist daemon is running."
-echo "  Check status:  sudo systemctl status fmplaylist"
-echo "  Live logs:     sudo journalctl -u fmplaylist -f"
-echo "  Frequency:     96.9 FM"
+echo "Done! Daemon restarted."
+echo "  Logs: sudo journalctl -u fmplaylist -f"
