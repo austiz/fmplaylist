@@ -5,7 +5,6 @@ import { NowPlayingBar } from '@/components/now-playing-bar';
 import { PublicLayout } from '@/components/public-layout';
 import { Button } from '@/components/ui/button';
 import { useFmLive } from '@/hooks/use-fm-live';
-import { getCommutePalette } from '@/lib/commute';
 import { getQuip, getTagline } from '@/lib/quips';
 import { getRecents, pushRecent } from '@/lib/recents';
 import type { Recent } from '@/lib/recents';
@@ -24,9 +23,8 @@ export default function Home({ nowPlaying, queue, queueCount }: Props) {
     }>();
     const flash = props.flash;
     const freq = props.frequency ?? '96.9';
-    const { queueVersion } = useFmLive();
+    const { queueVersion, palette } = useFmLive();
 
-    const palette = getCommutePalette();
     const [recents, setRecents] = useState<Recent[]>(() => getRecents());
     const [busyId, setBusyId] = useState<number | null>(null);
 

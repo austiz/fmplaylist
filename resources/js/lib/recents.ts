@@ -12,8 +12,13 @@ const CAP = 8;
 export function getRecents(): Recent[] {
     try {
         const raw = localStorage.getItem(KEY);
-        if (!raw) return [];
+
+        if (!raw) {
+return [];
+}
+
         const parsed = JSON.parse(raw) as Recent[];
+
         return Array.isArray(parsed) ? parsed : [];
     } catch {
         return [];
@@ -26,10 +31,12 @@ export function pushRecent(r: Omit<Recent, 'ts'>): Recent[] {
         { ...r, ts: Date.now() },
         ...getRecents().filter((x) => x.songId !== r.songId),
     ].slice(0, CAP);
+
     try {
         localStorage.setItem(KEY, JSON.stringify(next));
     } catch {
         /* ignore */
     }
+
     return next;
 }

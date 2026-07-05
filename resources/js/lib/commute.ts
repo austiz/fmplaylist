@@ -22,10 +22,23 @@ export interface CommutePalette {
  */
 export function getCommutePhase(date: Date = new Date()): CommutePhase {
     const h = date.getHours();
-    if (h >= 5 && h < 7) return 'dawn';
-    if (h >= 7 && h < 10) return 'morning';
-    if (h >= 10 && h < 15) return 'midday';
-    if (h >= 15 && h < 19) return 'evening';
+
+    if (h >= 5 && h < 7) {
+return 'dawn';
+}
+
+    if (h >= 7 && h < 10) {
+return 'morning';
+}
+
+    if (h >= 10 && h < 15) {
+return 'midday';
+}
+
+    if (h >= 15 && h < 19) {
+return 'evening';
+}
+
     return 'night';
 }
 

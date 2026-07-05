@@ -3,8 +3,7 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Celebration } from '@/components/celebration';
 import { FrequencyField } from '@/components/visualizer/frequency-field';
-import { FmLiveProvider } from '@/hooks/use-fm-live';
-import { getCommutePalette } from '@/lib/commute';
+import { FmLiveProvider, useFmLive } from '@/hooks/use-fm-live';
 
 // Full-bleed visualizer on the cockpit + drive views; subtle behind the reading-heavy lists.
 const WEIGHT: Record<string, number> = {
@@ -22,19 +21,16 @@ const WEIGHT: Record<string, number> = {
 function FmLiveShell({ children }: { children: ReactNode }) {
     const { component } = usePage();
     const weight = WEIGHT[component] ?? 0.5;
+    const { palette } = useFmLive();
 
     // Paint the commute palette onto CSS custom properties (drives the hero glow + accents).
+    // `palette` comes from FmLiveProvider's shared 60s timer, so this stays in lockstep with
+    // every other phase-aware consumer instead of rolling over on its own clock.
     useEffect(() => {
-        const apply = () => {
-            const p = getCommutePalette();
-            const root = document.documentElement;
-            root.style.setProperty('--phase-accent', p.accent);
-            root.style.setProperty('--phase-glow-hue', String(p.glowHue));
-        };
-        apply();
-        const id = setInterval(apply, 60_000);
-        return () => clearInterval(id);
-    }, []);
+        const root = document.documentElement;
+        root.style.setProperty('--phase-accent', palette.accent);
+        root.style.setProperty('--phase-glow-hue', String(palette.glowHue));
+    }, [palette]);
 
     return (
         <div className="relative min-h-screen">
