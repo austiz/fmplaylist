@@ -8,6 +8,7 @@ use App\Support\AudioDuration;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -29,17 +30,17 @@ class SoundByteController extends Controller
         ]);
 
         $file = $data['file'];
-        $filename = time().'_'.str_replace(' ', '_', $data['title']).'.'.$file->extension();
+        $filename = Str::slug($data['title']).'_'.time().'.'.$file->extension();
         $path = $file->storeAs('soundbytes', $filename, 'public');
 
         SoundByte::create([
-            'title'             => $data['title'],
-            'filename'          => $filename,
-            'category'          => $data['category'],
-            'storage_path'      => $path,
-            'file_size'         => $file->getSize(),
-            'duration_seconds'  => AudioDuration::extract(Storage::disk('public')->path($path)),
-            'active'            => true,
+            'title' => $data['title'],
+            'filename' => $filename,
+            'category' => $data['category'],
+            'storage_path' => $path,
+            'file_size' => $file->getSize(),
+            'duration_seconds' => AudioDuration::extract(Storage::disk('public')->path($path)),
+            'active' => true,
             'needs_pi_download' => true,
         ]);
 
@@ -49,9 +50,9 @@ class SoundByteController extends Controller
     public function update(SoundByte $soundByte, Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'title'    => ['required', 'string', 'max:255'],
+            'title' => ['required', 'string', 'max:255'],
             'category' => ['required', 'in:jingle,shoutout,drop,id'],
-            'rds_ps'   => ['nullable', 'string', 'max:8'],
+            'rds_ps' => ['nullable', 'string', 'max:8'],
         ]);
 
         $soundByte->update($data);

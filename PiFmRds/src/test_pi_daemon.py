@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 if not hasattr(os, 'geteuid'):
     os.geteuid = lambda: 0
@@ -72,6 +73,73 @@ class LocalConfigRoundTripTests(unittest.TestCase):
         cfg = pi_daemon.load_local_config()
         self.assertEqual(cfg['api_key'], 'xyz')
         self.assertEqual(cfg['server_url'], pi_daemon.LOCAL_CONFIG_KEYS['server_url'])
+
+
+class MediaPathSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.cfg = {
+            'song_dir': os.path.join(self.tmpdir.name, 'songs'),
+            'commercial_dir': os.path.join(self.tmpdir.name, 'commercials'),
+            'sound_byte_dir': os.path.join(self.tmpdir.name, 'sound-bytes'),
+        }
+        for path in self.cfg.values():
+            os.makedirs(path, exist_ok=True)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_safe_filename_resolves_inside_media_dir(self):
+        path = pi_daemon.media_path(self.cfg, 'song', 'track.wav')
+        self.assertEqual(path, os.path.realpath(os.path.join(self.cfg['song_dir'], 'track.wav')))
+
+    def test_rejects_parent_directory(self):
+        with self.assertRaises(ValueError):
+            pi_daemon.media_path(self.cfg, 'song', '../evil.wav')
+
+    def test_rejects_absolute_path(self):
+        with self.assertRaises(ValueError):
+            pi_daemon.media_path(self.cfg, 'song', os.path.abspath('evil.wav'))
+
+    def test_rejects_nested_path(self):
+        with self.assertRaises(ValueError):
+            pi_daemon.media_path(self.cfg, 'song', 'nested/evil.wav')
+
+    def test_rejects_backslash_path(self):
+        with self.assertRaises(ValueError):
+            pi_daemon.media_path(self.cfg, 'song', r'nested\evil.wav')
+
+
+class UpdateInstallerTests(unittest.TestCase):
+    def tearDown(self):
+        pi_daemon._update_in_progress = False
+
+    def test_update_downloads_setup_script_and_runs_installer_with_token(self):
+        response = mock.Mock()
+        response.__enter__ = mock.Mock(return_value=response)
+        response.__exit__ = mock.Mock(return_value=False)
+        response.read.return_value = b'#!/usr/bin/env bash\n'
+
+        completed = mock.Mock(returncode=0)
+
+        with mock.patch('urllib.request.urlopen', return_value=response) as urlopen, \
+                mock.patch('builtins.open', mock.mock_open()) as opened, \
+                mock.patch('os.chmod') as chmod, \
+                mock.patch('subprocess.run', return_value=completed) as run, \
+                mock.patch.object(pi_daemon, '_stop_fm'), \
+                mock.patch.object(pi_daemon.os, '_exit', side_effect=SystemExit):
+            with self.assertRaises(SystemExit):
+                pi_daemon._apply_daemon_update({
+                    'server_url': 'https://fmplaylist.com',
+                    'api_key': 'token123',
+                })
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, 'https://fmplaylist.com/pi/setup.sh')
+        opened.assert_called()
+        chmod.assert_called()
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0], ['bash', mock.ANY, 'token123'])
 
 
 if __name__ == '__main__':
