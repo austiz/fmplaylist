@@ -20,6 +20,7 @@ The FM pipe is kept fed at all times: 20 ms silence chunks fill any inter-song g
 
 import collections
 import dataclasses
+import hashlib
 import json
 import math
 import os
@@ -43,6 +44,18 @@ CONFIG_PATH = os.path.join(SCRIPT_DIR, 'config.json')
 BINARY_PATH = os.path.join(SCRIPT_DIR, 'pi_fm_rds')
 RTMP_PORT   = 1935
 FM_CTL_FIFO = '/tmp/fm_ctl'   # named pipe for live RDS updates (pi_fm_rds -ctl)
+
+
+def _own_daemon_hash() -> str:
+    """Short hash of this running file — reported to the server so admin can see if a newer daemon is available."""
+    try:
+        with open(os.path.realpath(__file__), 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()[:12]
+    except Exception:
+        return ''
+
+
+DAEMON_HASH = _own_daemon_hash()
 
 SAMPLE_RATE    = 44100
 CHANNELS       = 2
@@ -95,6 +108,9 @@ _fallback_pcm: 'bytes | None' = None
 # WiFi state — reported back to server via heartbeat so admin can see result
 _wifi_applied_ssid: str = ''   # set after successful wifi_setup.sh run
 _wifi_failed_ssid:  str = ''   # set after failed run
+
+# Guards against re-triggering a self-update while one is already downloading/restarting
+_update_in_progress: bool = False
 
 
 @dataclasses.dataclass
@@ -339,6 +355,46 @@ def _apply_wifi(pending: dict) -> None:
         _wifi_applied_ssid = ''
 
 
+def _apply_daemon_update(cfg: dict) -> None:
+    """
+    Download the latest pi_daemon.py from the server, verify it compiles, and
+    swap it in. Exits the process so systemd (Restart=always) relaunches with
+    the new code — safer than trying to hot-swap code in a running process.
+    """
+    global _update_in_progress
+    if _update_in_progress:
+        return
+    _update_in_progress = True
+
+    dest    = os.path.realpath(__file__)
+    tmp     = dest + '.new'
+    print(f'[{_ts()}][update] downloading latest daemon...')
+    try:
+        url = cfg['server_url'].rstrip('/') + '/pi/pi_daemon.py'
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx(cfg)) as resp:
+            new_code = resp.read()
+        if not new_code:
+            raise ValueError('empty download')
+
+        with open(tmp, 'wb') as f:
+            f.write(new_code)
+
+        import py_compile
+        py_compile.compile(tmp, doraise=True)
+
+        os.replace(tmp, dest)
+        print(f'[{_ts()}][update] daemon updated — restarting')
+        _stop_event.set()
+        _stop_fm()
+        os._exit(0)   # systemd relaunches the service with the new file
+    except Exception as exc:
+        print(f'[{_ts()}][update] ERROR: {exc} — keeping current version')
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        _update_in_progress = False
+
+
 # SSID being applied right now — prevents re-triggering while script is running
 _wifi_pending_ssid: str = ''
 
@@ -375,6 +431,7 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
         'ip':             get_local_ip(),
         'wifi_ssid':      wifi_info['current'],
         'wifi_networks':  wifi_info['networks'],
+        'daemon_hash':    DAEMON_HASH,
     }
     if _wifi_applied_ssid:
         payload['wifi_applied'] = _wifi_applied_ssid
@@ -415,6 +472,9 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
 
         if result.get('emergency') and result.get('emergency_file'):
             _handle_emergency(cfg, result['emergency_file'])
+
+        if result.get('apply_update'):
+            threading.Thread(target=_apply_daemon_update, args=(cfg,), daemon=True).start()
     else:
         print(f'[{_ts()}][hb] WARNING heartbeat failed')
     return result
@@ -902,6 +962,11 @@ def _audio_write_loop(cfg: dict, local: dict) -> None:
         start_offset = 0 if nxt.media_type == 'fallback' else xfade_used
 
 
+def _shoutout_name(item: dict) -> str:
+    """Extract a trimmed requester name from a queue item, tolerating a missing key or JSON null."""
+    return (item.get('requested_by_name') or '').strip()
+
+
 def _scheduler_loop(local: dict) -> None:
     """
     SchedulerThread — runs forever in background.
@@ -972,70 +1037,73 @@ def _scheduler_loop(local: dict) -> None:
 
         pushed_any = False
         for media_type, item in candidates:
-            if media_type == 'commercial':
-                key = f'commercial:{item["id"]}'
-                seg = AudioSegment(
-                    filepath      = media_path(local, 'commercial', item['filename']),
-                    title         = item['title'],
-                    artist        = '',
-                    queue_item_id = None,
-                    media_type    = 'commercial',
-                    item_id       = item['id'],
-                )
-            elif media_type == 'sound_byte':
-                key = f'sound_byte:{item["id"]}'
-                seg = AudioSegment(
-                    filepath      = media_path(local, 'sound_byte', item['filename']),
-                    title         = item['title'],
-                    artist        = '',
-                    queue_item_id = None,
-                    media_type    = 'sound_byte',
-                    item_id       = item['id'],
-                )
-            else:   # song
-                key  = f'song:{item["queue_item_id"]}'
-                song = item['song']
-                seg  = AudioSegment(
-                    filepath      = os.path.join(local['song_dir'], song['filename']),
-                    title         = song['title'],
-                    artist        = song.get('artist', ''),
-                    queue_item_id = item['queue_item_id'],
-                    media_type    = 'song',
-                )
+            try:
+                if media_type == 'commercial':
+                    key = f'commercial:{item["id"]}'
+                    seg = AudioSegment(
+                        filepath      = media_path(local, 'commercial', item['filename']),
+                        title         = item['title'],
+                        artist        = '',
+                        queue_item_id = None,
+                        media_type    = 'commercial',
+                        item_id       = item['id'],
+                    )
+                elif media_type == 'sound_byte':
+                    key = f'sound_byte:{item["id"]}'
+                    seg = AudioSegment(
+                        filepath      = media_path(local, 'sound_byte', item['filename']),
+                        title         = item['title'],
+                        artist        = '',
+                        queue_item_id = None,
+                        media_type    = 'sound_byte',
+                        item_id       = item['id'],
+                    )
+                else:   # song
+                    key  = f'song:{item["queue_item_id"]}'
+                    song = item['song']
+                    seg  = AudioSegment(
+                        filepath      = os.path.join(local['song_dir'], song['filename']),
+                        title         = song['title'],
+                        artist        = song.get('artist') or '',
+                        queue_item_id = item['queue_item_id'],
+                        media_type    = 'song',
+                    )
 
-            if key in _recently_pushed:
-                continue
+                if key in _recently_pushed:
+                    continue
 
-            # TTS shoutout before the song if a requester name is present
-            if media_type == 'song':
-                requested_by = item.get('requested_by_name', '').strip()
-                if requested_by and shutil.which('espeak'):
-                    shout_key = f'shoutout:{item["queue_item_id"]}'
-                    if shout_key not in _recently_pushed:
-                        wav_path = f'/tmp/shoutout_{item["queue_item_id"]}.wav'
-                        try:
-                            r = subprocess.run(
-                                ['espeak', '-v', 'en', '-s', '145', '-w', wav_path,
-                                 f'Coming up for {requested_by}'],
-                                capture_output=True, timeout=5,
-                            )
-                            if r.returncode == 0:
-                                _recently_pushed.append(shout_key)
-                                _schedule_q.put(AudioSegment(
-                                    filepath=wav_path,
-                                    title=f'Shoutout for {requested_by}',
-                                    artist='', queue_item_id=None,
-                                    media_type='sound_byte',
-                                    delete_after_decode=True,
-                                ))
-                                print(f'[{_ts()}][shoutout] queued for {requested_by}')
-                        except Exception as e:
-                            print(f'[{_ts()}][shoutout] ERROR: {e}')
+                # TTS shoutout before the song if a requester name is present
+                if media_type == 'song':
+                    requested_by = _shoutout_name(item)
+                    if requested_by and shutil.which('espeak'):
+                        shout_key = f'shoutout:{item["queue_item_id"]}'
+                        if shout_key not in _recently_pushed:
+                            wav_path = f'/tmp/shoutout_{item["queue_item_id"]}.wav'
+                            try:
+                                r = subprocess.run(
+                                    ['espeak', '-v', 'en', '-s', '145', '-w', wav_path,
+                                     f'Coming up for {requested_by}'],
+                                    capture_output=True, timeout=5,
+                                )
+                                if r.returncode == 0:
+                                    _recently_pushed.append(shout_key)
+                                    _schedule_q.put(AudioSegment(
+                                        filepath=wav_path,
+                                        title=f'Shoutout for {requested_by}',
+                                        artist='', queue_item_id=None,
+                                        media_type='sound_byte',
+                                        delete_after_decode=True,
+                                    ))
+                                    print(f'[{_ts()}][shoutout] queued for {requested_by}')
+                            except Exception as e:
+                                print(f'[{_ts()}][shoutout] ERROR: {e}')
 
-            _recently_pushed.append(key)
-            _schedule_q.put(seg)
-            pushed_any = True
-            print(f'[{_ts()}][scheduler] queued for decode: "{seg.title}" ({media_type})')
+                _recently_pushed.append(key)
+                _schedule_q.put(seg)
+                pushed_any = True
+                print(f'[{_ts()}][scheduler] queued for decode: "{seg.title}" ({media_type})')
+            except Exception as e:
+                print(f'[{_ts()}][scheduler] ERROR processing {media_type} item {item!r}: {e} — skipping')
 
         if not pushed_any and not queue_data.get('next'):
             print(f'[{_ts()}][scheduler] server queue empty')

@@ -59,6 +59,7 @@ export interface PiStatus {
     status: 'offline' | 'idle' | 'playing' | 'live';
     mode: 'normal' | 'phone_stream' | 'usb_input' | 'custom_stream';
     ip: string | null;
+    update_available: boolean;
 }
 
 export interface PaginatedResponse<T> {

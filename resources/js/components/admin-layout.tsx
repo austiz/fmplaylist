@@ -1,4 +1,4 @@
-import { Link, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import type { PropsWithChildren } from 'react';
 import { useEffect, useState } from 'react';
 import type { PiStatus } from '@/types/fm';
@@ -14,6 +14,7 @@ const nav = [
 
 function PiStatusBar() {
     const [pi, setPi] = useState<PiStatus | null>(null);
+    const [updating, setUpdating] = useState(false);
 
     useEffect(() => {
         const poll = async () => {
@@ -39,6 +40,14 @@ return null;
     const playing   = pi.status === 'playing';
     const live      = pi.status === 'live';
 
+    const pushUpdate = () => {
+        setUpdating(true);
+        router.post('/admin/pi/update', {}, {
+            preserveScroll: true,
+            onFinish: () => setUpdating(false),
+        });
+    };
+
     return (
         <div className="flex items-center gap-4 border-b border-border bg-background px-4 py-1 text-[10px] font-bold uppercase tracking-widest font-display">
             <span className={`flex items-center gap-1 ${connected ? 'text-green-500' : 'text-muted-foreground/40'}`}>
@@ -59,6 +68,21 @@ return null;
             {live && pi.ip && (
                 <span className="ml-auto text-violet-400/70">
                     stream → {pi.ip}
+                </span>
+            )}
+
+            {pi.update_available && (
+                <span className={`flex items-center gap-2 text-amber-500 ${live && pi.ip ? '' : 'ml-auto'}`}>
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    Pi update available
+                    <button
+                        type="button"
+                        onClick={pushUpdate}
+                        disabled={updating}
+                        className="rounded-sm border border-amber-500/40 px-1.5 py-0.5 normal-case tracking-normal text-amber-500 transition-colors hover:bg-amber-500/10 disabled:opacity-50"
+                    >
+                        {updating ? 'Queuing…' : 'Update'}
+                    </button>
                 </span>
             )}
         </div>

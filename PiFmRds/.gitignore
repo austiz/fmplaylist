@@ -4,6 +4,7 @@ src/test
 src/pi_fm_rds
 src/*_test
 *.o
+__pycache__/
 
 # Contains API key — never commit
 src/config.json
