@@ -3,7 +3,6 @@ import { Music, RotateCw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useElapsed } from '@/hooks/use-elapsed';
 import { useFmLive } from '@/hooks/use-fm-live';
-import { getCommutePalette } from '@/lib/commute';
 import { getRecents } from '@/lib/recents';
 import type { Recent } from '@/lib/recents';
 import type { NowPlayingData } from '@/types/fm';
@@ -27,10 +26,9 @@ function fmtTime(sec: number): string {
 }
 
 export default function Drive({ nowPlaying }: Props) {
-    const { nowPlaying: live, piStatus } = useFmLive();
+    const { nowPlaying: live, piStatus, palette } = useFmLive();
     const data = live === undefined ? nowPlaying : live;
     const isLive = piStatus?.status === 'live';
-    const palette = getCommutePalette();
 
     const { elapsed, duration, progress } = useElapsed(
         data?.started_at,

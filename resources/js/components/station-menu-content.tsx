@@ -19,6 +19,7 @@ export function StationMenuContent({ stations, activeStation }: Props) {
         if (Number(value) === activeStation.id) {
             return;
         }
+
         router.post('/admin/stations/switch', { station_id: Number(value) }, { preserveScroll: true });
     };
 

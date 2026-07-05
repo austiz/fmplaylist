@@ -27,6 +27,7 @@ interface Props {
 
 function SignalBars({ signal }: { signal: number }) {
     const bars = [25, 50, 75, 100];
+
     return (
         <span className="inline-flex items-end gap-px h-3.5" aria-label={`Signal ${signal}%`}>
             {bars.map((threshold, i) => (
@@ -265,6 +266,7 @@ export default function Settings({ settings, wifi }: Props) {
                         </p>
                         {(() => {
                             const net = wifi.networks.find((n) => n.ssid === selectedSsid);
+
                             return net?.security === 'Open' ? (
                                 <p className="text-xs text-muted-foreground">Open network — no password needed.</p>
                             ) : (

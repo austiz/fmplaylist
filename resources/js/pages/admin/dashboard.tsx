@@ -14,15 +14,22 @@ interface Props {
 }
 
 function formatRuntime(seconds: number): string {
-    if (seconds <= 0) return '—';
+    if (seconds <= 0) {
+return '—';
+}
+
     const h = Math.floor(seconds / 3600);
     const m = Math.ceil((seconds % 3600) / 60);
+
     return h > 0 ? `${h}h ${m}m` : `${m} min`;
 }
 
 export default function Dashboard({ nowPlaying, queueDepth, queueRuntimeSeconds, recentRequests, stats }: Props) {
     const deleteRequest = (id: number) => {
-        if (!confirm('Remove this request from the queue?')) return;
+        if (!confirm('Remove this request from the queue?')) {
+return;
+}
+
         router.delete(`/admin/queue/${id}`);
     };
 

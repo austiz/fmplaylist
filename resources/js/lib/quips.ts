@@ -51,6 +51,7 @@ function hourlyIndex(len: number): number {
 
 export function getQuip(phase: CommutePhase): string {
     const list = QUIPS[phase];
+
     return list[hourlyIndex(list.length)];
 }
 

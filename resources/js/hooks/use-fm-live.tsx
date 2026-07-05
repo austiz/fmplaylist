@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
+import { getCommutePalette } from '@/lib/commute';
+import type { CommutePalette } from '@/lib/commute';
 import type { NowPlayingData, PiStatus } from '@/types/fm';
 
 export interface ChatMsg {
@@ -20,6 +22,9 @@ interface FmLiveValue {
     onAirTitle: string | null;
     dismissOnAir: () => void;
     connected: boolean;
+    /** Current commute-phase palette/copy set, refreshed on a shared timer so every
+     *  consumer (visualizer, hero copy, Driving Mode) rolls over together. */
+    palette: CommutePalette;
 }
 
 const FmLiveContext = createContext<FmLiveValue | null>(null);
@@ -41,7 +46,16 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
     const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
     const [onAirTitle, setOnAirTitle] = useState<string | null>(null);
     const [connected, setConnected] = useState(false);
+    const [palette, setPalette] = useState<CommutePalette>(() => getCommutePalette());
     const onAirTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+    // Roll the commute palette/copy over as the phase changes — shared so every consumer
+    // (visualizer, hero, Driving Mode) updates together instead of drifting independently.
+    useEffect(() => {
+        const id = setInterval(() => setPalette(getCommutePalette()), 60_000);
+
+        return () => clearInterval(id);
+    }, []);
 
     // Seed chat history once for the session.
     useEffect(() => {
@@ -129,6 +143,7 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
             setOnAirTitle(null);
         },
         connected,
+        palette,
     };
 
     return (
