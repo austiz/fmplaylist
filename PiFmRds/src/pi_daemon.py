@@ -45,6 +45,7 @@ CONFIG_PATH = os.path.join(SCRIPT_DIR, 'config.json')
 BINARY_PATH = os.path.join(SCRIPT_DIR, 'pi_fm_rds')
 RTMP_PORT   = 1935
 FM_CTL_FIFO = '/tmp/fm_ctl'   # named pipe for live RDS updates (pi_fm_rds -ctl)
+STATUS_PATH = os.path.join(SCRIPT_DIR, 'status.json')   # local health snapshot, see _write_status_file
 
 
 def _own_daemon_hash() -> str:
@@ -211,6 +212,22 @@ def _ssl_ctx(cfg: dict):
     return ctx
 
 
+def _api_retry_or_stop(label: str, path: str, e: Exception, attempt: int, retries: int, delay: int) -> bool:
+    """Logs one failed API attempt and sleeps if retrying. Returns True if the
+    caller should stop — either attempts are exhausted, or it's an auth failure
+    (401/403) that won't succeed on retry, so there's no point burning the backoff
+    schedule and delaying the "this Pi's token is bad" signal an admin needs to see."""
+    if isinstance(e, urllib.error.HTTPError) and e.code in (401, 403):
+        print(f'[{label} {path}] AUTH ERROR {e.code} — check api_key / Pi Token, not retrying')
+        return True
+    if attempt < retries - 1:
+        print(f'[{label} {path}] {e} — retry in {delay}s')
+        time.sleep(delay)
+        return False
+    print(f'[{label} {path}] {e} — giving up')
+    return True
+
+
 def api_get(cfg: dict, path: str, params: 'dict | None' = None, _retries: int = 3):
     url = cfg['server_url'].rstrip('/') + path
     if params:
@@ -225,12 +242,9 @@ def api_get(cfg: dict, path: str, params: 'dict | None' = None, _retries: int = 
             with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx(cfg)) as resp:
                 return json.loads(resp.read().decode())
         except Exception as e:
-            if attempt < _retries - 1:
-                print(f'[API GET {path}] {e} — retry in {delay}s')
-                time.sleep(delay)
-                delay *= 2
-            else:
-                print(f'[API GET {path}] {e} — giving up')
+            if _api_retry_or_stop('API GET', path, e, attempt, _retries, delay):
+                break
+            delay *= 2
     return None
 
 
@@ -252,12 +266,9 @@ def api_post(cfg: dict, path: str, body: dict, _retries: int = 3):
             with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx(cfg)) as resp:
                 return json.loads(resp.read().decode())
         except Exception as e:
-            if attempt < _retries - 1:
-                print(f'[API POST {path}] {e} — retry in {delay}s')
-                time.sleep(delay)
-                delay *= 2
-            else:
-                print(f'[API POST {path}] {e} — giving up')
+            if _api_retry_or_stop('API POST', path, e, attempt, _retries, delay):
+                break
+            delay *= 2
     return None
 
 
@@ -459,6 +470,30 @@ def _handle_emergency(cfg: dict, filename: str) -> None:
     ))
     _emergency_event.set()
     _skip_event.set()
+
+
+def _write_status_file(cfg: dict, state: dict) -> None:
+    """Lightweight local health snapshot — cheaper to `cat status.json` when SSH'd
+    into a Pi on-site than to tail journalctl to answer "is this thing actually OK?".
+    Best-effort only: must never let a status-file write break the daemon."""
+    try:
+        with _fm_lock:
+            fm_running = _fm_proc is not None and _fm_proc.poll() is None
+        status = {
+            'updated_at':           time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'daemon_hash':          DAEMON_HASH,
+            'freq':                 cfg.get('freq'),
+            'fm_running':           fm_running,
+            'schedule_queue_depth': _schedule_q.qsize(),
+            'ready_queue_depth':    _ready_q.qsize(),
+            'last_heartbeat_ago_s': round(time.time() - state.get('last_hb', 0.0), 1),
+        }
+        tmp = STATUS_PATH + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(status, f, indent=2)
+        os.replace(tmp, STATUS_PATH)
+    except Exception:
+        pass
 
 
 def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
@@ -1168,6 +1203,7 @@ def _scheduler_tick(state: dict) -> None:
         # (auto mode is driven per-song by the audio thread)
         if _remote_cfg.get('rds_rt_mode') == 'custom':
             _update_rds(rds_ps(cfg), rds_rt(cfg))
+        _write_status_file(cfg, state)
 
     # ── Library sync every hour ───────────────────────────────────────────
     if time.time() - state['last_sync'] > 3600:
