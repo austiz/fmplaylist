@@ -55,7 +55,7 @@ class PiControllerTest extends TestCase
         // not omit the key — the Pi daemon relies on the key always being present.
         $song = Song::factory()->create(['available' => true]);
         QueueItem::create([
-            'station_id' => \App\Models\Station::defaultId(),
+            'station_id' => Station::defaultId(),
             'song_id' => $song->id,
             'requested_by_name' => null,
             'position' => 1,
@@ -72,7 +72,7 @@ class PiControllerTest extends TestCase
     {
         $song = Song::factory()->create(['available' => true]);
         QueueItem::create([
-            'station_id' => \App\Models\Station::defaultId(),
+            'station_id' => Station::defaultId(),
             'song_id' => $song->id,
             'requested_by_name' => 'Alex',
             'position' => 1,
@@ -228,7 +228,7 @@ class PiControllerTest extends TestCase
         ]);
     }
 
-    public function test_heartbeat_succeeds_when_optional_columns_are_missing(): void
+    public function test_heartbeat_succeeds_when_telemetry_columns_are_missing(): void
     {
         Schema::drop('pi_tokens');
         Schema::create('pi_tokens', function (Blueprint $table) {
@@ -253,5 +253,32 @@ class PiControllerTest extends TestCase
 
         $response->assertOk();
         $this->assertDatabaseHas('pi_tokens', ['pi_status' => 'idle', 'pi_mode' => 'normal']);
+    }
+
+    public function test_heartbeat_succeeds_with_original_pi_token_schema(): void
+    {
+        Schema::drop('pi_tokens');
+        Schema::create('pi_tokens', function (Blueprint $table) {
+            $table->id();
+            $table->string('token_hash', 64);
+            $table->string('label')->default('Raspberry Pi');
+            $table->timestamp('last_seen_at')->nullable();
+            $table->timestamps();
+            $table->index('token_hash');
+        });
+
+        ['raw' => $rawToken] = PiToken::generate('Legacy Pi');
+
+        $response = $this->postJson('/api/pi/heartbeat', [
+            'status' => 'idle',
+            'mode' => 'normal',
+            'daemon_hash' => 'abc123',
+            'disk_free_bytes' => 1_000_000,
+            'disk_total_bytes' => 8_000_000,
+        ], ['X-Pi-Token' => $rawToken]);
+
+        $response->assertOk();
+        $response->assertJsonPath('skip_next', false);
+        $this->assertDatabaseHas('pi_tokens', ['label' => 'Legacy Pi']);
     }
 }
