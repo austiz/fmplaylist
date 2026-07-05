@@ -85,6 +85,8 @@ MEDIA_TYPES = {'song', 'commercial', 'sound_byte'}
 
 _remote_cfg: dict = {}
 _fm_proc: 'subprocess.Popen | None' = None
+_fm_lock = threading.Lock()   # guards every _fm_proc read/write — SchedulerThread can
+                              # stop/restart it (freq change) while AudioWriteThread writes
 
 _stop_event     = threading.Event()   # set on SIGTERM/SIGINT
 _stop_live      = threading.Event()
@@ -622,56 +624,80 @@ def _update_rds(ps: str, rt: str) -> None:
 
 def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
     global _fm_proc
-    if _fm_proc is not None and _fm_proc.poll() is None:
-        return True
-    _ps = ps or rds_ps(cfg)
-    _rt = rt or rds_rt(cfg)
-    print(f'[{_ts()}][FM] starting at {cfg["freq"]} MHz  ps="{_ps.strip()}"')
+    with _fm_lock:
+        if _fm_proc is not None and _fm_proc.poll() is None:
+            return True
+        _ps = ps or rds_ps(cfg)
+        _rt = rt or rds_rt(cfg)
+        print(f'[{_ts()}][FM] starting at {cfg["freq"]} MHz  ps="{_ps.strip()}"')
 
-    # Named pipe for live RDS updates without restarting pi_fm_rds
-    if not os.path.exists(FM_CTL_FIFO):
+        # Named pipe for live RDS updates without restarting pi_fm_rds
+        if not os.path.exists(FM_CTL_FIFO):
+            try:
+                os.mkfifo(FM_CTL_FIFO)
+            except OSError:
+                pass
+
         try:
-            os.mkfifo(FM_CTL_FIFO)
-        except OSError:
-            pass
-
-    try:
-        _fm_proc = subprocess.Popen(
-            _PI_CMD + [
-                '-freq', str(cfg['freq']),
-                '-pi',   cfg.get('pi_code', 'C0DE'),
-                '-audio', '-',
-                '-ps',   _ps,
-                '-rt',   _rt,
-                '-ctl',  FM_CTL_FIFO,
-            ],
-            stdin=subprocess.PIPE,
-        )
-        _write_streaming_wav_header(_fm_proc.stdin)
-        return True
-    except Exception as e:
-        print(f'[{_ts()}][FM] ERROR: {e}')
-        _fm_proc = None
-        return False
+            _fm_proc = subprocess.Popen(
+                _PI_CMD + [
+                    '-freq', str(cfg['freq']),
+                    '-pi',   cfg.get('pi_code', 'C0DE'),
+                    '-audio', '-',
+                    '-ps',   _ps,
+                    '-rt',   _rt,
+                    '-ctl',  FM_CTL_FIFO,
+                ],
+                stdin=subprocess.PIPE,
+            )
+            _write_streaming_wav_header(_fm_proc.stdin)
+            return True
+        except Exception as e:
+            print(f'[{_ts()}][FM] ERROR: {e}')
+            _fm_proc = None
+            return False
 
 
 def _stop_fm() -> None:
     global _fm_proc
-    if _fm_proc is None:
-        return
-    try:
-        _fm_proc.stdin.close()
-    except Exception:
-        pass
-    try:
-        _fm_proc.terminate()
-        _fm_proc.wait(timeout=3)
-    except Exception:
+    with _fm_lock:
+        if _fm_proc is None:
+            return
         try:
-            _fm_proc.kill()
+            _fm_proc.stdin.close()
         except Exception:
             pass
-    _fm_proc = None
+        try:
+            _fm_proc.terminate()
+            _fm_proc.wait(timeout=3)
+        except Exception:
+            try:
+                _fm_proc.kill()
+            except Exception:
+                pass
+        _fm_proc = None
+
+
+def _fm_write(data: bytes) -> bool:
+    """Thread-safe write to the FM process's stdin.
+
+    Every access to `_fm_proc` — from AudioWriteThread's continuous writes and from
+    SchedulerThread's `_ensure_fm_running`/`_stop_fm` (e.g. on a frequency change) —
+    goes through `_fm_lock`. Without this, a write landing between `_stop_fm()`
+    closing stdin and nulling `_fm_proc` raises an uncaught AttributeError/ValueError
+    that kills the whole daemon process (station goes off-air until something
+    restarts it). Returns False (and clears `_fm_proc`) if the pipe is unavailable.
+    """
+    global _fm_proc
+    with _fm_lock:
+        if _fm_proc is None or _fm_proc.poll() is not None:
+            return False
+        try:
+            _fm_proc.stdin.write(data)
+            return True
+        except (BrokenPipeError, OSError, ValueError, AttributeError):
+            _fm_proc = None
+            return False
 
 
 # ── PCM helpers ───────────────────────────────────────────────────────────────
@@ -713,20 +739,18 @@ def _apply_fade_in(pcm: bytes, fade_bytes: int) -> bytes:
 def _write_fade_out_pcm(pcm_tail: bytes) -> None:
     """Write a linear fade-out of pcm_tail to the FM pipe."""
     n = len(pcm_tail) // 2
-    if n == 0 or _fm_proc is None:
+    if n == 0:
         return
     try:
         import numpy as np
         samples = np.frombuffer(pcm_tail[:n * 2], dtype='<i2').astype(np.float32)
         ramp    = np.linspace(1.0, 0.0, n, dtype=np.float32)
-        _fm_proc.stdin.write(np.clip(samples * ramp, -32768, 32767).astype('<i2').tobytes())
+        data = np.clip(samples * ramp, -32768, 32767).astype('<i2').tobytes()
     except ImportError:
-        sa  = struct.unpack(f'<{n}h', pcm_tail[:n * 2])
-        out = struct.pack(f'<{n}h',
-                          *[max(-32768, min(32767, int(s * (1 - i / n)))) for i, s in enumerate(sa)])
-        _fm_proc.stdin.write(out)
-    except (BrokenPipeError, OSError):
-        pass
+        sa   = struct.unpack(f'<{n}h', pcm_tail[:n * 2])
+        data = struct.pack(f'<{n}h',
+                           *[max(-32768, min(32767, int(s * (1 - i / n)))) for i, s in enumerate(sa)])
+    _fm_write(data)
 
 
 # ── Three-Thread Audio Engine ─────────────────────────────────────────────────
@@ -741,11 +765,8 @@ def _get_next_decoded(timeout: float = 5.0) -> 'AudioSegment | None':
         try:
             return _ready_q.get(block=True, timeout=0.020)
         except queue.Empty:
-            if _fm_proc is not None and _fm_proc.poll() is None:
-                try:
-                    _fm_proc.stdin.write(SILENCE_20MS)
-                except (BrokenPipeError, OSError):
-                    break
+            if not _fm_write(SILENCE_20MS):
+                break
     return None
 
 
@@ -792,16 +813,34 @@ def _decoder_loop() -> None:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
+        except Exception as e:
+            print(f'[{_ts()}][decoder] ERROR spawning ffmpeg for "{seg.title}": {e}')
+            continue
+
+        try:
             seg.pcm = ff.stdout.read()
-            ff.wait()
-            if seg.delete_after_decode and os.path.exists(seg.filepath):
-                try:
-                    os.remove(seg.filepath)
-                except OSError:
-                    pass
+            ff.wait(timeout=10)
         except Exception as e:
             print(f'[{_ts()}][decoder] ERROR "{seg.title}": {e}')
+            # This loop runs 24/7 — an occasional corrupt/oversized file must not leave
+            # the ffmpeg child as an unreaped zombie or its stdout pipe fd leaked.
+            try:
+                ff.kill()
+                ff.wait(timeout=3)
+            except Exception:
+                pass
             continue
+        finally:
+            try:
+                ff.stdout.close()
+            except Exception:
+                pass
+
+        if seg.delete_after_decode and os.path.exists(seg.filepath):
+            try:
+                os.remove(seg.filepath)
+            except OSError:
+                pass
 
         if not seg.pcm:
             print(f'[{_ts()}][decoder] empty PCM for "{seg.title}" — skipping')
@@ -829,8 +868,6 @@ def _audio_write_loop(cfg: dict, local: dict) -> None:
 
     No network calls. No subprocess creation. No timing-sensitive blocking.
     """
-    global _fm_proc
-
     print(f'[{_ts()}][audio] waiting for first decoded segment...')
     current: 'AudioSegment | None' = _get_next_decoded(timeout=60)
 
@@ -889,12 +926,9 @@ def _audio_write_loop(cfg: dict, local: dict) -> None:
                 skipped = True
                 break
             end = min(pos + CHUNK_SIZE, xfade_start)
-            try:
-                _fm_proc.stdin.write(pcm[pos:end])
-            except (BrokenPipeError, OSError) as e:
-                print(f'[{_ts()}][audio] FM pipe error in body: {e}')
-                _fm_proc = None
-                pipe_ok  = False
+            if not _fm_write(pcm[pos:end]):
+                print(f'[{_ts()}][audio] FM pipe error in body')
+                pipe_ok = False
                 break
             pos = end
 
@@ -918,11 +952,8 @@ def _audio_write_loop(cfg: dict, local: dict) -> None:
 
         if nxt is None or xfade_bytes == 0 or skipped:
             # No crossfade: finish tail of current, then move to nxt
-            if not skipped and _fm_proc:
-                try:
-                    _fm_proc.stdin.write(pcm[pos:])
-                except (BrokenPipeError, OSError):
-                    pass
+            if not skipped:
+                _fm_write(pcm[pos:])
             if nxt is None:
                 # Nothing at all — wait with silence
                 print(f'[{_ts()}][audio] queue empty — waiting with silence')
@@ -950,11 +981,8 @@ def _audio_write_loop(cfg: dict, local: dict) -> None:
             vol_b = math.sin(t * math.pi / 2)   # 0.0 → 1.0
             mixed = _mix_pcm(tail_a[chunk_start:chunk_end], vol_a,
                              head_b[chunk_start:chunk_end], vol_b)
-            try:
-                _fm_proc.stdin.write(mixed)
-            except (BrokenPipeError, OSError) as e:
-                print(f'[{_ts()}][audio] FM pipe error in xfade: {e}')
-                _fm_proc = None
+            if not _fm_write(mixed):
+                print(f'[{_ts()}][audio] FM pipe error in xfade')
                 break
 
         if _freq_interrupt.is_set():
@@ -1166,11 +1194,7 @@ def play_live_stream(cfg: dict, mode: str, url: str = '') -> None:
         chunk = ffmpeg.stdout.read(CHUNK_SIZE)
         if not chunk:
             break
-        if _fm_proc is None or _fm_proc.poll() is not None:
-            break
-        try:
-            _fm_proc.stdin.write(chunk)
-        except (BrokenPipeError, OSError):
+        if not _fm_write(chunk):
             break
 
     ffmpeg.terminate()

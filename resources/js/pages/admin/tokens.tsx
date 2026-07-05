@@ -71,17 +71,17 @@ export default function Tokens({ tokens, stations, newToken, appUrl }: Props) {
         <AdminLayout title="Devices">
             <div className="max-w-3xl space-y-6">
                 {newToken && (
-                    <div className="rounded-xl border-2 border-red-300 bg-red-50 p-5 dark:border-red-800 dark:bg-red-950/30 space-y-4">
-                        <p className="text-sm font-bold text-red-900 dark:text-red-200">
+                    <div className="space-y-4 border border-red-500/40 bg-red-500/5 p-5">
+                        <p className="text-sm font-bold text-red-400">
                             New token generated — shown once only
                         </p>
 
                         <div>
-                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-400">
+                            <p className="mb-1.5 font-display text-xs font-semibold uppercase tracking-wide text-red-400/80">
                                 Run this on the Pi (sets everything up automatically)
                             </p>
                             <div className="flex gap-2">
-                                <code className="flex-1 rounded bg-white px-3 py-2 text-xs font-mono text-zinc-900 dark:bg-zinc-900 dark:text-white break-all">
+                                <code className="flex-1 break-all border border-border bg-background px-3 py-2 font-mono text-xs text-foreground">
                                     {installCmd}
                                 </code>
                                 <Button size="sm" onClick={copyCmd} className="shrink-0">
@@ -91,11 +91,11 @@ export default function Tokens({ tokens, stations, newToken, appUrl }: Props) {
                         </div>
 
                         <div>
-                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-400">
+                            <p className="mb-1.5 font-display text-xs font-semibold uppercase tracking-wide text-red-400/80">
                                 Raw token (for manual config.json edits)
                             </p>
                             <div className="flex gap-2">
-                                <code className="flex-1 rounded bg-white px-3 py-2 text-xs font-mono text-zinc-900 dark:bg-zinc-900 dark:text-white break-all">
+                                <code className="flex-1 break-all border border-border bg-background px-3 py-2 font-mono text-xs text-foreground">
                                     {newToken}
                                 </code>
                                 <Button size="sm" variant="outline" onClick={copyToken} className="shrink-0">
@@ -106,21 +106,21 @@ export default function Tokens({ tokens, stations, newToken, appUrl }: Props) {
                     </div>
                 )}
 
-                <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-                    <h2 className="mb-4 font-semibold text-zinc-900 dark:text-white">Devices</h2>
+                <div className="border border-border bg-card p-5">
+                    <h2 className="mb-4 font-display text-xs font-bold uppercase tracking-widest text-muted-foreground">Devices</h2>
                     {tokens.length === 0 ? (
-                        <p className="text-sm text-zinc-400">No devices yet — add one below.</p>
+                        <p className="text-sm text-muted-foreground">No devices yet — add one below.</p>
                     ) : (
                         <div className="space-y-2">
                             {tokens.map((t) => (
-                                <div key={t.id} className="rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800 space-y-2">
+                                <div key={t.id} className="space-y-2 border border-border bg-secondary/50 px-4 py-3">
                                     <div className="flex items-center justify-between gap-4">
                                         <div className="min-w-0">
-                                            <p className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-white">
-                                                <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${t.online ? 'bg-green-500' : 'bg-zinc-400'}`} />
+                                            <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+                                                <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${t.online ? 'bg-green-500' : 'bg-muted-foreground/30'}`} />
                                                 {t.label}
                                             </p>
-                                            <p className="text-xs text-zinc-500">
+                                            <p className="text-xs text-muted-foreground">
                                                 Last seen: {t.last_seen_at ?? 'never'} · Created {t.created_at} ·{' '}
                                                 {t.downloads_done}/{t.downloads_total} downloaded · {formatBytes(t.disk_free_bytes)} free of {formatBytes(t.disk_total_bytes)}
                                             </p>
@@ -135,7 +135,7 @@ export default function Tokens({ tokens, stations, newToken, appUrl }: Props) {
                                                 </SelectContent>
                                             </Select>
                                             <Button size="sm" variant="outline" onClick={() => regenerate(t)}>Regenerate</Button>
-                                            <Button size="sm" variant="outline" className="text-red-600" onClick={() => revoke(t)}>Revoke</Button>
+                                            <Button size="sm" variant="outline" className="text-red-500" onClick={() => revoke(t)}>Revoke</Button>
                                         </div>
                                     </div>
                                 </div>
@@ -144,8 +144,8 @@ export default function Tokens({ tokens, stations, newToken, appUrl }: Props) {
                     )}
                 </div>
 
-                <form onSubmit={addDevice} className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
-                    <h2 className="font-semibold text-zinc-900 dark:text-white">Add a Device</h2>
+                <form onSubmit={addDevice} className="space-y-3 border border-border bg-card p-5">
+                    <h2 className="font-display text-xs font-bold uppercase tracking-widest text-muted-foreground">Add a Device</h2>
                     <div className="grid gap-3 sm:grid-cols-[1fr_180px_auto]">
                         <div className="space-y-1">
                             <Label>Label</Label>
@@ -167,7 +167,7 @@ export default function Tokens({ tokens, stations, newToken, appUrl }: Props) {
                                 </SelectContent>
                             </Select>
                         </div>
-                        <Button type="submit" disabled={addForm.processing || !addForm.data.label} className="self-end bg-red-600 hover:bg-red-700 text-white">
+                        <Button type="submit" disabled={addForm.processing || !addForm.data.label} className="self-end bg-red-600 text-white hover:bg-red-700">
                             {tokens.length > 0 ? 'Add Device' : 'Generate Token'}
                         </Button>
                     </div>

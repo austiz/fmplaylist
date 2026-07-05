@@ -20,22 +20,22 @@ export default function Stations({ stations }: Props) {
     return (
         <AdminLayout title="Stations">
             <div className="max-w-xl space-y-6">
-                <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-                    <h2 className="mb-4 font-semibold text-zinc-900 dark:text-white">Stations</h2>
+                <div className="border border-border bg-card p-5">
+                    <h2 className="mb-4 font-display text-xs font-bold uppercase tracking-widest text-muted-foreground">Stations</h2>
                     <div className="space-y-2">
                         {stations.map((s) => (
-                            <div key={s.id} className="flex items-center justify-between rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                            <div key={s.id} className="flex items-center justify-between border border-border bg-secondary/50 px-4 py-3">
                                 <div>
-                                    <p className="text-sm font-medium text-zinc-900 dark:text-white">{s.name}</p>
-                                    <p className="text-xs text-zinc-500">/{s.slug}{s.is_default ? ' · default' : ''}</p>
+                                    <p className="text-sm font-medium text-foreground">{s.name}</p>
+                                    <p className="text-xs text-muted-foreground">/{s.slug}{s.is_default ? ' · default' : ''}</p>
                                 </div>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                <form onSubmit={create} className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
-                    <h2 className="font-semibold text-zinc-900 dark:text-white">Create a Station</h2>
+                <form onSubmit={create} className="space-y-3 border border-border bg-card p-5">
+                    <h2 className="font-display text-xs font-bold uppercase tracking-widest text-muted-foreground">Create a Station</h2>
                     <div className="space-y-1">
                         <Label>Name</Label>
                         <Input

@@ -1,5 +1,5 @@
-import { Link, router, useForm, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { Link, router, useForm } from '@inertiajs/react';
+import { useRef, useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +27,7 @@ interface Props {
     songs: PaginatedResponse<AdminSong>;
     commercials: Commercial[];
     soundBytes: SoundByte[];
+    search: string;
 }
 
 type Tab = 'songs' | 'commercials' | 'sound-bytes';
@@ -159,25 +160,35 @@ router.delete(`/admin/songs/${song.id}`);
     );
 }
 
-function SongsSection({ songs }: { songs: PaginatedResponse<AdminSong> }) {
-    const [search, setSearch] = useState('');
-    const filtered = songs.data.filter(s => `${s.title} ${s.artist} ${s.filename}`.toLowerCase().includes(search.toLowerCase()));
-    const pending  = songs.data.filter(s => s.needs_pi_download).length;
+function SongsSection({ songs, search }: { songs: PaginatedResponse<AdminSong>; search: string }) {
+    const pending = songs.data.filter(s => s.needs_pi_download).length;
+    const searchTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+    // Songs are server-paginated (50/page) across the whole library, so the search
+    // must hit the server too — filtering only `songs.data` would miss every song
+    // outside the currently-loaded page.
+    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        clearTimeout(searchTimeout.current);
+        searchTimeout.current = setTimeout(() => {
+            router.get('/admin/sounds', { search: value }, { preserveState: true, replace: true, only: ['songs'] });
+        }, 300);
+    };
 
     return (
         <div className="space-y-6">
             <SongUploadForm />
             <div className="space-y-3">
                 <div className="flex items-center gap-3">
-                    <Input placeholder="Search songs..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs" />
+                    <Input placeholder="Search songs..." defaultValue={search} onChange={handleSearch} className="max-w-xs" />
                     <span className="text-xs text-muted-foreground">
                         {songs.total} songs
                         {pending > 0 && <span className="ml-2 text-yellow-400">{pending} pending</span>}
                     </span>
                 </div>
                 <div className="divide-y divide-border border border-border bg-card">
-                    {filtered.map(s => <SongRow key={s.id} song={s} />)}
-                    {filtered.length === 0 && <p className="px-4 py-8 text-center text-sm text-muted-foreground">No songs found</p>}
+                    {songs.data.map(s => <SongRow key={s.id} song={s} />)}
+                    {songs.data.length === 0 && <p className="px-4 py-8 text-center text-sm text-muted-foreground">No songs found</p>}
                 </div>
                 {songs.last_page > 1 && (
                     <div className="flex justify-center gap-1">
@@ -463,18 +474,11 @@ const TABS: { key: Tab; label: (p: Props) => string }[] = [
 ];
 
 export default function Sounds(props: Props) {
-    const { songs, commercials, soundBytes } = props;
-    const { props: page } = usePage<{ flash: { success?: string } }>();
+    const { songs, commercials, soundBytes, search } = props;
     const [tab, setTab] = useState<Tab>('songs');
 
     return (
         <AdminLayout title="Sounds">
-            {page.flash?.success && (
-                <div className="mb-6 border-l-2 border-green-500 bg-green-500/10 px-4 py-3 text-sm text-green-400">
-                    {page.flash.success}
-                </div>
-            )}
-
             {/* Tab bar */}
             <div className="mb-6 flex border-b border-border">
                 {TABS.map(({ key, label }) => (
@@ -492,7 +496,7 @@ export default function Sounds(props: Props) {
                 ))}
             </div>
 
-            {tab === 'songs'       && <SongsSection songs={songs} />}
+            {tab === 'songs'       && <SongsSection songs={songs} search={search} />}
             {tab === 'commercials' && <CommercialsSection commercials={commercials} />}
             {tab === 'sound-bytes' && <SoundBytesSection soundBytes={soundBytes} />}
         </AdminLayout>

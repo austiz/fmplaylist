@@ -8,11 +8,24 @@ use App\Models\QueueItem;
 use App\Models\Setting;
 use App\Models\Song;
 use App\Models\SoundByte;
+use App\Models\Station;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class QueueService
 {
+    /**
+     * Locks the station row for the duration of the enclosing transaction, serializing
+     * concurrent position-assignment (two listeners requesting at once, or a request
+     * racing the Pi-driven auto-fill/now-playing update). Locking the station row — not
+     * just the matching queue rows — also creates a mutex when the queue is currently
+     * empty, when there'd otherwise be no row for `lockForUpdate()` to lock.
+     */
+    private function lockStation(int $stationId): void
+    {
+        Station::where('id', $stationId)->lockForUpdate()->first();
+    }
+
     /**
      * Read-only peek at the next $limit pending songs — no state changes.
      * Used by the Pi to pre-decode upcoming songs before they're needed.
@@ -147,42 +160,46 @@ class QueueService
 
     private function autoFillQueue(int $stationId, int $target = 10): void
     {
-        $pendingCount = QueueItem::where('station_id', $stationId)->where('status', 'pending')->count();
-        $needed = $target - $pendingCount;
+        DB::transaction(function () use ($stationId, $target) {
+            $this->lockStation($stationId);
 
-        if ($needed <= 0) {
-            return;
-        }
+            $pendingCount = QueueItem::where('station_id', $stationId)->where('status', 'pending')->count();
+            $needed = $target - $pendingCount;
 
-        // Exclude songs already pending or currently playing on THIS station
-        // (the song library is shared across stations, so other stations' queues don't matter here)
-        $excludeIds = QueueItem::where('station_id', $stationId)
-            ->whereIn('status', ['pending', 'playing'])
-            ->pluck('song_id');
+            if ($needed <= 0) {
+                return;
+            }
 
-        $songs = Song::available()
-            ->whereNotIn('id', $excludeIds)
-            ->orderByRaw('(SELECT MAX(played_at) FROM queue_items WHERE queue_items.song_id = songs.id AND queue_items.status = "played") ASC')
-            ->take($needed)
-            ->get();
+            // Exclude songs already pending or currently playing on THIS station
+            // (the song library is shared across stations, so other stations' queues don't matter here)
+            $excludeIds = QueueItem::where('station_id', $stationId)
+                ->whereIn('status', ['pending', 'playing'])
+                ->pluck('song_id');
 
-        if ($songs->isEmpty()) {
-            return;
-        }
+            $songs = Song::available()
+                ->whereNotIn('id', $excludeIds)
+                ->orderByRaw('(SELECT MAX(played_at) FROM queue_items WHERE queue_items.song_id = songs.id AND queue_items.status = "played") ASC')
+                ->take($needed)
+                ->get();
 
-        $maxPos = QueueItem::where('station_id', $stationId)->where('status', 'pending')->max('position') ?? 0;
+            if ($songs->isEmpty()) {
+                return;
+            }
 
-        foreach ($songs as $song) {
-            QueueItem::create([
-                'station_id'        => $stationId,
-                'song_id'           => $song->id,
-                'requested_by_name' => null,
-                'position'          => ++$maxPos,
-                'status'            => 'pending',
-            ]);
-        }
+            $maxPos = QueueItem::where('station_id', $stationId)->where('status', 'pending')->max('position') ?? 0;
 
-        $this->bumpQueueVersion($stationId);
+            foreach ($songs as $song) {
+                QueueItem::create([
+                    'station_id'        => $stationId,
+                    'song_id'           => $song->id,
+                    'requested_by_name' => null,
+                    'position'          => ++$maxPos,
+                    'status'            => 'pending',
+                ]);
+            }
+
+            $this->bumpQueueVersion($stationId);
+        });
     }
 
     private function onSongPlayed(int $stationId, ?int $queueItemId): void
@@ -214,19 +231,23 @@ class QueueService
 
     public function addToQueue(int $stationId, int $songId, ?string $name): QueueItem
     {
-        $maxPos = QueueItem::where('station_id', $stationId)->where('status', 'pending')->max('position') ?? 0;
+        return DB::transaction(function () use ($stationId, $songId, $name) {
+            $this->lockStation($stationId);
 
-        $item = QueueItem::create([
-            'station_id' => $stationId,
-            'song_id' => $songId,
-            'requested_by_name' => $name,
-            'position' => $maxPos + 1,
-            'status' => 'pending',
-        ]);
+            $maxPos = QueueItem::where('station_id', $stationId)->where('status', 'pending')->max('position') ?? 0;
 
-        $this->bumpQueueVersion($stationId);
+            $item = QueueItem::create([
+                'station_id' => $stationId,
+                'song_id' => $songId,
+                'requested_by_name' => $name,
+                'position' => $maxPos + 1,
+                'status' => 'pending',
+            ]);
 
-        return $item;
+            $this->bumpQueueVersion($stationId);
+
+            return $item;
+        });
     }
 
     public function skipCurrent(int $stationId): void
@@ -240,6 +261,7 @@ class QueueService
     public function playNow(int $stationId, int $songId, ?string $name = null): QueueItem
     {
         return DB::transaction(function () use ($stationId, $songId, $name) {
+            $this->lockStation($stationId);
             $this->skipCurrent($stationId);
             QueueItem::where('station_id', $stationId)->where('status', 'pending')->increment('position');
 

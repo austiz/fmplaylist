@@ -14,13 +14,16 @@ class SoundsController extends Controller
 {
     public function index(Request $request): Response
     {
+        $search = $request->string('search')->trim()->toString();
+
         $songs = Song::query()
-            ->when($request->search, fn ($q) => $q
-                ->where('title', 'like', "%{$request->search}%")
-                ->orWhere('artist', 'like', "%{$request->search}%")
-                ->orWhere('filename', 'like', "%{$request->search}%"))
+            ->when($search, fn ($q) => $q
+                ->where('title', 'like', "%{$search}%")
+                ->orWhere('artist', 'like', "%{$search}%")
+                ->orWhere('filename', 'like', "%{$search}%"))
             ->orderByDesc('created_at')
             ->paginate(50)
+            ->withQueryString()
             ->through(fn ($s) => [
                 'id' => $s->id,
                 'title' => $s->title,
@@ -71,6 +74,7 @@ class SoundsController extends Controller
             'songs' => $songs,
             'commercials' => $commercials,
             'soundBytes' => $soundBytes,
+            'search' => $search,
         ]);
     }
 }

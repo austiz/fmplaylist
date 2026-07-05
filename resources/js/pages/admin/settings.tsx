@@ -1,4 +1,4 @@
-import { Link, useForm, usePage } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
 import { useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
 import { Button } from '@/components/ui/button';
@@ -53,7 +53,6 @@ export default function Settings({ settings, wifi }: Props) {
         sound_byte_interval: settings.sound_byte_interval ?? '0',
         fade_in_duration: settings.fade_in_duration ?? '0.5',
     });
-    const { props } = usePage<{ flash: { success?: string } }>();
 
     const [selectedSsid, setSelectedSsid] = useState('');
     const wifiForm = useForm({ ssid: '', password: '' });
@@ -76,12 +75,6 @@ export default function Settings({ settings, wifi }: Props) {
 
     return (
         <AdminLayout title="Settings">
-            {props.flash?.success && (
-                <div className="mb-4 border-l-2 border-green-500 bg-green-500/10 px-4 py-3 text-sm text-green-400">
-                    {props.flash.success}
-                </div>
-            )}
-
             <form onSubmit={submit} className="max-w-2xl space-y-6 border border-border bg-card p-5">
                 <section className="space-y-4">
                     <h2 className="font-display text-xs font-bold uppercase tracking-widest text-muted-foreground">Station</h2>
