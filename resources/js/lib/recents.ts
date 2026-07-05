@@ -22,9 +22,14 @@ export function getRecents(): Recent[] {
 
 /** Record a request; dedupes by song, moves it to the front, caps the list. */
 export function pushRecent(r: Omit<Recent, 'ts'>): Recent[] {
-    const next = [{ ...r, ts: Date.now() }, ...getRecents().filter((x) => x.songId !== r.songId)].slice(0, CAP);
+    const next = [
+        { ...r, ts: Date.now() },
+        ...getRecents().filter((x) => x.songId !== r.songId),
+    ].slice(0, CAP);
     try {
         localStorage.setItem(KEY, JSON.stringify(next));
-    } catch { /* ignore */ }
+    } catch {
+        /* ignore */
+    }
     return next;
 }

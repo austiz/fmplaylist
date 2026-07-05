@@ -37,7 +37,8 @@ const QUIPS: Record<CommutePhase, string[]> = {
 
 const TAGLINES: Record<CommutePhase, string> = {
     dawn: 'Request a track. Hear it before the sun’s all the way up.',
-    morning: 'No algorithms. No ads. No bullshit. Request a track, hear it live.',
+    morning:
+        'No algorithms. No ads. No bullshit. Request a track, hear it live.',
     midday: 'Your station, your songs — straight to the freeway.',
     evening: 'Turn the crawl into a concert. Request a track, hear it live.',
     night: 'After-hours radio. You pick, we broadcast.',

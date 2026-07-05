@@ -35,35 +35,55 @@ const PALETTES: Record<CommutePhase, CommutePalette> = {
         label: 'Dawn Patrol',
         accent: '#ff9e64',
         glowHue: 40,
-        viz: { low: [0.14, 0.10, 0.30], mid: [0.62, 0.22, 0.42], high: [1.00, 0.62, 0.34] },
+        viz: {
+            low: [0.14, 0.1, 0.3],
+            mid: [0.62, 0.22, 0.42],
+            high: [1.0, 0.62, 0.34],
+        },
     },
     morning: {
         phase: 'morning',
         label: 'Morning Drive',
         accent: '#ffb340',
         glowHue: 55,
-        viz: { low: [0.20, 0.12, 0.15], mid: [0.90, 0.35, 0.20], high: [1.00, 0.78, 0.36] },
+        viz: {
+            low: [0.2, 0.12, 0.15],
+            mid: [0.9, 0.35, 0.2],
+            high: [1.0, 0.78, 0.36],
+        },
     },
     midday: {
         phase: 'midday',
         label: 'Midday Cruise',
         accent: '#ff5a4d',
         glowHue: 27,
-        viz: { low: [0.15, 0.05, 0.08], mid: [0.82, 0.16, 0.16], high: [1.00, 0.52, 0.42] },
+        viz: {
+            low: [0.15, 0.05, 0.08],
+            mid: [0.82, 0.16, 0.16],
+            high: [1.0, 0.52, 0.42],
+        },
     },
     evening: {
         phase: 'evening',
         label: 'Evening Crawl',
         accent: '#ff6b9d',
         glowHue: 12,
-        viz: { low: [0.18, 0.06, 0.22], mid: [0.86, 0.20, 0.32], high: [1.00, 0.46, 0.26] },
+        viz: {
+            low: [0.18, 0.06, 0.22],
+            mid: [0.86, 0.2, 0.32],
+            high: [1.0, 0.46, 0.26],
+        },
     },
     night: {
         phase: 'night',
         label: 'After Hours',
         accent: '#c774f0',
         glowHue: 330,
-        viz: { low: [0.10, 0.03, 0.14], mid: [0.56, 0.10, 0.36], high: [0.92, 0.26, 0.52] },
+        viz: {
+            low: [0.1, 0.03, 0.14],
+            mid: [0.56, 0.1, 0.36],
+            high: [0.92, 0.26, 0.52],
+        },
     },
 };
 
