@@ -1,4 +1,4 @@
-import { useForm, usePage } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
 import { useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
 import { Button } from '@/components/ui/button';
@@ -55,8 +55,6 @@ const MODES = [
 ] as const;
 
 export default function Broadcast({ songs, commercials, soundBytes, settings, pi, nowPlaying }: Props) {
-    const { props } = usePage<{ flash: { success?: string } }>();
-
     const modeForm = useForm({
         broadcast_mode:   settings.broadcast_mode   ?? 'normal',
         live_stream_url:  settings.live_stream_url  ?? '',
@@ -94,12 +92,6 @@ export default function Broadcast({ songs, commercials, soundBytes, settings, pi
 
     return (
         <AdminLayout title="Broadcast">
-            {props.flash?.success && (
-                <div className="mb-6 border-l-2 border-green-500 bg-green-500/10 px-4 py-3 text-sm text-green-400">
-                    {props.flash.success}
-                </div>
-            )}
-
             {/* Emergency Broadcast */}
             <div className="mb-6 border border-red-500/40 bg-red-500/5 p-4">
                 <div className="flex items-start justify-between gap-6">
@@ -264,7 +256,7 @@ skipForm.post('/admin/broadcast/skip');
 
                             {/* Play Now */}
                             <form onSubmit={(e) => {
- e.preventDefault(); playNowForm.post('/admin/broadcast/play-now'); 
+ e.preventDefault(); playNowForm.post('/admin/broadcast/play-now', { onSuccess: () => playNowForm.reset() });
 }}
                                 className="space-y-2">
                                 <Input
@@ -309,7 +301,7 @@ skipForm.post('/admin/broadcast/skip');
                             <form
                                 onSubmit={(e) => {
                                     e.preventDefault();
-                                    commercialForm.post('/admin/broadcast/force-commercial');
+                                    commercialForm.post('/admin/broadcast/force-commercial', { onSuccess: () => commercialForm.reset() });
                                 }}
                                 className="space-y-2 border border-border bg-card p-3"
                             >
@@ -354,7 +346,7 @@ skipForm.post('/admin/broadcast/skip');
                             <form
                                 onSubmit={(e) => {
                                     e.preventDefault();
-                                    soundByteForm.post('/admin/broadcast/force-sound-byte');
+                                    soundByteForm.post('/admin/broadcast/force-sound-byte', { onSuccess: () => soundByteForm.reset() });
                                 }}
                                 className="space-y-2 border border-border bg-card p-3"
                             >

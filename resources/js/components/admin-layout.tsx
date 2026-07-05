@@ -11,6 +11,7 @@ const nav = [
     { href: '/admin/broadcast', label: 'Broadcast' },
     { href: '/admin/sounds',    label: 'Sounds'    },
     { href: '/admin/settings',  label: 'Settings'  },
+    { href: '/admin/stations',  label: 'Stations'  },
     { href: '/admin/tokens',    label: 'Pi Token'  },
     { href: '/admin/history',   label: 'History'   },
 ];
@@ -94,11 +95,15 @@ return null;
 }
 
 export function AdminLayout({ children, title }: PropsWithChildren<{ title?: string }>) {
-    const { url, props } = usePage<{ activeStation: Station | null; stations: Station[] | null }>();
+    const { url, props } = usePage<{
+        activeStation: Station | null;
+        stations: Station[] | null;
+        flash: { success?: string; error?: string };
+    }>();
     const active = (href: string) =>
         href === '/admin' ? url === '/admin' : url.startsWith(href);
 
-    const { activeStation, stations } = props;
+    const { activeStation, stations, flash } = props;
 
     return (
         <div className="min-h-screen bg-background">
@@ -157,6 +162,16 @@ export function AdminLayout({ children, title }: PropsWithChildren<{ title?: str
             <main className="mx-auto max-w-6xl px-4 py-5">
                 {title && (
                     <h1 className="mb-4 font-display text-xl font-bold text-foreground">{title}</h1>
+                )}
+                {flash?.success && (
+                    <div className="mb-4 border-l-2 border-green-500 bg-green-500/10 px-4 py-3 text-sm text-green-400">
+                        {flash.success}
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="mb-4 border-l-2 border-red-500 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                        {flash.error}
+                    </div>
                 )}
                 {children}
             </main>

@@ -14,6 +14,7 @@ interface Props {
 // Minimal Wake Lock typing (not in the DOM lib everywhere yet).
 interface WakeLockSentinelLike {
     release: () => Promise<void>;
+    addEventListener?: (type: 'release', listener: () => void) => void;
 }
 interface WakeLockNavigator {
     wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinelLike> };
@@ -38,16 +39,30 @@ export default function Drive({ nowPlaying }: Props) {
         () => getRecents()[0] ?? null,
     );
     const [busy, setBusy] = useState(false);
+    // null = still trying, true = screen held awake, false = denied/unsupported/released —
+    // Driving Mode's whole promise is "screen stays on", so a silent failure here would
+    // undercut it right when the driver trusts it least. Unsupported browsers are known
+    // synchronously (no effect needed) via this lazy initializer.
+    const [wakeLockOk, setWakeLockOk] = useState<boolean | null>(() =>
+        (navigator as Navigator & WakeLockNavigator).wakeLock ? null : false,
+    );
 
     // Keep the screen awake while driving.
     useEffect(() => {
-        let lock: WakeLockSentinelLike | null = null;
         const nav = navigator as Navigator & WakeLockNavigator;
+
+        if (!nav.wakeLock) {
+            return;
+        }
+
+        let lock: WakeLockSentinelLike | null = null;
         const acquire = async () => {
             try {
-                lock = (await nav.wakeLock?.request('screen')) ?? null;
+                lock = await nav.wakeLock!.request('screen');
+                setWakeLockOk(true);
+                lock.addEventListener?.('release', () => setWakeLockOk(false));
             } catch {
-                /* denied/unsupported */
+                setWakeLockOk(false);
             }
         };
         acquire();
@@ -114,12 +129,19 @@ export default function Drive({ nowPlaying }: Props) {
 
             {/* Top bar */}
             <div className="flex items-center justify-between">
-                <span
-                    className="font-display text-sm font-bold tracking-[0.25em] uppercase"
-                    style={{ color: palette.accent }}
-                >
-                    {palette.label}
-                </span>
+                <div>
+                    <span
+                        className="font-display text-sm font-bold tracking-[0.25em] uppercase"
+                        style={{ color: palette.accent }}
+                    >
+                        {palette.label}
+                    </span>
+                    {wakeLockOk === false && (
+                        <p className="mt-0.5 font-display text-[10px] font-bold tracking-wider text-yellow-500 uppercase">
+                            Screen may lock — tap occasionally
+                        </p>
+                    )}
+                </div>
                 <Link
                     href="/"
                     className="flex h-14 w-14 items-center justify-center border border-border bg-card/70 text-muted-foreground backdrop-blur-sm active:scale-95"
