@@ -72,4 +72,11 @@ class SettingsController extends Controller
 
         return back()->with('success', 'WiFi change queued. Pi will switch within 30 seconds.');
     }
+
+    public function pushDaemonUpdate(): RedirectResponse
+    {
+        Setting::set('pi_update_requested', '1');
+
+        return back()->with('success', 'Update queued — Pi will pull the latest daemon and restart within 30 seconds.');
+    }
 }

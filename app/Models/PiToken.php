@@ -15,6 +15,7 @@ class PiToken extends Model
         'pi_mode',
         'pi_ip',
         'pi_skip_next',
+        'pi_daemon_hash',
     ];
 
     protected $casts = [

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Models\PiToken;
+use App\Models\QueueItem;
 use App\Models\Song;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -43,6 +44,39 @@ class PiControllerTest extends TestCase
 
         $this->assertArrayNotHasKey('play_station_id', $response->json());
         $this->assertArrayNotHasKey('station_id_available', $response->json());
+    }
+
+    public function test_queue_next_requested_by_name_is_null_for_autofilled_song(): void
+    {
+        // Auto-filled queue items (no requester) must send an explicit JSON null,
+        // not omit the key — the Pi daemon relies on the key always being present.
+        $song = Song::factory()->create(['available' => true]);
+        QueueItem::create([
+            'song_id' => $song->id,
+            'requested_by_name' => null,
+            'position' => 1,
+            'status' => 'pending',
+        ]);
+
+        $response = $this->getJson('/api/pi/queue', $this->piHeaders())->assertOk();
+
+        $this->assertArrayHasKey('requested_by_name', $response->json('next'));
+        $response->assertJsonPath('next.requested_by_name', null);
+    }
+
+    public function test_queue_next_requested_by_name_is_present_for_requested_song(): void
+    {
+        $song = Song::factory()->create(['available' => true]);
+        QueueItem::create([
+            'song_id' => $song->id,
+            'requested_by_name' => 'Alex',
+            'position' => 1,
+            'status' => 'pending',
+        ]);
+
+        $response = $this->getJson('/api/pi/queue', $this->piHeaders())->assertOk();
+
+        $response->assertJsonPath('next.requested_by_name', 'Alex');
     }
 
     public function test_heartbeat_updates_pi_token(): void

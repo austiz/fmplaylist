@@ -78,6 +78,7 @@ class PiController extends Controller
             'wifi_networks' => ['nullable', 'array'],
             'wifi_applied'  => ['nullable', 'string', 'max:100'],
             'wifi_failed'   => ['nullable', 'string', 'max:100'],
+            'daemon_hash'   => ['nullable', 'string', 'max:16'],
         ]);
 
         // Cache latest WiFi scan from Pi for the admin settings page
@@ -104,10 +105,11 @@ class PiController extends Controller
         if ($token) {
             $skipNext = (bool) $token->pi_skip_next;
             $token->update([
-                'pi_status'    => $data['status'],
-                'pi_mode'      => $data['mode'],
-                'pi_ip'        => $data['ip'] ?? $token->pi_ip,
-                'pi_skip_next' => false,  // consume the flag
+                'pi_status'      => $data['status'],
+                'pi_mode'        => $data['mode'],
+                'pi_ip'          => $data['ip'] ?? $token->pi_ip,
+                'pi_skip_next'   => false,  // consume the flag
+                'pi_daemon_hash' => $data['daemon_hash'] ?? $token->pi_daemon_hash,
             ]);
 
             Cache::put('sse.pi_status', [
@@ -120,9 +122,12 @@ class PiController extends Controller
 
         $config = self::buildConfig();
 
-        // Consume emergency flag after including it in this response
+        // Consume emergency / update flags after including them in this response
         if ($config['emergency'] ?? false) {
             Setting::set('pi_emergency', '0');
+        }
+        if ($config['apply_update'] ?? false) {
+            Setting::set('pi_update_requested', '0');
         }
 
         return response()->json([...$config, 'skip_next' => $skipNext]);
@@ -182,6 +187,7 @@ class PiController extends Controller
                 'status' => 'offline',
                 'mode' => 'normal',
                 'ip' => null,
+                'update_available' => false,
             ]);
         }
 
@@ -190,6 +196,8 @@ class PiController extends Controller
             'status' => $token->pi_status ?? 'idle',
             'mode' => $token->pi_mode ?? 'normal',
             'ip' => $token->pi_ip,
+            // null hash means the running daemon predates hash-reporting — don't nag until it's known
+            'update_available' => $token->pi_daemon_hash !== null && $token->pi_daemon_hash !== self::currentDaemonHash(),
         ]);
     }
 
@@ -304,6 +312,18 @@ class PiController extends Controller
             ] : null,
             'emergency'      => (bool) Setting::get('pi_emergency', '0'),
             'emergency_file' => Setting::get('emergency_announcement', 'announcement.wav'),
+            'apply_update'   => (bool) Setting::get('pi_update_requested', '0'),
         ];
+    }
+
+    /** Short hash of the daemon source currently on the server — compared against what each Pi reports. */
+    private static function currentDaemonHash(): string
+    {
+        return Cache::remember('pi.latest_daemon_hash', 300, function () {
+            $path = base_path('PiFmRds/src/pi_daemon.py');
+            $contents = file_exists($path) ? file_get_contents($path) : false;
+
+            return $contents !== false ? substr(hash('sha256', $contents), 0, 12) : '';
+        });
     }
 }
