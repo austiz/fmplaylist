@@ -143,7 +143,17 @@ class PiController extends Controller
             }
 
             if ($updates !== []) {
-                $token->update($updates);
+                try {
+                    $token->update($updates);
+                } catch (\Throwable $e) {
+                    // Telemetry fields (status/ip/disk stats) must never be able to break the
+                    // heartbeat/config-sync channel — log and continue with whatever succeeded.
+                    Log::warning('Pi heartbeat: failed to persist token updates', [
+                        'pi_token_id' => $token->id,
+                        'keys' => array_keys($updates),
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
 
             Cache::put("sse.pi_status.{$stationId}", [
