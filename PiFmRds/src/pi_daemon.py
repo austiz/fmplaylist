@@ -41,6 +41,7 @@ import urllib.request
 sys.stdout.reconfigure(line_buffering=True)
 
 SCRIPT_DIR  = os.path.dirname(os.path.realpath(__file__))
+SOURCE_MANIFEST_PATH = os.path.join(os.path.dirname(SCRIPT_DIR), '.install-state', 'source-files.txt')
 CONFIG_PATH = os.path.join(SCRIPT_DIR, 'config.json')
 BINARY_PATH = os.path.join(SCRIPT_DIR, 'pi_fm_rds')
 RTMP_PORT   = 1935
@@ -52,16 +53,34 @@ def _own_daemon_hash() -> str:
     """Short hash of the installed Pi source payload."""
     try:
         hashes = {}
-        for name in os.listdir(SCRIPT_DIR):
+        names = _source_manifest_names()
+        for name in names:
             path = os.path.join(SCRIPT_DIR, name)
-            if not os.path.isfile(path) or not _is_source_manifest_file(name):
-                continue
-            with open(path, 'rb') as f:
-                hashes[name] = hashlib.sha256(f.read()).hexdigest()
+            if os.path.isfile(path):
+                with open(path, 'rb') as f:
+                    hashes[name] = hashlib.sha256(f.read()).hexdigest()
+            else:
+                hashes[name] = 'missing'
         payload = json.dumps(hashes, sort_keys=True, separators=(',', ':')).encode()
         return hashlib.sha256(payload).hexdigest()[:12]
     except Exception:
         return ''
+
+
+def _source_manifest_names() -> list[str]:
+    if os.path.exists(SOURCE_MANIFEST_PATH):
+        with open(SOURCE_MANIFEST_PATH) as f:
+            return sorted(
+                name.strip()
+                for name in f
+                if name.strip() and '/' not in name and '\\' not in name
+            )
+
+    return sorted(
+        name
+        for name in os.listdir(SCRIPT_DIR)
+        if os.path.isfile(os.path.join(SCRIPT_DIR, name)) and _is_source_manifest_file(name)
+    )
 
 
 def _is_source_manifest_file(name: str) -> bool:
@@ -130,6 +149,11 @@ _fallback_pcm: 'bytes | None' = None
 # WiFi state — reported back to server via heartbeat so admin can see result
 _wifi_applied_ssid: str = ''   # set after successful wifi_setup.sh run
 _wifi_failed_ssid:  str = ''   # set after failed run
+
+# Last API-call failure, kept for status.json / the heartbeat payload — without this, a
+# revoked token and a power outage both just look like "Pi offline" from the web admin.
+# Never put the token/api_key itself in here.
+_last_error: 'dict | None' = None
 
 # A wifi scan is a heavy, blocking op (nmcli/iwlist) on Pi Zero 2 W's weaker
 # wifi chip — cache results instead of re-scanning on every 30 s heartbeat
@@ -239,19 +263,39 @@ def _api_retry_or_stop(label: str, path: str, e: Exception, attempt: int, retrie
     """Logs one failed API attempt and sleeps if retrying. Returns True if the
     caller should stop — either attempts are exhausted, or it's an auth failure
     (401/403) that won't succeed on retry, so there's no point burning the backoff
-    schedule and delaying the "this Pi's token is bad" signal an admin needs to see."""
+    schedule and delaying the "this Pi's token is bad" signal an admin needs to see.
+
+    Also records the failure into `_last_error` so it reaches status.json and the next
+    heartbeat — previously this only ever reached a `print()` (journalctl), invisible from
+    the web admin until someone SSH'd in."""
+    global _last_error
     if isinstance(e, urllib.error.HTTPError) and e.code in (401, 403):
         print(f'[{label} {path}] AUTH ERROR {e.code} — check api_key / Pi Token, not retrying')
+        _last_error = {
+            'kind': 'auth',
+            'label': label,
+            'path': path,
+            'message': f'HTTP {e.code} — token rejected',
+            'at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        }
         return True
     if attempt < retries - 1:
         print(f'[{label} {path}] {e} — retry in {delay}s')
         time.sleep(delay)
         return False
     print(f'[{label} {path}] {e} — giving up')
+    _last_error = {
+        'kind': 'transient',
+        'label': label,
+        'path': path,
+        'message': str(e)[:200],
+        'at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+    }
     return True
 
 
 def api_get(cfg: dict, path: str, params: 'dict | None' = None, _retries: int = 3):
+    global _last_error
     url = cfg['server_url'].rstrip('/') + path
     if params:
         url += '?' + '&'.join(f'{k}={v}' for k, v in params.items())
@@ -263,7 +307,9 @@ def api_get(cfg: dict, path: str, params: 'dict | None' = None, _retries: int = 
     for attempt in range(_retries):
         try:
             with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx(cfg)) as resp:
-                return json.loads(resp.read().decode())
+                result = json.loads(resp.read().decode())
+                _last_error = None   # a successful call proves the token/connectivity are fine
+                return result
         except Exception as e:
             if _api_retry_or_stop('API GET', path, e, attempt, _retries, delay):
                 break
@@ -272,6 +318,7 @@ def api_get(cfg: dict, path: str, params: 'dict | None' = None, _retries: int = 
 
 
 def api_post(cfg: dict, path: str, body: dict, _retries: int = 3):
+    global _last_error
     url  = cfg['server_url'].rstrip('/') + path
     data = json.dumps(body).encode()
     req  = urllib.request.Request(
@@ -287,7 +334,9 @@ def api_post(cfg: dict, path: str, body: dict, _retries: int = 3):
     for attempt in range(_retries):
         try:
             with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx(cfg)) as resp:
-                return json.loads(resp.read().decode())
+                result = json.loads(resp.read().decode())
+                _last_error = None
+                return result
         except Exception as e:
             if _api_retry_or_stop('API POST', path, e, attempt, _retries, delay):
                 break
@@ -513,6 +562,7 @@ def _write_status_file(cfg: dict, state: dict) -> None:
             'schedule_queue_depth': _schedule_q.qsize(),
             'ready_queue_depth':    _ready_q.qsize(),
             'last_heartbeat_ago_s': round(time.time() - state.get('last_hb', 0.0), 1),
+            'last_error':           _last_error,
         }
         tmp = STATUS_PATH + '.tmp'
         with open(tmp, 'w') as f:
@@ -533,16 +583,28 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
     except OSError:
         disk_free_bytes, disk_total_bytes = None, None
 
+    with _fm_lock:
+        fm_running = _fm_proc is not None and _fm_proc.poll() is None
+
     payload: dict = {
-        'status':            status,
-        'mode':              mode,
-        'ip':                get_local_ip(),
-        'wifi_ssid':         wifi_info['current'],
-        'wifi_networks':     wifi_info['networks'],
-        'daemon_hash':       DAEMON_HASH,
-        'disk_free_bytes':   disk_free_bytes,
-        'disk_total_bytes':  disk_total_bytes,
+        'status':              status,
+        'mode':                mode,
+        'ip':                  get_local_ip(),
+        'wifi_ssid':           wifi_info['current'],
+        'wifi_networks':       wifi_info['networks'],
+        'daemon_hash':         DAEMON_HASH,
+        'disk_free_bytes':     disk_free_bytes,
+        'disk_total_bytes':    disk_total_bytes,
+        # Already computed for status.json — included here too so the web admin gets the
+        # same diagnostics without needing to SSH into the Pi.
+        'fm_running':          fm_running,
+        'schedule_queue_depth': _schedule_q.qsize(),
+        'ready_queue_depth':   _ready_q.qsize(),
     }
+    if _last_error is not None:
+        payload['last_error_kind'] = _last_error['kind']
+        payload['last_error_message'] = _last_error['message']
+        payload['last_error_at'] = _last_error['at']
     if _wifi_applied_ssid:
         payload['wifi_applied'] = _wifi_applied_ssid
         _wifi_applied_ssid = ''
@@ -601,7 +663,11 @@ def _process_pending_downloads(cfg: dict, heartbeat: dict) -> None:
             continue
 
         os.makedirs(media_dir(cfg, media_type), exist_ok=True)
-        dest = media_path(cfg, media_type, filename)
+        try:
+            dest = media_path(cfg, media_type, filename)
+        except ValueError as e:
+            print(f'[{_ts()}][download] skipping unsafe filename: {e}')
+            continue
 
         if os.path.exists(dest):
             print(f'[download] {filename} already exists, confirming')
@@ -649,7 +715,11 @@ def _process_pending_deletes(cfg: dict, heartbeat: dict) -> None:
         if media_type not in MEDIA_TYPES or not item_id:
             continue
 
-        path = media_path(cfg, media_type, filename)
+        try:
+            path = media_path(cfg, media_type, filename)
+        except ValueError as e:
+            print(f'[{_ts()}][delete] skipping unsafe filename: {e}')
+            continue
         if os.path.exists(path):
             try:
                 os.remove(path)
