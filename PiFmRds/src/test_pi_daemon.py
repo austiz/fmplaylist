@@ -110,6 +110,79 @@ class MediaPathSafetyTests(unittest.TestCase):
             pi_daemon.media_path(self.cfg, 'song', r'nested\evil.wav')
 
 
+class PendingMediaSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.cfg = {
+            'api_key': 'token',
+            'server_url': 'https://fmplaylist.test',
+            'song_dir': self.tmpdir.name,
+            'commercial_dir': os.path.join(self.tmpdir.name, 'commercials'),
+            'sound_byte_dir': os.path.join(self.tmpdir.name, 'sound-bytes'),
+            'verify_ssl': True,
+        }
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_pending_download_skips_unsafe_filename(self):
+        with mock.patch.object(pi_daemon, 'api_post') as api_post:
+            pi_daemon._process_pending_downloads(self.cfg, {
+                'pending_downloads': [{
+                    'type': 'song',
+                    'item_id': 1,
+                    'filename': '../evil.wav',
+                    'download_url': 'https://example.test/evil.wav',
+                }],
+            })
+
+        api_post.assert_not_called()
+
+    def test_pending_delete_skips_unsafe_filename(self):
+        with mock.patch.object(pi_daemon, 'api_post') as api_post:
+            pi_daemon._process_pending_deletes(self.cfg, {
+                'pending_deletes': [{
+                    'type': 'song',
+                    'item_id': 1,
+                    'filename': '../evil.wav',
+                }],
+            })
+
+        api_post.assert_not_called()
+
+
+class SourceHashTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.src = os.path.join(self.tmpdir.name, 'src')
+        self.state = os.path.join(self.tmpdir.name, '.install-state')
+        os.makedirs(self.src, exist_ok=True)
+        os.makedirs(self.state, exist_ok=True)
+        self._orig_script_dir = pi_daemon.SCRIPT_DIR
+        self._orig_manifest = pi_daemon.SOURCE_MANIFEST_PATH
+        pi_daemon.SCRIPT_DIR = self.src
+        pi_daemon.SOURCE_MANIFEST_PATH = os.path.join(self.state, 'source-files.txt')
+
+    def tearDown(self):
+        pi_daemon.SCRIPT_DIR = self._orig_script_dir
+        pi_daemon.SOURCE_MANIFEST_PATH = self._orig_manifest
+        self.tmpdir.cleanup()
+
+    def test_hash_uses_manifest_instead_of_extra_local_source_files(self):
+        with open(os.path.join(self.src, 'pi_daemon.py'), 'w') as f:
+            f.write('current')
+        with open(os.path.join(self.src, 'old_helper.py'), 'w') as f:
+            f.write('stale')
+        with open(pi_daemon.SOURCE_MANIFEST_PATH, 'w') as f:
+            f.write('pi_daemon.py\n')
+
+        first = pi_daemon._own_daemon_hash()
+        os.remove(os.path.join(self.src, 'old_helper.py'))
+        second = pi_daemon._own_daemon_hash()
+
+        self.assertEqual(first, second)
+
+
 class UpdateInstallerTests(unittest.TestCase):
     def tearDown(self):
         pi_daemon._update_in_progress = False

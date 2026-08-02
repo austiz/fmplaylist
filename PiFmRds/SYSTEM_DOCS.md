@@ -100,6 +100,20 @@ The Pi generates a square wave (not a pure sine wave). Square waves contain harm
 
 The LPF strips harmonics before the amp sees the signal. If you put the LPF after the amp, the amp is already broadcasting harmonics at 5W. Always: **Pi → LPF → Amp → Antenna**.
 
+### Grounding the GPIO 4 → LPF Pigtail
+
+GPIO 4's RF output is unbalanced (single-ended) — the bare signal wire alone isn't enough. The LPF's SMA input expects a proper 50-ohm coax reference: center pin = signal, outer shell = ground. If you build your own bare-wire-to-SMA pigtail, wire both:
+
+- **Signal:** GPIO 4 (pin 7) → SMA center pin
+- **Ground:** a GND pin → SMA outer shell/shield — **pin 6 is GND and sits directly next to pin 7**, so it's the natural choice:
+
+```
+ 5  [GPIO3]  [GND ]  6   ← ground return, adjacent to pin 7
+ 7  [GPIO4]  [GPIO14] 8   ← signal
+```
+
+Leaving the SMA shield floating (relying on the Pi's board/PSU to "find" ground) still often produces a signal, but worse: a poorer impedance match into the filter, more stray radiation from the wire itself before the filter can strip it, and a noisier result overall. Keep both the signal and ground wires short and run them close together — a long, separated ground return acts as its own small loop antenna and adds noise instead of removing it.
+
 ### Antenna
 
 The FMUSER GP100 is a 1/4 wave ground plane antenna designed for FM broadcast (88-108MHz). It has:
