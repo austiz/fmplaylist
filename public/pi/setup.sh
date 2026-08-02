@@ -26,8 +26,29 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-REAL_USER="${SUDO_USER:-$(logname 2>/dev/null || echo pi)}"
-HOME_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+# Resolving the install user has to survive a detached run (systemd-run, cron,
+# nohup), where neither SUDO_USER nor logname exists. Every lookup is guarded:
+# under `set -e` + pipefail, one `getent` miss on a nonexistent account would
+# otherwise abort the whole script before it printed anything useful.
+user_exists() {
+  [ -n "${1:-}" ] && getent passwd "$1" >/dev/null 2>&1
+}
+
+REAL_USER="${FMPLAYLIST_USER:-${SUDO_USER:-}}"
+if ! user_exists "$REAL_USER"; then
+  REAL_USER="$(logname 2>/dev/null || true)"
+fi
+if ! user_exists "$REAL_USER"; then
+  # First regular login account — 'dj', 'pi', whatever this image was set up with.
+  REAL_USER="$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)"
+fi
+if ! user_exists "$REAL_USER"; then
+  echo "ERROR: could not determine which user to install for."
+  echo "       Re-run with an explicit user, e.g. FMPLAYLIST_USER=pi"
+  exit 1
+fi
+
+HOME_DIR="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6 || true)"
 HOME_DIR="${HOME_DIR:-/home/$REAL_USER}"
 PI_DIR="$HOME_DIR/PiFmRds"
 DIR="$PI_DIR/src"
