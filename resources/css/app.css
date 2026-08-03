@@ -70,9 +70,9 @@
 :root {
     --background: oklch(0.07 0 0);
     --foreground: oklch(0.93 0 0);
-    --card: oklch(0.10 0 0);
+    --card: oklch(0.1 0 0);
     --card-foreground: oklch(0.93 0 0);
-    --popover: oklch(0.10 0 0);
+    --popover: oklch(0.1 0 0);
     --popover-foreground: oklch(0.93 0 0);
     --primary: oklch(0.55 0.24 27);
     --primary-foreground: oklch(0.99 0 0);
@@ -93,7 +93,7 @@
     --chart-4: oklch(0.627 0.265 303.9);
     --chart-5: oklch(0.645 0.246 16.439);
     --radius: 0.25rem;
-    --sidebar: oklch(0.10 0 0);
+    --sidebar: oklch(0.1 0 0);
     --sidebar-foreground: oklch(0.93 0 0);
     --sidebar-primary: oklch(0.55 0.24 27);
     --sidebar-primary-foreground: oklch(0.99 0 0);
@@ -112,7 +112,9 @@
         @apply bg-background text-foreground;
     }
 
-    h1, h2, h3 {
+    h1,
+    h2,
+    h3 {
         text-wrap: balance;
     }
 }
@@ -120,6 +122,17 @@
 /* CSS-only page transitions — progressive enhancement, zero JS */
 @view-transition {
     navigation: auto;
+}
+
+/* Queue-row reordering (use-view-transition-reload.ts) skips document.startViewTransition
+   entirely under reduced motion, but this guards the browser's own `navigation: auto` page
+   transitions above too, since nothing else checks that path in JS. */
+@media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+        animation: none !important;
+    }
 }
 
 /* @property enables smooth GPU-animated gradient — cannot be done with regular CSS vars */
@@ -130,44 +143,127 @@
 }
 
 @keyframes hero-breathe {
-    0%, 100% { --glow-opacity: 0.08; }
-    50%       { --glow-opacity: 0.22; }
+    0%,
+    100% {
+        --glow-opacity: 0.08;
+    }
+    50% {
+        --glow-opacity: 0.22;
+    }
 }
 
 /* Waveform bar keyframes — 5 staggered durations so they never sync */
 @keyframes bar-a {
-    0%, 100% { transform: scaleY(0.25); }
-    45%      { transform: scaleY(1);    }
+    0%,
+    100% {
+        transform: scaleY(0.25);
+    }
+    45% {
+        transform: scaleY(1);
+    }
 }
 @keyframes bar-b {
-    0%, 100% { transform: scaleY(0.6);  }
-    30%      { transform: scaleY(0.1);  }
-    65%      { transform: scaleY(1);    }
+    0%,
+    100% {
+        transform: scaleY(0.6);
+    }
+    30% {
+        transform: scaleY(0.1);
+    }
+    65% {
+        transform: scaleY(1);
+    }
 }
 @keyframes bar-c {
-    0%, 100% { transform: scaleY(0.4);  }
-    55%      { transform: scaleY(1);    }
-    80%      { transform: scaleY(0.15); }
+    0%,
+    100% {
+        transform: scaleY(0.4);
+    }
+    55% {
+        transform: scaleY(1);
+    }
+    80% {
+        transform: scaleY(0.15);
+    }
 }
 @keyframes bar-d {
-    0%, 100% { transform: scaleY(0.85); }
-    40%      { transform: scaleY(0.2);  }
-    70%      { transform: scaleY(1);    }
+    0%,
+    100% {
+        transform: scaleY(0.85);
+    }
+    40% {
+        transform: scaleY(0.2);
+    }
+    70% {
+        transform: scaleY(1);
+    }
 }
 @keyframes bar-e {
-    0%, 100% { transform: scaleY(0.5); }
-    20%      { transform: scaleY(1);   }
-    60%      { transform: scaleY(0.3); }
+    0%,
+    100% {
+        transform: scaleY(0.5);
+    }
+    20% {
+        transform: scaleY(1);
+    }
+    60% {
+        transform: scaleY(0.3);
+    }
+}
+
+/* Split-flap character flip — content swap happens in JS at the rotateX(-90deg)
+   midpoint (see split-flap-text.tsx), so it must never rotate past 90deg or the
+   glyph would render mirrored/backwards. */
+@keyframes flap-char {
+    0%,
+    100% {
+        transform: rotateX(0deg);
+    }
+    50% {
+        transform: rotateX(-90deg);
+    }
+}
+
+@keyframes card-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @layer utilities {
-    .font-display { font-family: var(--font-display); }
+    .font-display {
+        font-family: var(--font-display);
+    }
 
-    .animate-bar-a { animation: bar-a 0.85s ease-in-out infinite; }
-    .animate-bar-b { animation: bar-b 1.1s  ease-in-out infinite; }
-    .animate-bar-c { animation: bar-c 0.75s ease-in-out infinite; }
-    .animate-bar-d { animation: bar-d 1.3s  ease-in-out infinite; }
-    .animate-bar-e { animation: bar-e 0.95s ease-in-out infinite; }
+    .animate-bar-a {
+        animation: bar-a 0.85s ease-in-out infinite;
+    }
+    .animate-bar-b {
+        animation: bar-b 1.1s ease-in-out infinite;
+    }
+    .animate-bar-c {
+        animation: bar-c 0.75s ease-in-out infinite;
+    }
+    .animate-bar-d {
+        animation: bar-d 1.3s ease-in-out infinite;
+    }
+    .animate-bar-e {
+        animation: bar-e 0.95s ease-in-out infinite;
+    }
+
+    /* Stat-card mount-in — subtle fade/rise, staggered via inline animation-delay */
+    .animate-card-in {
+        animation: card-in 0.35s ease-out both;
+    }
+
+    .animate-flap-char {
+        animation: flap-char 380ms ease-in-out;
+    }
 
     /* Hide scrollbar while keeping scroll functionality */
     .scrollbar-none {
@@ -179,7 +275,9 @@
     }
 
     /* Removes 300ms tap delay on mobile — critical for use while driving */
-    button, a, [role="button"] {
+    button,
+    a,
+    [role='button'] {
         touch-action: manipulation;
     }
 }

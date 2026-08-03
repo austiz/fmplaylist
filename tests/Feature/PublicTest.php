@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Song;
+use App\Models\Station;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -39,6 +40,30 @@ class PublicTest extends TestCase
         }
 
         $this->post("/songs/{$song->id}/request", ['name' => 'Tester'])->assertStatus(429);
+    }
+
+    public function test_song_request_can_target_public_station_slug(): void
+    {
+        $stationB = Station::create(['name' => 'Station B', 'slug' => 'station-b']);
+        $song = Song::factory()->create(['available' => true]);
+
+        $this->post("/songs/{$song->id}/request?station=station-b", ['name' => 'Tester'])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('queue_items', [
+            'station_id' => $stationB->id,
+            'song_id' => $song->id,
+            'requested_by_name' => 'Tester',
+        ]);
+    }
+
+    public function test_songs_page_shares_public_station_context(): void
+    {
+        Station::create(['name' => 'Station B', 'slug' => 'station-b']);
+
+        $this->get('/songs?station=station-b')
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p->where('station.slug', 'station-b'));
     }
 
     public function test_frequency_is_shared_on_home_page(): void

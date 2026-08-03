@@ -47,7 +47,7 @@ class Song extends Model
     }
 
     /**
-     * @param Builder<Song> $query
+     * @param  Builder<Song>  $query
      * @return Builder<Song>
      */
     public function scopeAvailable(Builder $query): Builder
@@ -56,7 +56,7 @@ class Song extends Model
     }
 
     /**
-     * @param Builder<Song> $query
+     * @param  Builder<Song>  $query
      * @return Builder<Song>
      */
     public function scopeSearch(Builder $query, string $term): Builder

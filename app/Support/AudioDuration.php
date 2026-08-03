@@ -8,8 +8,8 @@ class AudioDuration
     {
         $out = shell_exec(
             'ffprobe -v error -show_entries format=duration'
-            . ' -of default=noprint_wrappers=1:nokey=1 '
-            . escapeshellarg($absolutePath)
+            .' -of default=noprint_wrappers=1:nokey=1 '
+            .escapeshellarg($absolutePath)
         );
         $seconds = (float) trim(is_string($out) ? $out : '');
 

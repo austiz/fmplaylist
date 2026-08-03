@@ -1,10 +1,13 @@
-import { Link, router } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Flame } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ChatPanel } from '@/components/chat-panel';
 import { NowPlayingBar } from '@/components/now-playing-bar';
 import { PublicLayout } from '@/components/public-layout';
 import { useFmLive } from '@/hooks/use-fm-live';
-import type { NowPlayingData, QueueItem } from '@/types/fm';
+import { useViewTransitionReload } from '@/hooks/use-view-transition-reload';
+import { bumpReaction, getReaction } from '@/lib/reactions';
+import type { NowPlayingData, QueueItem, Station } from '@/types/fm';
 
 interface HistoryItem {
     id: number;
@@ -18,6 +21,37 @@ interface Props {
     queue: QueueItem[];
     waitMinutes: number | null;
     history: HistoryItem[];
+    station: Station;
+}
+
+/** Local-only reaction tap — your own count, not a shared count across listeners (see reactions.ts). */
+function ReactionButton({ queueItemId }: { queueItemId: number }) {
+    const [count, setCount] = useState(() => getReaction(queueItemId));
+
+    const react = () => {
+        setCount(bumpReaction(queueItemId));
+
+        try {
+            navigator.vibrate?.(15);
+        } catch {
+            /* unsupported */
+        }
+    };
+
+    return (
+        <button
+            onClick={react}
+            title="React — just for you, not a shared count"
+            className={`flex shrink-0 items-center gap-1 px-1.5 py-1 text-xs font-bold transition-colors active:scale-90 ${
+                count > 0
+                    ? 'text-orange-400'
+                    : 'text-muted-foreground/30 hover:text-orange-400'
+            }`}
+        >
+            <Flame size={14} fill={count > 0 ? 'currentColor' : 'none'} />
+            {count > 0 && <span className="tabular-nums">{count}</span>}
+        </button>
+    );
 }
 
 export default function Queue({
@@ -25,16 +59,19 @@ export default function Queue({
     queue,
     waitMinutes,
     history,
+    station,
 }: Props) {
     const [tab, setTab] = useState<'queue' | 'history'>('queue');
     const { queueVersion } = useFmLive();
+    const viewTransitionReload = useViewTransitionReload();
 
     useEffect(() => {
         if (!queueVersion) {
             return;
         }
 
-        router.reload({ only: ['queue', 'waitMinutes', 'history'] });
+        viewTransitionReload({ only: ['queue', 'waitMinutes', 'history'] });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [queueVersion]);
 
     return (
@@ -88,7 +125,7 @@ export default function Queue({
                             <p className="mt-4 text-sm text-muted-foreground">
                                 Queue is empty.{' '}
                                 <Link
-                                    href="/songs"
+                                    href={`/songs?station=${encodeURIComponent(station.slug)}`}
                                     className="text-red-500 hover:underline"
                                 >
                                     Request a song.
@@ -101,6 +138,9 @@ export default function Queue({
                                 <div
                                     key={item.id}
                                     className="flex items-center gap-4 px-4 py-3"
+                                    style={{
+                                        viewTransitionName: `queue-item-${item.id}`,
+                                    }}
                                 >
                                     <span className="w-8 shrink-0 text-center font-display text-xl font-bold text-red-600 tabular-nums">
                                         {item.position}
@@ -120,6 +160,7 @@ export default function Queue({
                                             — {item.requested_by_name}
                                         </span>
                                     )}
+                                    <ReactionButton queueItemId={item.id} />
                                 </div>
                             ))}
                         </div>

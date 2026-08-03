@@ -16,8 +16,12 @@ use Illuminate\Support\Facades\Storage;
  * Songs/commercials/sound bytes are a shared library, but each physical Pi has its own
  * SD card and must independently track what it has actually downloaded — a media row's
  * `needs_pi_download` flag being false only means SOME device downloaded it, not this one.
- * `needs_pi_download` is kept only as a cosmetic "someone has downloaded this" badge for
- * the admin Sounds page — it is NOT authoritative for sync, `device_downloads` is.
+ *
+ * `needs_pi_download` is a vestigial flag: it defaults to false, is global rather than
+ * per-device, and is never reset when a device is re-flashed or its token is deleted. It
+ * must not be used to answer "is this on the Pi?" — the admin Sounds badge did exactly
+ * that and reported "On Pi" for media no device had ever downloaded. `device_downloads`
+ * is authoritative; use activeDeviceCount()/holderCounts()/isHeldByAnyDevice().
  */
 class DeviceSyncService
 {
@@ -29,7 +33,7 @@ class DeviceSyncService
         $pending = collect();
 
         $pending = $pending->merge(
-            Song::available()->get(['id', 'filename', 'title', 'artist', 'storage_path'])
+            Song::available()->whereNotNull('storage_path')->get(['id', 'filename', 'title', 'artist', 'storage_path'])
                 ->reject(fn ($s) => in_array($s->id, $downloaded['song'], true))
                 ->map(fn ($s) => [
                     'type' => 'song',
@@ -41,7 +45,7 @@ class DeviceSyncService
         );
 
         $pending = $pending->merge(
-            Commercial::active()->get(['id', 'filename', 'title', 'storage_path'])
+            Commercial::active()->whereNotNull('storage_path')->get(['id', 'filename', 'title', 'storage_path'])
                 ->reject(fn ($c) => in_array($c->id, $downloaded['commercial'], true))
                 ->map(fn ($c) => [
                     'type' => 'commercial',
@@ -53,7 +57,7 @@ class DeviceSyncService
         );
 
         $pending = $pending->merge(
-            SoundByte::active()->get(['id', 'filename', 'title', 'storage_path'])
+            SoundByte::active()->whereNotNull('storage_path')->get(['id', 'filename', 'title', 'storage_path'])
                 ->reject(fn ($sb) => in_array($sb->id, $downloaded['sound_byte'], true))
                 ->map(fn ($sb) => [
                     'type' => 'sound_byte',
@@ -71,6 +75,10 @@ class DeviceSyncService
     public function pendingDeletesFor(PiToken $token): Collection
     {
         $downloaded = $this->downloadedIds($token);
+
+        $this->purgeDeleteRequestsWithoutDeviceDownloads(Song::class, 'song');
+        $this->purgeDeleteRequestsWithoutDeviceDownloads(Commercial::class, 'commercial');
+        $this->purgeDeleteRequestsWithoutDeviceDownloads(SoundByte::class, 'sound_byte');
 
         $deletes = collect();
 
@@ -126,6 +134,51 @@ class DeviceSyncService
         }
     }
 
+    /**
+     * Devices that have actually checked in at least once.
+     *
+     * A token that was generated but never provisioned isn't a real device — counting it
+     * would leave every media row permanently "partially synced".
+     */
+    public function activeDeviceCount(): int
+    {
+        return PiToken::whereNotNull('last_seen_at')->count();
+    }
+
+    /**
+     * How many real devices hold each of the given media ids.
+     *
+     * This is the authoritative answer to "is it on the Pi?" — `needs_pi_download` is a
+     * global cosmetic flag and cannot answer it (see class docblock).
+     *
+     * @param  array<int, int>  $ids
+     * @return array<int, int> media_id => holder count (missing key means zero)
+     */
+    public function holderCounts(string $type, array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        return DeviceDownload::query()
+            ->where('media_type', $type)
+            ->whereIn('media_id', $ids)
+            ->whereIn('pi_token_id', PiToken::whereNotNull('last_seen_at')->select('id'))
+            ->selectRaw('media_id, count(distinct pi_token_id) as holders')
+            ->groupBy('media_id')
+            ->pluck('holders', 'media_id')
+            ->map(fn ($n) => (int) $n)
+            ->all();
+    }
+
+    /** Whether any device currently holds this item — the safe check before a hard delete. */
+    public function isHeldByAnyDevice(string $type, int $itemId): bool
+    {
+        return DeviceDownload::where('media_type', $type)
+            ->where('media_id', $itemId)
+            ->exists();
+    }
+
     /** @return array{done: int, total: int} */
     public function downloadProgress(PiToken $token): array
     {
@@ -147,5 +200,24 @@ class DeviceSyncService
             'commercial' => $rows->where('media_type', 'commercial')->pluck('media_id')->all(),
             'sound_byte' => $rows->where('media_type', 'sound_byte')->pluck('media_id')->all(),
         ];
+    }
+
+    /**
+     * Legacy rows can predate per-device download tracking. If no device claims
+     * a delete-requested item, no Pi can ever receive/confirm that delete.
+     */
+    private function purgeDeleteRequestsWithoutDeviceDownloads(string $modelClass, string $type): void
+    {
+        $modelClass::where('pi_delete_requested', true)
+            ->get(['id'])
+            ->each(function ($item) use ($type) {
+                $stillHeld = DeviceDownload::where('media_type', $type)
+                    ->where('media_id', $item->id)
+                    ->exists();
+
+                if (! $stillHeld) {
+                    $item->delete();
+                }
+            });
     }
 }

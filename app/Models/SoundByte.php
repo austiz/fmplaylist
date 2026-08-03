@@ -27,7 +27,7 @@ class SoundByte extends Model
     ];
 
     /**
-     * @param Builder<SoundByte> $query
+     * @param  Builder<SoundByte>  $query
      * @return Builder<SoundByte>
      */
     public function scopeActive(Builder $query): Builder

@@ -1,3 +1,4 @@
+import { SplitFlapText } from '@/components/split-flap-text';
 import { useElapsed } from '@/hooks/use-elapsed';
 import { useFmLive } from '@/hooks/use-fm-live';
 import type { NowPlayingData, PiStatus } from '@/types/fm';
@@ -94,9 +95,10 @@ export function NowPlayingBar({ initial }: { initial: NowPlayingData | null }) {
                             ))}
                         </div>
                         <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-foreground">
-                                {data.song.title}
-                            </p>
+                            <SplitFlapText
+                                text={data.song.title}
+                                className="block truncate text-sm font-semibold text-foreground"
+                            />
                             {data.song.artist && (
                                 <p className="truncate text-xs text-muted-foreground">
                                     {data.song.artist}

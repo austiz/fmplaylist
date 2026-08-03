@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Song;
+use App\Services\DeviceSyncService;
 use App\Support\AudioDuration;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -49,13 +50,13 @@ class SongAdminController extends Controller
         $path = $file->storeAs('songs', $filename, 'public');
 
         Song::create([
-            'title'             => $data['title'],
-            'artist'            => $data['artist'] ?? '',
-            'filename'          => $filename,
-            'file_size'         => $file->getSize(),
-            'duration_seconds'  => AudioDuration::extract(Storage::disk('public')->path($path)),
-            'storage_path'      => $path,
-            'available'         => true,
+            'title' => $data['title'],
+            'artist' => $data['artist'] ?? '',
+            'filename' => $filename,
+            'file_size' => $file->getSize(),
+            'duration_seconds' => AudioDuration::extract(Storage::disk('public')->path($path)),
+            'storage_path' => $path,
+            'available' => true,
             'needs_pi_download' => true,
         ]);
 
@@ -85,10 +86,11 @@ class SongAdminController extends Controller
         return back()->with('success', "Song is now {$state} in the public library.");
     }
 
-    public function destroy(Song $song): RedirectResponse
+    public function destroy(Song $song, DeviceSyncService $sync): RedirectResponse
     {
-        // If uploaded via web and not yet on Pi, we can delete immediately
-        if ($song->storage_path && $song->needs_pi_download) {
+        // If uploaded via web and no device holds it, we can delete immediately.
+        // `needs_pi_download` cannot answer this: it is global and defaults to false.
+        if ($song->storage_path && ! $sync->isHeldByAnyDevice('song', $song->id)) {
             Storage::disk('public')->delete($song->storage_path);
             $song->delete();
 

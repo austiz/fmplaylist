@@ -46,7 +46,11 @@ class PiSetupControllerTest extends TestCase
         $this->assertStringContainsString('FMPLAYLIST_REPO="${FMPLAYLIST_REPO:-https://github.com/austiz/fmplaylist.git}"', $script);
         $this->assertStringContainsString('FMPLAYLIST_REF="${FMPLAYLIST_REF:-main}"', $script);
         $this->assertStringContainsString('git clone --depth 1 --branch "$FMPLAYLIST_REF" "$FMPLAYLIST_REPO"', $script);
+        $this->assertStringContainsString('SOURCE_MANIFEST_FILE="$STATE_DIR/source-files.txt"', $script);
+        $this->assertStringContainsString('find "$SRC" -maxdepth 1 -type f ! -name \'config.json\' -printf \'%f\n\' | sort > "$NEW_SOURCE_MANIFEST"', $script);
+        $this->assertStringContainsString('rm -f "$DIR/$old_file"', $script);
         $this->assertStringContainsString('find "$SRC" -maxdepth 1 -type f ! -name \'config.json\' -exec cp -f {} "$DIR/"', $script);
+        $this->assertStringContainsString('cp "$NEW_SOURCE_MANIFEST" "$SOURCE_MANIFEST_FILE"', $script);
         $this->assertStringNotContainsString('for file in pi_daemon.py run.sh wifi_setup.sh; do', $script);
     }
 

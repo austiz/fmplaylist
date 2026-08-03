@@ -13,13 +13,14 @@ class ChatController extends Controller
     public function index(): JsonResponse
     {
         $messages = ChatMessage::orderBy('created_at')->take(50)->get(['id', 'name', 'message', 'created_at']);
+
         return response()->json($messages);
     }
 
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'    => ['required', 'string', 'max:30'],
+            'name' => ['required', 'string', 'max:30'],
             'message' => ['required', 'string', 'max:200'],
         ]);
 

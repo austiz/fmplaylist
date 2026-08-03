@@ -14,8 +14,8 @@ export function getRecents(): Recent[] {
         const raw = localStorage.getItem(KEY);
 
         if (!raw) {
-return [];
-}
+            return [];
+        }
 
         const parsed = JSON.parse(raw) as Recent[];
 

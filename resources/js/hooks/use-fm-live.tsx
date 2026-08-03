@@ -1,8 +1,9 @@
+import { usePage } from '@inertiajs/react';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import { getCommutePalette } from '@/lib/commute';
 import type { CommutePalette } from '@/lib/commute';
-import type { NowPlayingData, PiStatus } from '@/types/fm';
+import type { NowPlayingData, PiStatus, Station } from '@/types/fm';
 
 export interface ChatMsg {
     id: number;
@@ -22,6 +23,8 @@ interface FmLiveValue {
     onAirTitle: string | null;
     dismissOnAir: () => void;
     connected: boolean;
+    /** Approximate concurrent-listener count from the shared SSE stream, `null` until the first frame. */
+    listenerCount: number | null;
     /** Current commute-phase palette/copy set, refreshed on a shared timer so every
      *  consumer (visualizer, hero copy, Driving Mode) rolls over together. */
     palette: CommutePalette;
@@ -38,6 +41,8 @@ const MY_REQUEST_KEY = 'fm.my_request';
  * instead of one per component.
  */
 export function FmLiveProvider({ children }: PropsWithChildren) {
+    const { props } = usePage<{ publicStation: Station | null }>();
+    const stationSlug = props.publicStation?.slug ?? null;
     const [nowPlaying, setNowPlaying] = useState<
         NowPlayingData | null | undefined
     >(undefined);
@@ -46,7 +51,10 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
     const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
     const [onAirTitle, setOnAirTitle] = useState<string | null>(null);
     const [connected, setConnected] = useState(false);
-    const [palette, setPalette] = useState<CommutePalette>(() => getCommutePalette());
+    const [listenerCount, setListenerCount] = useState<number | null>(null);
+    const [palette, setPalette] = useState<CommutePalette>(() =>
+        getCommutePalette(),
+    );
     const onAirTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
     // Roll the commute palette/copy over as the phase changes — shared so every consumer
@@ -75,7 +83,10 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
     }, []);
 
     useEffect(() => {
-        const es = new EventSource('/api/events');
+        const eventsUrl = stationSlug
+            ? `/api/events?station=${encodeURIComponent(stationSlug)}`
+            : '/api/events';
+        const es = new EventSource(eventsUrl);
 
         es.onopen = () => setConnected(true);
         es.onerror = () => setConnected(false);
@@ -126,11 +137,19 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
             setChatMessages((prev) => mergeChat(prev, [msg]));
         });
 
+        es.addEventListener('listener-count', (e) => {
+            try {
+                setListenerCount((JSON.parse(e.data) as { n: number }).n);
+            } catch {
+                /* ignore malformed frame */
+            }
+        });
+
         return () => {
             es.close();
             clearTimeout(onAirTimer.current);
         };
-    }, []);
+    }, [stationSlug]);
 
     const value: FmLiveValue = {
         nowPlaying,
@@ -143,6 +162,7 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
             setOnAirTitle(null);
         },
         connected,
+        listenerCount,
         palette,
     };
 

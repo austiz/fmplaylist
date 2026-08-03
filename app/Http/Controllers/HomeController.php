@@ -4,23 +4,24 @@ namespace App\Http\Controllers;
 
 use App\Models\NowPlaying;
 use App\Models\QueueItem;
-use App\Models\Station;
+use App\Support\PublicStation;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class HomeController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
-        return Inertia::render('home', $this->cockpitProps());
+        return Inertia::render('home', $this->cockpitProps($request));
     }
 
     /**
      * Full-screen Driving Mode — same live data as the home cockpit, rendered chrome-free.
      */
-    public function drive(): Response
+    public function drive(Request $request): Response
     {
-        return Inertia::render('drive', $this->cockpitProps());
+        return Inertia::render('drive', $this->cockpitProps($request));
     }
 
     /**
@@ -28,9 +29,10 @@ class HomeController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function cockpitProps(): array
+    private function cockpitProps(Request $request): array
     {
-        $stationId = Station::defaultId();
+        $station = PublicStation::resolve($request);
+        $stationId = $station->id;
         $nowPlaying = NowPlaying::forStation($stationId);
 
         $queue = QueueItem::with('song')
@@ -52,6 +54,7 @@ class HomeController extends Controller
             'nowPlaying' => $this->serializeNowPlaying($nowPlaying),
             'queue' => $queue,
             'queueCount' => QueueItem::where('station_id', $stationId)->pending()->count(),
+            'station' => ['id' => $station->id, 'name' => $station->name, 'slug' => $station->slug],
         ];
     }
 

@@ -9,12 +9,16 @@ interface Props {
     className?: string;
 }
 
-function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLShader | null {
+function compile(
+    gl: WebGLRenderingContext,
+    type: number,
+    src: string,
+): WebGLShader | null {
     const sh = gl.createShader(type);
 
     if (!sh) {
-return null;
-}
+        return null;
+    }
 
     gl.shaderSource(sh, src);
     gl.compileShader(sh);
@@ -63,11 +67,14 @@ export function FrequencyField({ weight = 1, className }: Props) {
     useEffect(() => {
         const playing = nowPlaying?.type === 'song' && !!nowPlaying.song;
         const live = piStatus?.status === 'live';
-        targetRef.current = ((playing ? 1.0 : 0.4) + (live ? 0.18 : 0)) * weight;
+        targetRef.current =
+            ((playing ? 1.0 : 0.4) + (live ? 0.18 : 0)) * weight;
 
         const id = nowPlaying?.song?.id ?? 0;
         seedRef.current = ((id * 2654435761) % 1000) / 1000;
-        startedAtRef.current = nowPlaying?.started_at ? Date.parse(nowPlaying.started_at) : null;
+        startedAtRef.current = nowPlaying?.started_at
+            ? Date.parse(nowPlaying.started_at)
+            : null;
         durationRef.current = nowPlaying?.song?.duration_seconds ?? 0;
     }, [nowPlaying, piStatus, weight]);
 
@@ -81,10 +88,12 @@ export function FrequencyField({ weight = 1, className }: Props) {
         const canvas = canvasRef.current;
 
         if (!canvas) {
-return;
-}
+            return;
+        }
 
-        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const reduce = window.matchMedia(
+            '(prefers-reduced-motion: reduce)',
+        ).matches;
         const coarse = window.matchMedia('(pointer: coarse)').matches;
 
         let gl: WebGLRenderingContext | null = null;
@@ -102,10 +111,10 @@ return;
             }) as WebGLRenderingContext | null;
 
             if (!gl) {
- setFallback(true);
+                setFallback(true);
 
- return; 
-}
+                return;
+            }
 
             setFallback(false);
 
@@ -114,27 +123,31 @@ return;
             const prog = gl.createProgram();
 
             if (!vs || !fs || !prog) {
- setFallback(true);
+                setFallback(true);
 
- return; 
-}
+                return;
+            }
 
             gl.attachShader(prog, vs);
             gl.attachShader(prog, fs);
             gl.linkProgram(prog);
 
             if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
- setFallback(true);
+                setFallback(true);
 
- return; 
-}
+                return;
+            }
 
             gl.useProgram(prog);
 
             // Fullscreen triangle-strip quad.
             const buf = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+            gl.bufferData(
+                gl.ARRAY_BUFFER,
+                new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+                gl.STATIC_DRAW,
+            );
             const loc = gl.getAttribLocation(prog, 'a_pos');
             gl.enableVertexAttribArray(loc);
             gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
@@ -170,7 +183,15 @@ return;
                 let progress = 0;
 
                 if (startedAtRef.current && durationRef.current > 0) {
-                    progress = Math.min(1, Math.max(0, (Date.now() - startedAtRef.current) / 1000 / durationRef.current));
+                    progress = Math.min(
+                        1,
+                        Math.max(
+                            0,
+                            (Date.now() - startedAtRef.current) /
+                                1000 /
+                                durationRef.current,
+                        ),
+                    );
                 }
 
                 gl!.uniform2f(u.res, canvas.width, canvas.height);
@@ -191,7 +212,8 @@ return;
                 draw(0);
                 const onResize = () => draw(0);
                 window.addEventListener('resize', onResize);
-                teardownSession = () => window.removeEventListener('resize', onResize);
+                teardownSession = () =>
+                    window.removeEventListener('resize', onResize);
 
                 return;
             }
@@ -205,25 +227,26 @@ return;
                 raf = requestAnimationFrame(loop);
 
                 if (document.hidden) {
-return;
-}
+                    return;
+                }
 
                 if (now - last < minFrame) {
-return;
-}
+                    return;
+                }
 
                 last = now;
                 // Ease energy toward target so state changes glide.
-                energyRef.current += (targetRef.current - energyRef.current) * 0.05;
+                energyRef.current +=
+                    (targetRef.current - energyRef.current) * 0.05;
                 draw((now - start) / 1000);
             };
             raf = requestAnimationFrame(loop);
 
             const onVis = () => {
- if (!document.hidden) {
-last = 0;
-} 
-};
+                if (!document.hidden) {
+                    last = 0;
+                }
+            };
             document.addEventListener('visibilitychange', onVis);
 
             teardownSession = () => {
@@ -240,13 +263,20 @@ last = 0;
         const onContextRestored = () => startSession();
 
         canvas.addEventListener('webglcontextlost', onContextLost, false);
-        canvas.addEventListener('webglcontextrestored', onContextRestored, false);
+        canvas.addEventListener(
+            'webglcontextrestored',
+            onContextRestored,
+            false,
+        );
 
         startSession();
 
         return () => {
             canvas.removeEventListener('webglcontextlost', onContextLost);
-            canvas.removeEventListener('webglcontextrestored', onContextRestored);
+            canvas.removeEventListener(
+                'webglcontextrestored',
+                onContextRestored,
+            );
             teardownSession?.();
             gl?.getExtension('WEBGL_lose_context')?.loseContext();
         };
@@ -262,5 +292,12 @@ last = 0;
         );
     }
 
-    return <canvas ref={canvasRef} aria-hidden className={className} style={{ pointerEvents: 'none' }} />;
+    return (
+        <canvas
+            ref={canvasRef}
+            aria-hidden
+            className={className}
+            style={{ pointerEvents: 'none' }}
+        />
+    );
 }
