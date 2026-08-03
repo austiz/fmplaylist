@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -213,6 +214,150 @@ class UpdateInstallerTests(unittest.TestCase):
         chmod.assert_called()
         run.assert_called_once()
         self.assertEqual(run.call_args.args[0], ['bash', mock.ANY, 'token123'])
+
+
+class WifiProfileStoreTests(unittest.TestCase):
+    """The on-disk profile cache is what lets the Pi rejoin a fallback network
+    after a reboot with no internet — if it can't be read back, the whole
+    feature silently degrades to 'no wifi'."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self._orig = pi_daemon.WIFI_PROFILES_PATH
+        pi_daemon.WIFI_PROFILES_PATH = os.path.join(
+            self.tmpdir.name, 'etc', 'wifi-networks.json')
+
+    def tearDown(self):
+        pi_daemon.WIFI_PROFILES_PATH = self._orig
+        self.tmpdir.cleanup()
+
+    def test_missing_file_returns_empty(self):
+        got = pi_daemon.load_wifi_profiles()
+        self.assertEqual(got, {'rev': '', 'profiles': []})
+
+    def test_round_trip_preserves_order(self):
+        profiles = [
+            {'ssid': 'Primary', 'password': 'p1', 'priority': 0},
+            {'ssid': 'Backup', 'password': '', 'priority': 1},
+        ]
+        pi_daemon.save_wifi_profiles(profiles, 'abc123')
+
+        got = pi_daemon.load_wifi_profiles()
+        self.assertEqual(got['rev'], 'abc123')
+        self.assertEqual([p['ssid'] for p in got['profiles']], ['Primary', 'Backup'])
+
+    def test_creates_parent_directory(self):
+        pi_daemon.save_wifi_profiles([{'ssid': 'X'}], 'r1')
+        self.assertTrue(os.path.exists(pi_daemon.WIFI_PROFILES_PATH))
+
+    def test_corrupt_file_does_not_raise(self):
+        os.makedirs(os.path.dirname(pi_daemon.WIFI_PROFILES_PATH), exist_ok=True)
+        with open(pi_daemon.WIFI_PROFILES_PATH, 'w') as f:
+            f.write('{not json')
+        self.assertEqual(pi_daemon.load_wifi_profiles()['profiles'], [])
+
+    def test_entries_without_ssid_are_dropped(self):
+        pi_daemon.save_wifi_profiles(
+            [{'ssid': 'Good'}, {'password': 'orphan'}], 'r1')
+        got = pi_daemon.load_wifi_profiles()
+        self.assertEqual([p['ssid'] for p in got['profiles']], ['Good'])
+
+    def test_boot_reconcile_skipped_when_nothing_saved(self):
+        with mock.patch.object(pi_daemon, '_reconcile_wifi') as rec:
+            pi_daemon._reconcile_wifi_from_cache()
+        rec.assert_not_called()
+
+    def test_boot_reconcile_uses_cached_list(self):
+        pi_daemon.save_wifi_profiles([{'ssid': 'Cafe', 'password': 'pw'}], 'r1')
+        with mock.patch.object(pi_daemon, '_reconcile_wifi') as rec:
+            pi_daemon._reconcile_wifi_from_cache()
+        rec.assert_called_once()
+        self.assertEqual(rec.call_args.args[0][0]['ssid'], 'Cafe')
+
+    def test_reconcile_passes_credentials_on_stdin_not_argv(self):
+        """A PSK in argv is readable by any local process for the life of the
+        call via /proc/<pid>/cmdline."""
+        completed = mock.Mock(returncode=0)
+        with mock.patch('os.path.exists', return_value=True), \
+                mock.patch('subprocess.run', return_value=completed) as run:
+            pi_daemon._reconcile_wifi([{'ssid': 'Cafe', 'password': 'sekrit'}])
+
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[-1], 'sync')
+        self.assertNotIn('sekrit', ' '.join(argv))
+        self.assertIn(b'sekrit', run.call_args.kwargs['input'])
+
+
+class WifiWatchdogTests(unittest.TestCase):
+    """NetworkManager treats an associated-but-internet-less AP as success and
+    will sit on it forever; this watchdog is the only thing that moves off it."""
+
+    def _state(self):
+        return {'hb_fail_since': 0.0}
+
+    def test_success_clears_the_failure_clock(self):
+        state = {'hb_fail_since': 1.0}
+        pi_daemon._wifi_watchdog(state, ok=True)
+        self.assertEqual(state['hb_fail_since'], 0.0)
+
+    def test_no_cycle_when_not_associated(self):
+        state = self._state()
+        with mock.patch.object(pi_daemon, '_get_wifi_info',
+                               return_value={'current': '', 'networks': []}), \
+                mock.patch.object(pi_daemon, '_wifi_cycle') as cycle:
+            pi_daemon._wifi_watchdog(state, ok=False)
+            pi_daemon._wifi_watchdog(state, ok=False)
+        cycle.assert_not_called()
+        self.assertEqual(state['hb_fail_since'], 0.0)
+
+    def test_no_cycle_before_the_threshold(self):
+        state = self._state()
+        with mock.patch.object(pi_daemon, '_get_wifi_info',
+                               return_value={'current': 'Cafe', 'networks': []}), \
+                mock.patch.object(pi_daemon, '_wifi_cycle') as cycle:
+            pi_daemon._wifi_watchdog(state, ok=False)   # starts the clock
+            pi_daemon._wifi_watchdog(state, ok=False)   # still well inside 5 min
+        cycle.assert_not_called()
+        self.assertNotEqual(state['hb_fail_since'], 0.0)
+
+    def test_cycles_after_sustained_failure_while_associated(self):
+        state = self._state()
+        started = []
+        with mock.patch.object(pi_daemon, '_get_wifi_info',
+                               return_value={'current': 'Cafe', 'networks': []}), \
+                mock.patch.object(pi_daemon.threading, 'Thread') as thread:
+            thread.side_effect = lambda **kw: started.append(kw) or mock.Mock()
+            pi_daemon._wifi_watchdog(state, ok=False)
+            state['hb_fail_since'] = time.time() - (pi_daemon._WIFI_WATCHDOG_S + 1)
+            pi_daemon._wifi_watchdog(state, ok=False)
+
+        self.assertEqual(len(started), 1)
+        self.assertIs(started[0]['target'], pi_daemon._wifi_cycle)
+        # Clock resets so it doesn't re-fire on the very next heartbeat.
+        self.assertEqual(state['hb_fail_since'], 0.0)
+
+
+class BootOrderTests(unittest.TestCase):
+    """The transmitter must key up before anything touches the network. These
+    calls used to sit on the boot path and cost ~115s of dead air on a Pi that
+    booted without wifi."""
+
+    def test_main_does_not_call_the_api_before_starting_threads(self):
+        import inspect
+        src = inspect.getsource(pi_daemon.main)
+        body = src.split('threading.Thread')[0]
+        for forbidden in ('sync_library(', 'send_heartbeat('):
+            self.assertNotIn(
+                forbidden, body,
+                f'{forbidden} is back on the boot path — it blocks the carrier '
+                'coming up when the network is down')
+
+    def test_scheduler_seeds_timers_so_first_tick_syncs_immediately(self):
+        import inspect
+        src = inspect.getsource(pi_daemon._scheduler_loop)
+        # Both must start at 0 so the work main() no longer does happens at once.
+        self.assertIn("'last_hb': 0.0", src)
+        self.assertIn("'last_sync': 0.0", src)
 
 
 if __name__ == '__main__':

@@ -3,8 +3,8 @@
 use App\Http\Controllers\Admin\BroadcastController;
 use App\Http\Controllers\Admin\CommercialController;
 use App\Http\Controllers\Admin\DashboardController;
-use App\Http\Controllers\Admin\QueueAdminController;
 use App\Http\Controllers\Admin\HistoryController;
+use App\Http\Controllers\Admin\QueueAdminController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SongAdminController;
 use App\Http\Controllers\Admin\SoundByteController;
@@ -25,8 +25,9 @@ Route::get('/pi/setup.sh', [PiSetupController::class, 'setup'])->name('pi.setup'
 // /files/ prefix avoids conflict with Laravel's built-in storage.local route at /storage/.
 Route::get('/files/{path}', function (string $path) {
     abort_if(str_contains($path, '..'), 403);
-    $file = storage_path('app/public/' . $path);
+    $file = storage_path('app/public/'.$path);
     abort_unless(file_exists($file) && is_file($file), 404);
+
     return response()->file($file);
 })->where('path', '.*');
 Route::get('/pi/{filename}', [PiSetupController::class, 'file'])->name('pi.file')
@@ -73,6 +74,9 @@ Route::middleware(['auth', EnsureActiveStation::class])->prefix('admin')->name('
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
     Route::post('/settings/wifi', [SettingsController::class, 'connectWifi'])->name('settings.wifi');
+    Route::post('/settings/wifi/networks', [SettingsController::class, 'storeWifiNetwork'])->name('settings.wifi.store');
+    Route::post('/settings/wifi/networks/reorder', [SettingsController::class, 'reorderWifiNetworks'])->name('settings.wifi.reorder');
+    Route::delete('/settings/wifi/networks/{wifiNetwork}', [SettingsController::class, 'destroyWifiNetwork'])->name('settings.wifi.destroy');
     Route::post('/pi/update', [SettingsController::class, 'pushDaemonUpdate'])->name('pi.update');
     Route::get('/tokens', [TokenController::class, 'index'])->name('tokens');
     Route::post('/tokens', [TokenController::class, 'store'])->name('tokens.store');

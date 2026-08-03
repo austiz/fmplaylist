@@ -47,6 +47,7 @@ BINARY_PATH = os.path.join(SCRIPT_DIR, 'pi_fm_rds')
 RTMP_PORT   = 1935
 FM_CTL_FIFO = '/tmp/fm_ctl'   # named pipe for live RDS updates (pi_fm_rds -ctl)
 STATUS_PATH = os.path.join(SCRIPT_DIR, 'status.json')   # local health snapshot, see _write_status_file
+WIFI_PROFILES_PATH = '/etc/fmplaylist/wifi-networks.json'   # saved networks, see load_wifi_profiles
 
 
 def _own_daemon_hash() -> str:
@@ -160,6 +161,11 @@ _last_error: 'dict | None' = None
 _WIFI_SCAN_INTERVAL_S = 120.0
 _wifi_cache: dict = {'ts': 0.0, 'data': {'current': '', 'networks': []}}
 
+# How long the API may stay unreachable on an associated network before the
+# watchdog tries the next saved profile. Generously long: a brief server blip
+# must never bounce a working connection mid-broadcast.
+_WIFI_WATCHDOG_S = 300.0
+
 # Guards against re-triggering a self-update while one is already downloading/restarting
 _update_in_progress: bool = False
 
@@ -210,6 +216,107 @@ def save_local_config(cfg: dict) -> None:
 
 def merged_cfg(local: dict) -> dict:
     return {**local, **_remote_cfg}
+
+
+# ── Saved wifi profiles ───────────────────────────────────────────────────────
+# Lives outside SCRIPT_DIR on purpose: setup.sh reconciles src/ against a source
+# manifest and deletes anything it doesn't ship, which would wipe this on every
+# update. Mode 0600 because it holds PSKs in the clear.
+
+def load_wifi_profiles() -> dict:
+    """Returns {'rev': str, 'profiles': [{'ssid','password','priority'}, ...]}."""
+    try:
+        with open(WIFI_PROFILES_PATH) as f:
+            data = json.load(f)
+        profiles = [p for p in data.get('profiles', []) if p.get('ssid')]
+        return {'rev': str(data.get('rev', '')), 'profiles': profiles}
+    except Exception:
+        return {'rev': '', 'profiles': []}
+
+
+def save_wifi_profiles(profiles: list, rev: str) -> None:
+    """Atomic replace, same pattern as _write_status_file — a torn write here
+    would leave the Pi unable to rejoin any network after a reboot."""
+    os.makedirs(os.path.dirname(WIFI_PROFILES_PATH), exist_ok=True)
+    tmp = WIFI_PROFILES_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump({'rev': rev, 'profiles': profiles}, f, indent=2)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, WIFI_PROFILES_PATH)
+
+
+def _reconcile_wifi(profiles: list) -> bool:
+    """Hand the ordered list to wifi_apply.sh, which owns all nmcli/wpa_supplicant
+    state. Credentials go over stdin, never argv (argv is world-readable via
+    /proc/<pid>/cmdline for the life of the call)."""
+    script = os.path.join(SCRIPT_DIR, 'wifi_apply.sh')
+    if not os.path.exists(script):
+        print(f'[{_ts()}][wifi] wifi_apply.sh not found at {script}')
+        return False
+    try:
+        payload = json.dumps({'profiles': profiles}).encode()
+        r = subprocess.run(
+            ['sudo', 'bash', script, 'sync'],
+            input=payload, capture_output=False, timeout=120,
+        )
+        ok = r.returncode == 0
+        print(f'[{_ts()}][wifi] reconcile {"✓" if ok else "✗"} '
+              f'({len(profiles)} network{"" if len(profiles) == 1 else "s"})')
+        return ok
+    except Exception as exc:
+        print(f'[{_ts()}][wifi] ERROR reconciling profiles: {exc}')
+        return False
+
+
+def _wifi_cycle() -> None:
+    """Ask wifi_apply.sh to demote the current network and re-select."""
+    script = os.path.join(SCRIPT_DIR, 'wifi_apply.sh')
+    if not os.path.exists(script):
+        return
+    try:
+        subprocess.run(['sudo', 'bash', script, 'cycle'], timeout=120, check=False)
+    except Exception as exc:
+        print(f'[{_ts()}][wifi] ERROR cycling network: {exc}')
+
+
+def _wifi_watchdog(state: dict, ok: bool) -> None:
+    """
+    Covers the one failure NetworkManager cannot see: associated to an AP that
+    has no usable internet (captive portal, dead venue router). NM considers
+    that a success and will sit on it forever, so nothing recovers on its own.
+
+    Only fires when wifi is actually associated — if there's no AP in range at
+    all, cycling profiles accomplishes nothing and NM's own scanning is already
+    the right behaviour.
+    """
+    if ok:
+        state['hb_fail_since'] = 0.0
+        return
+
+    if not _get_wifi_info()['current']:
+        state['hb_fail_since'] = 0.0   # not associated: nothing to cycle away from
+        return
+
+    now = time.time()
+    if not state.get('hb_fail_since'):
+        state['hb_fail_since'] = now
+        return
+
+    if now - state['hb_fail_since'] > _WIFI_WATCHDOG_S:
+        mins = int((now - state['hb_fail_since']) / 60)
+        print(f'[{_ts()}][wifi] associated but API unreachable for {mins}m — '
+              'trying next saved network')
+        state['hb_fail_since'] = 0.0
+        threading.Thread(target=_wifi_cycle, daemon=True).start()
+
+
+def _reconcile_wifi_from_cache() -> None:
+    """Boot-time reconcile from the local cache. Runs with no network and no
+    server contact — this is what makes fallback networks survive a reimage-free
+    reboot in a venue whose primary AP is down."""
+    cached = load_wifi_profiles()
+    if cached['profiles']:
+        _reconcile_wifi(cached['profiles'])
 
 
 def media_dir(cfg: dict, media_type: str) -> str:
@@ -436,23 +543,22 @@ def _apply_wifi(pending: dict) -> None:
     global _wifi_applied_ssid, _wifi_failed_ssid, _wifi_pending_ssid
     ssid     = pending.get('ssid', '')
     password = pending.get('password', '')
-    script   = os.path.join(SCRIPT_DIR, 'wifi_setup.sh')
+    script   = os.path.join(SCRIPT_DIR, 'wifi_apply.sh')
 
     try:
         if not ssid:
             print(f'[{_ts()}][wifi] pending_wifi has no SSID — skipping')
             return
         if not os.path.exists(script):
-            print(f'[{_ts()}][wifi] wifi_setup.sh not found at {script}')
+            print(f'[{_ts()}][wifi] wifi_apply.sh not found at {script}')
             return
 
         print(f'[{_ts()}][wifi] applying new network: "{ssid}"')
         try:
-            # Password goes over stdin (script reads it when arg 2 is "-"), not argv —
-            # argv is visible to any local process via `ps`/`/proc/<pid>/cmdline` for
-            # the whole ~90s connection attempt.
+            # Password goes over stdin, not argv — argv is visible to any local
+            # process via `ps`/`/proc/<pid>/cmdline` for the whole ~90s attempt.
             r = subprocess.run(
-                ['sudo', 'bash', script, ssid, '-'],
+                ['sudo', 'bash', script, 'connect', ssid],
                 input=(password + '\n').encode(),
                 capture_output=False, timeout=90,
             )
@@ -600,6 +706,9 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
         'fm_running':          fm_running,
         'schedule_queue_depth': _schedule_q.qsize(),
         'ready_queue_depth':   _ready_q.qsize(),
+        # Lets the admin page show drift between the saved list on the server and
+        # what this Pi actually has on disk.
+        'wifi_profiles_rev':   load_wifi_profiles()['rev'],
     }
     if _last_error is not None:
         payload['last_error_kind'] = _last_error['kind']
@@ -641,6 +750,25 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
             threading.Thread(
                 target=_apply_wifi, args=(pending_wifi,), daemon=True,
             ).start()
+
+        # Saved-network list. Compared by revision so a steady state doesn't
+        # re-run nmcli every 30s — reconfiguring the interface mid-broadcast is
+        # both pointless and a source of CPU contention on a Zero W.
+        new_rev = str(result.get('wifi_profiles_rev', ''))
+        if new_rev and new_rev != load_wifi_profiles()['rev']:
+            profiles = [
+                p for p in (result.get('wifi_profiles') or [])
+                if isinstance(p, dict) and p.get('ssid')
+            ]
+            print(f'[{_ts()}][wifi] profile list changed (rev {new_rev[:8]}) — '
+                  f'{len(profiles)} network(s)')
+            try:
+                save_wifi_profiles(profiles, new_rev)
+                threading.Thread(
+                    target=_reconcile_wifi, args=(profiles,), daemon=True,
+                ).start()
+            except Exception as exc:
+                print(f'[{_ts()}][wifi] ERROR saving profiles: {exc}')
 
         if result.get('emergency') and result.get('emergency_file'):
             _handle_emergency(cfg, result['emergency_file'])
@@ -1257,7 +1385,11 @@ def _scheduler_loop(local: dict) -> None:
     Never touches the FM pipe or reads/writes audio data.
     """
     print(f'[{_ts()}][scheduler] started')
-    state = {'local': local, 'last_hb': 0.0, 'last_sync': time.time(), 'last_poll': 0.0}
+    # last_hb/last_sync start at 0 so the first tick heartbeats and syncs the
+    # library immediately. main() deliberately no longer does either before
+    # starting this thread — both are network calls, and blocking the boot path
+    # on them cost up to ~115s of dead air on a Pi with no network.
+    state = {'local': local, 'last_hb': 0.0, 'last_sync': 0.0, 'last_poll': 0.0}
 
     while not _stop_event.is_set():
         try:
@@ -1291,7 +1423,8 @@ def _scheduler_tick(state: dict) -> None:
 
     # ── Heartbeat every 30 s ──────────────────────────────────────────────
     if time.time() - state['last_hb'] > 30:
-        send_heartbeat(cfg, 'playing', 'normal')
+        result = send_heartbeat(cfg, 'playing', 'normal')
+        _wifi_watchdog(state, ok=bool(result))
         state['last_hb'] = time.time()
         local = load_local_config()   # pick up freq changes saved by heartbeat
         state['local'] = local
@@ -1512,14 +1645,25 @@ def _preload_fallback(local: dict) -> None:
 
 
 def main() -> None:
-    global _local
+    global _local, _last_error
     _local = load_local_config()
     local  = _local
     ensure_media_dirs(local)
 
+    # A missing api_key is not fatal. This is a transmitter: staying on the air
+    # with the fallback beats exiting into a systemd restart loop that produces
+    # permanent dead air. The scheduler reports the problem on every heartbeat
+    # attempt, and _last_error surfaces it in status.json.
     if not local['api_key']:
-        print('ERROR: api_key not set in config.json. Generate one in Admin → Pi Token.')
-        sys.exit(1)
+        print('WARNING: api_key not set in config.json (Admin → Pi Token). '
+              'Broadcasting fallback only — server features disabled.')
+        _last_error = {
+            'kind': 'config',
+            'label': 'boot',
+            'path': CONFIG_PATH,
+            'message': 'api_key not set',
+            'at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        }
 
     if not os.path.exists(BINARY_PATH):
         print(f'ERROR: pi_fm_rds binary not found. Run "make" in {SCRIPT_DIR}')
@@ -1539,19 +1683,33 @@ def main() -> None:
     except Exception:
         pass
 
-    while not str(local.get('server_url', '')).startswith('http'):
-        print(f'[boot] ERROR: server_url missing in {CONFIG_PATH} — retrying in 15s')
-        time.sleep(15)
-        local  = load_local_config()
-        _local = local
+    # Same reasoning as the api_key case: a bad server_url used to spin here
+    # forever, which meant the transmitter never started at all.
+    if not str(local.get('server_url', '')).startswith('http'):
+        print(f'[boot] WARNING: server_url missing/invalid in {CONFIG_PATH} — '
+              'broadcasting fallback only')
+        _last_error = {
+            'kind': 'config',
+            'label': 'boot',
+            'path': CONFIG_PATH,
+            'message': 'server_url missing or not http(s)',
+            'at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        }
 
     print(f'[boot] server={local["server_url"]} freq={local["freq"]}MHz')
 
-    _preload_fallback(local)    # fast for WAV (~1s); blocks until done
-    sync_library(local)
-    send_heartbeat(local, 'idle', 'normal')
+    _preload_fallback(local)    # local ffmpeg decode, ~1s — the only thing audio needs
 
-    # Start permanent background threads
+    # Reconcile saved wifi profiles from the on-disk cache, off the audio path.
+    # This is what makes fallback networks work on a Pi that has never reached
+    # the server: NetworkManager already has the profiles, so it may well be
+    # connecting while this thread runs.
+    threading.Thread(
+        target=_reconcile_wifi_from_cache, daemon=True, name='WifiBoot',
+    ).start()
+
+    # Start permanent background threads. Nothing above this line touches the
+    # network, so the FM carrier comes up in ~1-2s regardless of connectivity.
     threading.Thread(
         target=_scheduler_loop, args=(local,), daemon=True, name='Scheduler',
     ).start()

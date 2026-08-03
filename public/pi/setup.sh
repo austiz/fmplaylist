@@ -3,6 +3,8 @@
 # Usage: curl -fsSL https://fmplaylist.com/pi/setup.sh | sudo bash -s -- YOUR_TOKEN
 set -Eeuo pipefail
 
+# Served through PiSetupController, which rewrites this line to the requesting
+# host. Keep it on one line, exactly this shape — the controller matches it.
 BASE_URL="https://fmplaylist.com"
 FMPLAYLIST_REPO="${FMPLAYLIST_REPO:-https://github.com/austiz/fmplaylist.git}"
 FMPLAYLIST_REF="${FMPLAYLIST_REF:-main}"
@@ -176,7 +178,7 @@ echo "==> Fetching fresh source snapshot..."
 clone_source
 SRC="$WORK_DIR/repo/PiFmRds/src"
 
-for required in pi_daemon.py Makefile pi_fm_rds.c run.sh wifi_setup.sh FTPA.wav; do
+for required in pi_daemon.py Makefile pi_fm_rds.c run.sh wifi_apply.sh FTPA.wav; do
   if [ ! -f "$SRC/$required" ]; then
     echo "ERROR: source snapshot missing PiFmRds/src/$required"
     exit 1
@@ -212,7 +214,12 @@ fi
 # skipped so local-only values can be preserved before the deterministic rewrite.
 find "$SRC" -maxdepth 1 -type f ! -name 'config.json' -exec cp -f {} "$DIR/" \;
 cp "$NEW_SOURCE_MANIFEST" "$SOURCE_MANIFEST_FILE"
-chmod +x "$DIR/run.sh" "$DIR/wifi_setup.sh" "$DIR/whisper.sh" 2>/dev/null || true
+chmod +x "$DIR/run.sh" "$DIR/wifi_apply.sh" "$DIR/whisper.sh" 2>/dev/null || true
+
+# Saved wifi networks live outside $DIR so the stale-source sweep above can't
+# delete them. Root-only: the file holds PSKs in the clear.
+mkdir -p /etc/fmplaylist
+chmod 700 /etc/fmplaylist
 
 echo "==> Writing config.json..."
 python3 - "$DIR/config.json" "$BASE_URL" "$TOKEN" "$DIR" <<'PY'

@@ -7,8 +7,10 @@ use App\Models\NowPlaying;
 use App\Models\PiToken;
 use App\Models\Setting;
 use App\Models\Station;
+use App\Models\WifiNetwork;
 use App\Services\DeviceSyncService;
 use App\Services\QueueService;
+use App\Support\PublicStation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -92,6 +94,10 @@ class PiController extends Controller
             'daemon_hash' => ['nullable', 'string', 'max:16'],
             'disk_free_bytes' => ['nullable', 'integer'],
             'disk_total_bytes' => ['nullable', 'integer'],
+            'wifi_profiles_rev' => ['nullable', 'string', 'max:32'],
+            'last_error_kind' => ['nullable', 'string', 'max:20'],
+            'last_error_message' => ['nullable', 'string', 'max:255'],
+            'last_error_at' => ['nullable', 'string', 'max:32'],
         ]);
 
         /** @var PiToken|null $token */
@@ -114,6 +120,20 @@ class PiController extends Controller
         }
         if ($data['wifi_failed'] ?? null) {
             Setting::set('last_wifi_status', 'failed:'.$data['wifi_failed'], $stationId);
+        }
+
+        // What the Pi actually has on disk, so the settings page can flag drift
+        // from the saved list (e.g. a Pi that's been offline since an edit).
+        Cache::put('pi.wifi_profiles_rev', $data['wifi_profiles_rev'] ?? '', 300);
+
+        if ($data['last_error_message'] ?? null) {
+            Cache::put('pi.last_error', [
+                'kind' => $data['last_error_kind'] ?? '',
+                'message' => $data['last_error_message'],
+                'at' => $data['last_error_at'] ?? '',
+            ], 300);
+        } else {
+            Cache::forget('pi.last_error');
         }
 
         $skipNext = false;
@@ -246,6 +266,7 @@ class PiController extends Controller
         }
 
         $primary = $online->sortByDesc('last_seen_at')->first();
+        $currentSourceHash = self::currentPiSourceHash();
 
         return response()->json([
             'online' => true,
@@ -254,8 +275,7 @@ class PiController extends Controller
             'ip' => $this->piTokenHasColumn('pi_ip') ? $primary->pi_ip : null,
             // null hash means the running Pi install predates hash-reporting; don't nag until it's known.
             'update_available' => $this->piTokenHasColumn('pi_daemon_hash')
-                && $primary->pi_daemon_hash !== null
-                && $primary->pi_daemon_hash !== self::currentPiSourceHash(),
+                && $online->contains(fn (PiToken $t) => $t->pi_daemon_hash !== null && $t->pi_daemon_hash !== $currentSourceHash),
         ]);
     }
 
@@ -324,16 +344,7 @@ class PiController extends Controller
     /** Public (unauthenticated) endpoints resolve by an optional ?station=slug query param, defaulting to the default station. */
     private function resolvePublicStation(Request $request): Station
     {
-        $slug = $request->query('station');
-
-        if ($slug) {
-            $station = Station::where('slug', $slug)->first();
-            if ($station) {
-                return $station;
-            }
-        }
-
-        return Station::findOrFail(Station::defaultId());
+        return PublicStation::resolve($request);
     }
 
     /** @return array<string, mixed> */
@@ -363,6 +374,11 @@ class PiController extends Controller
                 'ssid' => $pendingWifiSsid,
                 'password' => Setting::get('pending_wifi_password', '', $station->id),
             ] : null,
+            // Full saved list, best-first. The Pi caches this to disk and hands it
+            // to NetworkManager, so it can rejoin a fallback network at boot with
+            // no server contact at all.
+            'wifi_profiles' => WifiNetwork::profilesFor($station->id),
+            'wifi_profiles_rev' => WifiNetwork::revisionFor($station->id),
             'emergency' => (bool) Setting::get('pi_emergency', '0', $station->id),
             'emergency_file' => Setting::get('emergency_announcement', 'announcement.wav', $station->id),
             'apply_update' => (bool) Setting::get('pi_update_requested', '0', $station->id),
@@ -379,7 +395,7 @@ class PiController extends Controller
 
             foreach ($files as $path) {
                 $name = basename($path);
-                if (! is_file($path) || ! self::isPiSourceManifestFile($name)) {
+                if (! is_file($path) || $name === 'config.json') {
                     continue;
                 }
 
@@ -393,15 +409,5 @@ class PiController extends Controller
 
             return substr(hash('sha256', json_encode($hashes, JSON_THROW_ON_ERROR)), 0, 12);
         });
-    }
-
-    private static function isPiSourceManifestFile(string $name): bool
-    {
-        return $name === 'Makefile'
-            || $name === 'FTPA.wav'
-            || str_ends_with($name, '.c')
-            || str_ends_with($name, '.h')
-            || str_ends_with($name, '.py')
-            || str_ends_with($name, '.sh');
     }
 }
