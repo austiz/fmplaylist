@@ -78,10 +78,15 @@ scp -r PiFmRds pi@192.168.x.x:/home/pi/
 
 ## Part 5 — Apply WiFi Config on the Pi
 
-SSH into the Pi and run the WiFi setup script (this saves the hotspot so it auto-connects on every boot):
+Add networks in **Admin > Settings > Saved Networks**. The Pi caches the list
+locally and hands it to NetworkManager, so it reconnects on every boot — and
+falls back down the list when the first network isn't in range. Broadcasting
+never waits on WiFi; the transmitter comes up first either way.
+
+To connect one network by hand from the Pi:
 
 ```bash
-sudo bash ~/PiFmRds/src/wifi_setup.sh
+sudo bash ~/PiFmRds/src/wifi_apply.sh connect "SSID"   # password on stdin
 ```
 
 ---
@@ -261,7 +266,8 @@ Both types are downloaded to the Pi automatically. Commercials rotate sequential
 | Standalone loop (no web app) | `cd ~/PiFmRds/src && ./run.sh` |
 | Test signal only (no audio) | `sudo ./pi_fm_rds -freq 96.9 -ps "TEST    " -rt "HELLO" -audio /dev/zero` |
 | Check WiFi connection | `ip addr show wlan0` |
-| Re-apply WiFi config | `sudo bash ~/PiFmRds/src/wifi_setup.sh` |
+| Re-apply saved WiFi list | `sudo bash ~/PiFmRds/src/wifi_apply.sh sync < /etc/fmplaylist/wifi-networks.json` |
+| Show WiFi priorities | `nmcli -f NAME,AUTOCONNECT-PRIORITY connection show \| grep fmplaylist` |
 | Copy new songs to Pi | `scp song.wav pi@192.168.x.x:/home/pi/PiFmRds/src/` |
 
 ---
@@ -270,7 +276,8 @@ Both types are downloaded to the Pi automatically. Commercials rotate sequential
 
 **Pi not connecting to hotspot**
 - Make sure hotspot is on before the Pi boots
-- Re-run `sudo bash ~/PiFmRds/src/wifi_setup.sh`
+- Check the network is in **Admin > Settings > Saved Networks**
+- Re-apply: `sudo bash ~/PiFmRds/src/wifi_apply.sh sync < /etc/fmplaylist/wifi-networks.json`
 - Check SSID matches exactly: `nmcli connection show` or `cat /etc/wpa_supplicant/wpa_supplicant.conf`
 
 **Daemon won't start — api_key error**
