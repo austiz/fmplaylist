@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Song;
-use App\Models\Station;
 use App\Services\QueueService;
+use App\Support\PublicStation;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -18,6 +18,8 @@ class SongController extends Controller
     {
         $search = $request->string('search')->trim()->toString();
 
+        $station = PublicStation::resolve($request);
+
         $songs = Song::available()
             ->when($search, fn ($q) => $q->search($search))
             ->orderBy('title')
@@ -30,7 +32,11 @@ class SongController extends Controller
                 'duration_formatted' => $song->duration_formatted,
             ]);
 
-        return Inertia::render('songs', compact('songs', 'search'));
+        return Inertia::render('songs', [
+            'songs' => $songs,
+            'search' => $search,
+            'station' => ['id' => $station->id, 'name' => $station->name, 'slug' => $station->slug],
+        ]);
     }
 
     public function request(Request $request, Song $song): RedirectResponse
@@ -41,7 +47,9 @@ class SongController extends Controller
             'name' => ['nullable', 'string', 'max:50'],
         ]);
 
-        $this->queueService->addToQueue(Station::defaultId(), $song->id, $data['name'] ?? null);
+        $station = PublicStation::resolve($request);
+
+        $this->queueService->addToQueue($station->id, $song->id, $data['name'] ?? null);
 
         return back()->with('success', "\"{$song->title}\" added to the queue!");
     }

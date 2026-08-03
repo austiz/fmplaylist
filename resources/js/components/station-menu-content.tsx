@@ -20,24 +20,37 @@ export function StationMenuContent({ stations, activeStation }: Props) {
             return;
         }
 
-        router.post('/admin/stations/switch', { station_id: Number(value) }, { preserveScroll: true });
+        router.post(
+            '/admin/stations/switch',
+            { station_id: Number(value) },
+            { preserveScroll: true },
+        );
     };
 
     return (
         <>
-            <DropdownMenuLabel className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <DropdownMenuLabel className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 Active Station
             </DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={String(activeStation.id)} onValueChange={switchStation}>
+            <DropdownMenuRadioGroup
+                value={String(activeStation.id)}
+                onValueChange={switchStation}
+            >
                 {stations.map((station) => (
-                    <DropdownMenuRadioItem key={station.id} value={String(station.id)}>
+                    <DropdownMenuRadioItem
+                        key={station.id}
+                        value={String(station.id)}
+                    >
                         {station.name}
                     </DropdownMenuRadioItem>
                 ))}
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-                <Link href="/admin/stations" className="block w-full cursor-pointer">
+                <Link
+                    href="/admin/stations"
+                    className="block w-full cursor-pointer"
+                >
                     <Settings className="mr-2" />
                     Manage stations
                 </Link>

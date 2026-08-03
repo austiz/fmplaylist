@@ -21,7 +21,7 @@ class BackfillDurations extends Command
         $skipped = 0;
 
         $models = [
-            'songs'       => Song::whereNull('duration_seconds')->whereNotNull('storage_path')->get(),
+            'songs' => Song::whereNull('duration_seconds')->whereNotNull('storage_path')->get(),
             'commercials' => Commercial::whereNull('duration_seconds')->whereNotNull('storage_path')->get(),
             'sound_bytes' => SoundByte::whereNull('duration_seconds')->whereNotNull('storage_path')->get(),
         ];
@@ -33,6 +33,7 @@ class BackfillDurations extends Command
                 if (! file_exists($abs)) {
                     $this->line("  skip {$label}:{$item->id} — file missing");
                     $skipped++;
+
                     continue;
                 }
 
@@ -41,6 +42,7 @@ class BackfillDurations extends Command
                 if ($seconds === null) {
                     $this->line("  skip {$label}:{$item->id} — ffprobe returned null");
                     $skipped++;
+
                     continue;
                 }
 

@@ -11,53 +11,68 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { pushRecent } from '@/lib/recents';
-import type { PaginatedResponse, Song } from '@/types/fm';
+import type { PaginatedResponse, Song, Station } from '@/types/fm';
 
 interface Props {
     songs: PaginatedResponse<Song>;
     search: string;
+    station: Station;
 }
 
-function RequestDialog({ song, onClose }: { song: Song; onClose: () => void }) {
+function RequestDialog({
+    song,
+    station,
+    onClose,
+}: {
+    song: Song;
+    station: Station;
+    onClose: () => void;
+}) {
     const { data, setData, post, processing, reset } = useForm({ name: '' });
     const [serverError, setServerError] = useState('');
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
         setServerError('');
-        post(`/songs/${song.id}/request`, {
-            onSuccess: () => {
-                try {
-                    localStorage.setItem(
-                        'fm.my_request',
-                        JSON.stringify({ songId: song.id, title: song.title }),
+        post(
+            `/songs/${song.id}/request?station=${encodeURIComponent(station.slug)}`,
+            {
+                onSuccess: () => {
+                    try {
+                        localStorage.setItem(
+                            'fm.my_request',
+                            JSON.stringify({
+                                songId: song.id,
+                                title: song.title,
+                            }),
+                        );
+                    } catch {
+                        /* private/incognito may block localStorage */
+                    }
+
+                    pushRecent({
+                        songId: song.id,
+                        title: song.title,
+                        artist: song.artist ?? '',
+                    });
+
+                    try {
+                        navigator.vibrate?.(30);
+                    } catch {
+                        /* unsupported */
+                    }
+
+                    reset();
+                    onClose();
+                },
+                onError: (errors) => {
+                    setServerError(
+                        (errors as Record<string, string>).message ??
+                            'Too many requests — try again in a moment.',
                     );
-                } catch {
-                    /* private/incognito may block localStorage */
-                }
-
-                pushRecent({
-                    songId: song.id,
-                    title: song.title,
-                    artist: song.artist ?? '',
-                });
-
-                try {
-                    navigator.vibrate?.(30);
-                } catch {
-                    /* unsupported */
-                }
-
-                reset();
-                onClose();
+                },
             },
-            onError: (errors) => {
-                setServerError(
-                    (errors as Record<string, string>).message ??
-                        'Too many requests — try again in a moment.',
-                );
-            },
-        });
+        );
     };
 
     return (
@@ -112,7 +127,7 @@ function RequestDialog({ song, onClose }: { song: Song; onClose: () => void }) {
     );
 }
 
-export default function Songs({ songs, search }: Props) {
+export default function Songs({ songs, search, station }: Props) {
     const [requesting, setRequesting] = useState<Song | null>(null);
     const { props } = usePage<{ flash: { success?: string } }>();
     const flash = props.flash;
@@ -124,7 +139,7 @@ export default function Songs({ songs, search }: Props) {
         searchTimeout.current = setTimeout(() => {
             router.get(
                 '/songs',
-                { search: value },
+                { search: value, station: station.slug },
                 { preserveState: true, replace: true },
             );
         }, 300);
@@ -222,6 +237,7 @@ export default function Songs({ songs, search }: Props) {
             {requesting && (
                 <RequestDialog
                     song={requesting}
+                    station={station}
                     onClose={() => setRequesting(null)}
                 />
             )}

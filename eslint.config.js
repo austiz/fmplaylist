@@ -108,6 +108,8 @@ export default [
             'node_modules',
             'public',
             'bootstrap/ssr',
+            '.pytest_cache',
+            '**/.pytest_cache/**',
             'tailwind.config.js',
             'vite.config.ts',
             'resources/js/actions/**',

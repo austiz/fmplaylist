@@ -11,8 +11,8 @@ interface Elapsed {
 
 function secondsSince(startedAt: string | null | undefined): number {
     if (!startedAt) {
-return 0;
-}
+        return 0;
+    }
 
     const ms = Date.now() - Date.parse(startedAt);
 
@@ -28,7 +28,10 @@ return 0;
  * re-render. That avoids the "setState synchronously in an effect" anti-pattern and the
  * up-to-250ms stale window that a stored-state version would show right after a track change.
  */
-export function useElapsed(startedAt: string | null | undefined, durationSeconds: number | null | undefined): Elapsed {
+export function useElapsed(
+    startedAt: string | null | undefined,
+    durationSeconds: number | null | undefined,
+): Elapsed {
     const [, setTick] = useState(0);
 
     useEffect(() => {

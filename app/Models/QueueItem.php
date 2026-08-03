@@ -38,7 +38,7 @@ class QueueItem extends Model
     }
 
     /**
-     * @param Builder<QueueItem> $query
+     * @param  Builder<QueueItem>  $query
      * @return Builder<QueueItem>
      */
     public function scopePending(Builder $query): Builder
@@ -47,7 +47,7 @@ class QueueItem extends Model
     }
 
     /**
-     * @param Builder<QueueItem> $query
+     * @param  Builder<QueueItem>  $query
      * @return Builder<QueueItem>
      */
     public function scopeForStation(Builder $query, int $stationId): Builder
@@ -56,7 +56,7 @@ class QueueItem extends Model
     }
 
     /**
-     * @param Builder<QueueItem> $query
+     * @param  Builder<QueueItem>  $query
      * @return Builder<QueueItem>
      */
     public function scopePlayed(Builder $query): Builder

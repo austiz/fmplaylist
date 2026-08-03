@@ -30,7 +30,7 @@ class Commercial extends Model
     ];
 
     /**
-     * @param Builder<Commercial> $query
+     * @param  Builder<Commercial>  $query
      * @return Builder<Commercial>
      */
     public function scopeActive(Builder $query): Builder

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Commercial;
+use App\Services\DeviceSyncService;
 use App\Support\AudioDuration;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -64,10 +65,11 @@ class CommercialController extends Controller
         return back()->with('success', $commercial->active ? 'Commercial enabled.' : 'Commercial disabled.');
     }
 
-    public function destroy(Commercial $commercial): RedirectResponse
+    public function destroy(Commercial $commercial, DeviceSyncService $sync): RedirectResponse
     {
-        // If Pi never downloaded it, delete immediately — no Pi-side cleanup needed
-        if ($commercial->needs_pi_download) {
+        // If no device holds it, delete immediately — no Pi-side cleanup needed.
+        // `needs_pi_download` cannot answer this: it is global and defaults to false.
+        if (! $sync->isHeldByAnyDevice('commercial', $commercial->id)) {
             if ($commercial->storage_path) {
                 Storage::disk('public')->delete($commercial->storage_path);
             }

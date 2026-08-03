@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Setting;
 use App\Models\Station;
+use App\Support\PublicStation;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -41,14 +42,17 @@ class HandleInertiaRequests extends Middleware
         // middleware group runs before route-specific middleware, so that attribute isn't
         // set yet when share() executes. Mirrors EnsureActiveStation's own fallback logic.
         $activeStation = $request->user() ? $this->resolveActiveStation() : null;
+        $publicStation = $request->user() ? null : PublicStation::resolve($request);
+        $frequencyStationId = $activeStation?->id ?? $publicStation?->id;
 
         return [
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => ['user' => $request->user()],
-            'frequency' => Setting::get('frequency', '96.9'),
+            'frequency' => Setting::get('frequency', '96.9', $frequencyStationId),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'activeStation' => $activeStation ? ['id' => $activeStation->id, 'name' => $activeStation->name, 'slug' => $activeStation->slug] : null,
+            'publicStation' => $publicStation ? ['id' => $publicStation->id, 'name' => $publicStation->name, 'slug' => $publicStation->slug] : null,
             'stations' => $activeStation ? Station::orderBy('name')->get(['id', 'name', 'slug']) : null,
         ];
     }

@@ -3,6 +3,8 @@
 namespace Tests\Feature\Admin;
 
 use App\Models\Commercial;
+use App\Models\DeviceDownload;
+use App\Models\PiToken;
 use App\Models\Song;
 use App\Models\SoundByte;
 use App\Models\User;
@@ -129,6 +131,98 @@ class SoundsTest extends TestCase
             ->assertRedirect();
 
         $this->assertFalse((bool) $sb->fresh()->active);
+    }
+
+    // ── "On Pi" reporting ─────────────────────────────────────────────────────
+    //
+    // Sync state must come from device_downloads. `needs_pi_download` is global and
+    // defaults to false, which made untouched media report as already on the Pi.
+
+    public function test_media_no_device_downloaded_is_not_reported_as_on_pi(): void
+    {
+        ['token' => $token] = PiToken::generate('Test Pi');
+        $token->update(['last_seen_at' => now()]);
+
+        Song::factory()->create(['needs_pi_download' => false, 'storage_path' => 'songs/a.mp3']);
+        Commercial::factory()->create(['needs_pi_download' => false]);
+        SoundByte::factory()->create(['needs_pi_download' => false]);
+
+        $this->actingAs($this->admin)
+            ->get('/admin/sounds')
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p
+                ->where('deviceCount', 1)
+                ->where('songs.data.0.devices_have', 0)
+                ->where('commercials.0.devices_have', 0)
+                ->where('soundBytes.0.devices_have', 0));
+    }
+
+    public function test_media_reports_only_the_devices_that_downloaded_it(): void
+    {
+        ['token' => $piA] = PiToken::generate('Pi A');
+        ['token' => $piB] = PiToken::generate('Pi B');
+        $piA->update(['last_seen_at' => now()]);
+        $piB->update(['last_seen_at' => now()]);
+
+        $soundByte = SoundByte::factory()->create(['storage_path' => 'soundbytes/a.mp3']);
+        DeviceDownload::create([
+            'pi_token_id' => $piA->id,
+            'media_type' => 'sound_byte',
+            'media_id' => $soundByte->id,
+            'downloaded_at' => now(),
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get('/admin/sounds')
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p
+                ->where('deviceCount', 2)
+                ->where('soundBytes.0.devices_have', 1));
+    }
+
+    public function test_device_count_ignores_tokens_that_never_checked_in(): void
+    {
+        PiToken::generate('Never provisioned');
+
+        SoundByte::factory()->create();
+
+        $this->actingAs($this->admin)
+            ->get('/admin/sounds')
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p->where('deviceCount', 0));
+    }
+
+    public function test_sound_byte_held_by_a_device_is_marked_for_deletion(): void
+    {
+        ['token' => $token] = PiToken::generate('Test Pi');
+        $token->update(['last_seen_at' => now()]);
+
+        // Flag says "no Pi has it" but a device_downloads row proves otherwise.
+        $soundByte = SoundByte::factory()->create(['needs_pi_download' => true]);
+        DeviceDownload::create([
+            'pi_token_id' => $token->id,
+            'media_type' => 'sound_byte',
+            'media_id' => $soundByte->id,
+            'downloaded_at' => now(),
+        ]);
+
+        $this->actingAs($this->admin)
+            ->delete("/admin/sound-bytes/{$soundByte->id}")
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('sound_bytes', ['id' => $soundByte->id]);
+        $this->assertTrue((bool) $soundByte->fresh()->pi_delete_requested);
+    }
+
+    public function test_sound_byte_no_device_holds_is_deleted_immediately(): void
+    {
+        $soundByte = SoundByte::factory()->create(['needs_pi_download' => false]);
+
+        $this->actingAs($this->admin)
+            ->delete("/admin/sound-bytes/{$soundByte->id}")
+            ->assertRedirect();
+
+        $this->assertDatabaseMissing('sound_bytes', ['id' => $soundByte->id]);
     }
 
     public function test_sound_byte_upload_uses_slug_safe_filename(): void

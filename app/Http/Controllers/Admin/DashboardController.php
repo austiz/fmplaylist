@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
+use App\Http\Controllers\Admin\Concerns\HasChartStats;
 use App\Http\Controllers\Controller;
 use App\Models\NowPlaying;
 use App\Models\QueueItem;
@@ -13,6 +14,7 @@ use Inertia\Response;
 class DashboardController extends Controller
 {
     use HasActiveStation;
+    use HasChartStats;
 
     public function index(Request $request): Response
     {
@@ -51,6 +53,8 @@ class DashboardController extends Controller
                 'requestsToday' => QueueItem::where('station_id', $station->id)->whereDate('created_at', today())->count(),
                 'songsPlayedToday' => QueueItem::where('station_id', $station->id)->played()->whereDate('played_at', today())->count(),
             ],
+            'requestsPerHour' => $this->requestsPerHourToday($station->id),
+            'playsLast7Days' => $this->playsLast7Days($station->id),
         ]);
     }
 }

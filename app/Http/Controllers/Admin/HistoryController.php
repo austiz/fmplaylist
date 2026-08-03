@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
+use App\Http\Controllers\Admin\Concerns\HasChartStats;
 use App\Http\Controllers\Controller;
 use App\Models\QueueItem;
 use Illuminate\Http\Request;
@@ -12,13 +13,14 @@ use Inertia\Response;
 class HistoryController extends Controller
 {
     use HasActiveStation;
+    use HasChartStats;
 
     public function index(Request $request): Response
     {
         $station = $this->activeStation($request);
 
         $allowed = ['all', 'pending', 'playing', 'played', 'skipped'];
-        $filter  = in_array($request->query('filter'), $allowed, true)
+        $filter = in_array($request->query('filter'), $allowed, true)
             ? $request->query('filter')
             : 'all';
 
@@ -40,6 +42,8 @@ class HistoryController extends Controller
                 ],
             ]);
 
-        return Inertia::render('admin/history', compact('items', 'filter'));
+        $playsLast7Days = $this->playsLast7Days($station->id);
+
+        return Inertia::render('admin/history', compact('items', 'filter', 'playsLast7Days'));
     }
 }

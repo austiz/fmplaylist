@@ -186,6 +186,18 @@ class PiControllerTest extends TestCase
         $response->assertJsonStructure(['freq', 'callsign', 'broadcast_mode', 'pending_downloads', 'pending_deletes']);
     }
 
+    public function test_config_does_not_send_downloads_without_storage_path(): void
+    {
+        Song::factory()->create([
+            'available' => true,
+            'storage_path' => null,
+        ]);
+
+        $response = $this->getJson('/api/pi/config', $this->piHeaders())->assertOk();
+
+        $this->assertSame([], $response->json('pending_downloads'));
+    }
+
     public function test_config_endpoint_has_no_station_id_interval(): void
     {
         $response = $this->getJson('/api/pi/config', $this->piHeaders())->assertOk();
@@ -222,7 +234,11 @@ class PiControllerTest extends TestCase
 
     public function test_confirm_download_is_per_device(): void
     {
-        $song = Song::factory()->create(['available' => true, 'needs_pi_download' => true]);
+        $song = Song::factory()->create([
+            'available' => true,
+            'needs_pi_download' => true,
+            'storage_path' => 'songs/example.wav',
+        ]);
         ['raw' => $rawB] = PiToken::generate('Pi B');
 
         // Device A confirms the download...
@@ -255,6 +271,42 @@ class PiControllerTest extends TestCase
         // Device B confirms too — now that no device holds it, the row is purged.
         $this->postJson('/api/pi/confirm-delete', ['type' => 'song', 'item_id' => $song->id], ['X-Pi-Token' => $rawB])->assertOk();
         $this->assertDatabaseMissing('songs', ['id' => $song->id]);
+    }
+
+    public function test_delete_requested_legacy_song_without_device_downloads_is_purged(): void
+    {
+        $song = Song::factory()->create([
+            'available' => false,
+            'pi_delete_requested' => true,
+        ]);
+
+        $this->getJson('/api/pi/config', $this->piHeaders())->assertOk();
+
+        $this->assertDatabaseMissing('songs', ['id' => $song->id]);
+    }
+
+    public function test_pi_status_update_available_checks_all_online_devices(): void
+    {
+        $this->postJson('/api/pi/heartbeat', [
+            'status' => 'idle',
+            'mode' => 'normal',
+            'daemon_hash' => 'stalehash',
+        ], $this->piHeaders())->assertOk();
+
+        ['raw' => $rawB, 'token' => $tokenB] = PiToken::generate('Fresh Pi');
+        $tokenB->update([
+            'last_seen_at' => now(),
+            'pi_daemon_hash' => null,
+        ]);
+
+        $this->postJson('/api/pi/heartbeat', [
+            'status' => 'idle',
+            'mode' => 'normal',
+        ], ['X-Pi-Token' => $rawB])->assertOk();
+
+        $response = $this->getJson('/api/pi-status')->assertOk();
+
+        $response->assertJsonPath('update_available', true);
     }
 
     public function test_heartbeat_persists_disk_stats(): void

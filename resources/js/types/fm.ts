@@ -18,7 +18,10 @@ export interface Commercial {
     active?: boolean;
     rotation_order?: number;
     play_count?: number;
-    needs_pi_download?: boolean;
+    /** Whether a web-side copy exists to serve to devices. */
+    has_file?: boolean;
+    /** Pi devices that have actually downloaded this — authoritative "on Pi" signal. */
+    devices_have?: number;
     pi_delete_requested?: boolean;
     created_at?: string;
 }
@@ -32,7 +35,10 @@ export interface SoundByte {
     duration_formatted?: string;
     file_size?: number | null;
     active?: boolean;
-    needs_pi_download?: boolean;
+    /** Whether a web-side copy exists to serve to devices. */
+    has_file?: boolean;
+    /** Pi devices that have actually downloaded this — authoritative "on Pi" signal. */
+    devices_have?: number;
     pi_delete_requested?: boolean;
     created_at?: string;
 }

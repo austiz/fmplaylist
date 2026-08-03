@@ -8,22 +8,28 @@ import { useFmLive } from '@/hooks/use-fm-live';
 import { getQuip, getTagline } from '@/lib/quips';
 import { getRecents, pushRecent } from '@/lib/recents';
 import type { Recent } from '@/lib/recents';
-import type { NowPlayingData, QueueItem } from '@/types/fm';
+import type { NowPlayingData, QueueItem, Station } from '@/types/fm';
 
 interface Props {
     nowPlaying: NowPlayingData | null;
     queue: QueueItem[];
     queueCount: number;
+    station: Station;
 }
 
-export default function Home({ nowPlaying, queue, queueCount }: Props) {
+export default function Home({
+    nowPlaying,
+    queue,
+    queueCount,
+    station,
+}: Props) {
     const { props } = usePage<{
         flash: { success?: string };
         frequency: string;
     }>();
     const flash = props.flash;
     const freq = props.frequency ?? '96.9';
-    const { queueVersion, palette } = useFmLive();
+    const { queueVersion, palette, listenerCount } = useFmLive();
 
     const [recents, setRecents] = useState<Recent[]>(() => getRecents());
     const [busyId, setBusyId] = useState<number | null>(null);
@@ -39,7 +45,7 @@ export default function Home({ nowPlaying, queue, queueCount }: Props) {
     const reRequest = (r: Recent) => {
         setBusyId(r.songId);
         router.post(
-            `/songs/${r.songId}/request`,
+            `/songs/${r.songId}/request?station=${encodeURIComponent(station.slug)}`,
             {},
             {
                 preserveScroll: true,
@@ -97,6 +103,11 @@ export default function Home({ nowPlaying, queue, queueCount }: Props) {
                         >
                             · {palette.label}
                         </span>
+                        {!!listenerCount && listenerCount > 0 && (
+                            <span className="font-display text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
+                                · {listenerCount} listening now
+                            </span>
+                        )}
                     </div>
                     <h1 className="relative font-display text-4xl leading-tight font-bold text-foreground sm:text-5xl">
                         Your station.

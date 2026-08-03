@@ -21,32 +21,57 @@ export default function Stations({ stations }: Props) {
         <AdminLayout title="Stations">
             <div className="max-w-xl space-y-6">
                 <div className="border border-border bg-card p-5">
-                    <h2 className="mb-4 font-display text-xs font-bold uppercase tracking-widest text-muted-foreground">Stations</h2>
+                    <h2 className="mb-4 font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
+                        Stations
+                    </h2>
                     <div className="space-y-2">
                         {stations.map((s) => (
-                            <div key={s.id} className="flex items-center justify-between border border-border bg-secondary/50 px-4 py-3">
+                            <div
+                                key={s.id}
+                                className="flex items-center justify-between border border-border bg-secondary/50 px-4 py-3"
+                            >
                                 <div>
-                                    <p className="text-sm font-medium text-foreground">{s.name}</p>
-                                    <p className="text-xs text-muted-foreground">/{s.slug}{s.is_default ? ' · default' : ''}</p>
+                                    <p className="text-sm font-medium text-foreground">
+                                        {s.name}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        /{s.slug}
+                                        {s.is_default ? ' · default' : ''}
+                                    </p>
                                 </div>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                <form onSubmit={create} className="space-y-3 border border-border bg-card p-5">
-                    <h2 className="font-display text-xs font-bold uppercase tracking-widest text-muted-foreground">Create a Station</h2>
+                <form
+                    onSubmit={create}
+                    className="space-y-3 border border-border bg-card p-5"
+                >
+                    <h2 className="font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
+                        Create a Station
+                    </h2>
                     <div className="space-y-1">
                         <Label>Name</Label>
                         <Input
                             value={form.data.name}
-                            onChange={(e) => form.setData('name', e.target.value)}
+                            onChange={(e) =>
+                                form.setData('name', e.target.value)
+                            }
                             placeholder="e.g. Downtown 96.9"
                             required
                         />
-                        {form.errors.name && <p className="text-xs text-red-400">{form.errors.name}</p>}
+                        {form.errors.name && (
+                            <p className="text-xs text-red-400">
+                                {form.errors.name}
+                            </p>
+                        )}
                     </div>
-                    <Button type="submit" disabled={form.processing || !form.data.name} className="bg-red-600 hover:bg-red-700 text-white">
+                    <Button
+                        type="submit"
+                        disabled={form.processing || !form.data.name}
+                        className="bg-red-600 text-white hover:bg-red-700"
+                    >
                         Create Station
                     </Button>
                 </form>

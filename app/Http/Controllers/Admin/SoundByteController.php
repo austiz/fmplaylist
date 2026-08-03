@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\SoundByte;
+use App\Services\DeviceSyncService;
 use App\Support\AudioDuration;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -67,10 +68,11 @@ class SoundByteController extends Controller
         return back()->with('success', $soundByte->active ? 'Sound byte enabled.' : 'Sound byte disabled.');
     }
 
-    public function destroy(SoundByte $soundByte): RedirectResponse
+    public function destroy(SoundByte $soundByte, DeviceSyncService $sync): RedirectResponse
     {
-        // If Pi never downloaded it, delete immediately — no Pi-side cleanup needed
-        if ($soundByte->needs_pi_download) {
+        // If no device holds it, delete immediately — no Pi-side cleanup needed.
+        // `needs_pi_download` cannot answer this: it is global and defaults to false.
+        if (! $sync->isHeldByAnyDevice('sound_byte', $soundByte->id)) {
             if ($soundByte->storage_path) {
                 Storage::disk('public')->delete($soundByte->storage_path);
             }

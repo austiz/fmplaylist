@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Storage;
 class SeedSoundBytes extends Command
 {
     protected $signature = 'soundbytes:seed {--dir= : Directory containing MP3 files}';
+
     protected $description = 'Import ElevenLabs MP3 files as sound bytes';
 
     public function handle(): int
@@ -39,6 +40,7 @@ class SeedSoundBytes extends Command
         foreach ($files as $src) {
             if (! file_exists($src)) {
                 $this->warn("Skipping (not found): {$src}");
+
                 continue;
             }
 
@@ -48,23 +50,24 @@ class SeedSoundBytes extends Command
             $titleCounts[$title] = ($titleCounts[$title] ?? 0) + 1;
             $displayTitle = $titleCounts[$title] > 1 ? "{$title} {$titleCounts[$title]}" : $title;
 
-            $filename = time() . '_' . preg_replace('/[^a-z0-9]+/', '_', strtolower($displayTitle)) . '.mp3';
-            $destPath = 'soundbytes/' . $filename;
+            $filename = time().'_'.preg_replace('/[^a-z0-9]+/', '_', strtolower($displayTitle)).'.mp3';
+            $destPath = 'soundbytes/'.$filename;
 
             $contents = file_get_contents($src);
             if ($contents === false) {
                 $this->warn("Failed to read: {$src}");
+
                 continue;
             }
             Storage::disk('public')->put($destPath, $contents);
 
             SoundByte::create([
-                'title'             => $displayTitle,
-                'filename'          => $filename,
-                'category'          => 'id',
-                'storage_path'      => $destPath,
-                'file_size'         => filesize($src),
-                'active'            => true,
+                'title' => $displayTitle,
+                'filename' => $filename,
+                'category' => 'id',
+                'storage_path' => $destPath,
+                'file_size' => filesize($src),
+                'active' => true,
                 'needs_pi_download' => true,
             ]);
 
@@ -83,7 +86,7 @@ class SeedSoundBytes extends Command
             }
         }
 
-        $this->info("\nDone. " . count($files) . " files processed. Pi will download on next heartbeat.");
+        $this->info("\nDone. ".count($files).' files processed. Pi will download on next heartbeat.');
 
         return self::SUCCESS;
     }
