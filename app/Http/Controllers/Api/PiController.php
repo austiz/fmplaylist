@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\NowPlaying;
+use App\Models\PiCommand;
 use App\Models\PiToken;
 use App\Models\Setting;
 use App\Models\Station;
 use App\Models\WifiNetwork;
 use App\Services\DeviceSyncService;
 use App\Services\QueueService;
+use App\Support\PiSource;
 use App\Support\PublicStation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -98,18 +100,27 @@ class PiController extends Controller
             'last_error_kind' => ['nullable', 'string', 'max:20'],
             'last_error_message' => ['nullable', 'string', 'max:255'],
             'last_error_at' => ['nullable', 'string', 'max:32'],
+            // Sent by the daemon since forever, silently dropped until now.
+            'fm_running' => ['nullable', 'boolean'],
+            'schedule_queue_depth' => ['nullable', 'integer'],
+            'ready_queue_depth' => ['nullable', 'integer'],
+            'last_update_result' => ['nullable', 'string', 'max:20'],
         ]);
 
         /** @var PiToken|null $token */
         $token = $request->attributes->get('pi_token');
         $stationId = $this->stationIdFor($request);
 
+        // Station-suffixed: these keys were global, so the last Pi to heartbeat
+        // on ANY station overwrote the wifi scan shown for every other station.
+        $scope = ".{$stationId}";
+
         // Cache latest WiFi scan from Pi for the admin settings page
         if (isset($data['wifi_ssid'])) {
-            Cache::put('pi.wifi_ssid', $data['wifi_ssid'], 300);
+            Cache::put('pi.wifi_ssid'.$scope, $data['wifi_ssid'], 300);
         }
         if (isset($data['wifi_networks'])) {
-            Cache::put('pi.wifi_networks', $data['wifi_networks'], 300);
+            Cache::put('pi.wifi_networks'.$scope, $data['wifi_networks'], 300);
         }
 
         // WiFi switch result — clear pending and store outcome
@@ -124,16 +135,16 @@ class PiController extends Controller
 
         // What the Pi actually has on disk, so the settings page can flag drift
         // from the saved list (e.g. a Pi that's been offline since an edit).
-        Cache::put('pi.wifi_profiles_rev', $data['wifi_profiles_rev'] ?? '', 300);
+        Cache::put('pi.wifi_profiles_rev'.$scope, $data['wifi_profiles_rev'] ?? '', 300);
 
         if ($data['last_error_message'] ?? null) {
-            Cache::put('pi.last_error', [
+            Cache::put('pi.last_error'.$scope, [
                 'kind' => $data['last_error_kind'] ?? '',
                 'message' => $data['last_error_message'],
                 'at' => $data['last_error_at'] ?? '',
             ], 300);
         } else {
-            Cache::forget('pi.last_error');
+            Cache::forget('pi.last_error'.$scope);
         }
 
         $skipNext = false;
@@ -163,6 +174,22 @@ class PiController extends Controller
             }
             if ($this->piTokenHasColumn('disk_total_bytes')) {
                 $updates['disk_total_bytes'] = $data['disk_total_bytes'] ?? $token->disk_total_bytes;
+            }
+
+            // Health signals. fm_running is the one that distinguishes "the
+            // daemon is alive" from "the station is actually on the air".
+            if ($this->piTokenHasColumn('pi_fm_running')) {
+                $updates['pi_fm_running'] = $data['fm_running'] ?? $token->pi_fm_running;
+            }
+            if ($this->piTokenHasColumn('pi_queue_depth')) {
+                $updates['pi_queue_depth'] = $data['ready_queue_depth'] ?? $token->pi_queue_depth;
+            }
+            if ($this->piTokenHasColumn('pi_last_error')) {
+                $updates['pi_last_error'] = $data['last_error_message'] ?? null;
+            }
+            if ($this->piTokenHasColumn('pi_last_update_status') && isset($data['last_update_result'])) {
+                $updates['pi_last_update_status'] = $data['last_update_result'];
+                $updates['pi_last_update_at'] = now();
             }
 
             if ($updates !== []) {
@@ -198,7 +225,76 @@ class PiController extends Controller
             Setting::set('pi_update_requested', '0', $stationId);
         }
 
-        return response()->json([...$config, 'skip_next' => $skipNext]);
+        return response()->json([
+            ...$config,
+            'skip_next' => $skipNext,
+            'commands' => $token ? $this->dispatchCommands($token) : [],
+        ]);
+    }
+
+    /**
+     * Hand this device its queued commands and mark them sent.
+     *
+     * Scoped to $token, so unlike the station-wide flags it sits beside, one Pi
+     * picking up work can never starve another on the same station.
+     *
+     * @return array<int, array{id: int, command: string, payload: string|null}>
+     */
+    private function dispatchCommands(PiToken $token): array
+    {
+        if (! Schema::hasTable('pi_commands')) {
+            return [];
+        }
+
+        // A device that went down mid-command (reboot, failed update) never
+        // acks; without this its row would pin the UI on "in progress" forever.
+        PiCommand::expireStale();
+
+        $queued = PiCommand::query()
+            ->where('pi_token_id', $token->id)
+            ->queued()
+            ->orderBy('id')
+            ->get();
+
+        return $queued->map(function (PiCommand $cmd): array {
+            $cmd->markSent();
+
+            return [
+                'id' => $cmd->id,
+                'command' => $cmd->command,
+                'payload' => $cmd->payload,
+            ];
+        })->all();
+    }
+
+    /** Device reports the outcome of a command it was handed. */
+    public function ackCommand(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'id' => ['required', 'integer'],
+            'ok' => ['required', 'boolean'],
+            'result' => ['nullable', 'string', 'max:20000'],
+        ]);
+
+        $token = $request->attributes->get('pi_token');
+
+        if (! $token || ! Schema::hasTable('pi_commands')) {
+            return response()->json(['ok' => false], 404);
+        }
+
+        $command = PiCommand::query()
+            ->where('pi_token_id', $token->id)   // a device may only ack its own
+            ->find($data['id']);
+
+        if (! $command) {
+            return response()->json(['ok' => false], 404);
+        }
+
+        $data['ok']
+            ? $command->markAcked($data['result'] ?? null)
+            : $command->markFailed($data['result'] ?? null);
+
+        return response()->json(['ok' => true]);
     }
 
     public function confirmDownload(Request $request): JsonResponse
@@ -385,29 +481,13 @@ class PiController extends Controller
         ];
     }
 
-    /** Short hash of the Pi source payload currently on the server, compared against what each Pi reports. */
+    /**
+     * Short hash of the Pi source payload currently on the server, compared
+     * against what each Pi reports. Delegates to PiSource so the hash, the
+     * manifest, and the files actually served can never disagree.
+     */
     private static function currentPiSourceHash(): string
     {
-        return Cache::remember('pi.latest_source_hash', 300, function () {
-            $dir = base_path('PiFmRds/src');
-            $files = glob($dir.'/*') ?: [];
-            $hashes = [];
-
-            foreach ($files as $path) {
-                $name = basename($path);
-                if (! is_file($path) || $name === 'config.json') {
-                    continue;
-                }
-
-                $contents = file_get_contents($path);
-                if ($contents !== false) {
-                    $hashes[$name] = hash('sha256', $contents);
-                }
-            }
-
-            ksort($hashes);
-
-            return substr(hash('sha256', json_encode($hashes, JSON_THROW_ON_ERROR)), 0, 12);
-        });
+        return PiSource::hash();
     }
 }

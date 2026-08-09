@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\PiSource;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -11,35 +13,26 @@ class PiSetupController extends Controller
     /** The host hardcoded in public/pi/setup.sh, rewritten per request in setup(). */
     private const DEFAULT_BASE_URL = 'https://fmplaylist.com';
 
-    private const ALLOWED = [
-        'pi_daemon.py',
-        'pi_fm_rds.c',
-        'fm_mpx.c',
-        'fm_mpx.h',
-        'rds.c',
-        'rds.h',
-        'rds_strings.c',
-        'rds_strings.h',
-        'rds_wav.c',
-        'mailbox.c',
-        'mailbox.h',
-        'control_pipe.c',
-        'control_pipe.h',
-        'waveforms.c',
-        'waveforms.h',
-        'Makefile',
-        'run.sh',
-        'wifi_apply.sh',
-        'FTPA.wav',
-    ];
+    /**
+     * The payload the Pi installs, with per-file hashes so it can download only
+     * what changed. Also the authority for "is this Pi up to date" — see PiSource.
+     */
+    public function manifest(): JsonResponse
+    {
+        return response()->json([
+            'hash' => PiSource::hash(),
+            'files' => PiSource::manifest(),
+        ]);
+    }
 
     public function file(string $filename): BinaryFileResponse
     {
-        abort_if(! in_array($filename, self::ALLOWED, true), 404);
+        // Whitelist derived from the payload itself rather than a hand-kept list,
+        // which had already gone stale (it was missing whisper.sh and the
+        // generate_*.py the build uses).
+        $path = PiSource::path($filename);
 
-        $path = base_path("PiFmRds/src/{$filename}");
-
-        abort_if(! file_exists($path), 404);
+        abort_if($path === null || ! is_file($path), 404);
 
         return response()->download($path, $filename);
     }

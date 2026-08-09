@@ -24,4 +24,5 @@ Route::middleware([AuthenticatePiToken::class, 'throttle:120,1'])->prefix('pi')-
     Route::post('/heartbeat', [PiController::class, 'heartbeat']);
     Route::post('/confirm-download', [PiController::class, 'confirmDownload']);
     Route::post('/confirm-delete', [PiController::class, 'confirmDelete']);
+    Route::post('/ack-command', [PiController::class, 'ackCommand']);
 });

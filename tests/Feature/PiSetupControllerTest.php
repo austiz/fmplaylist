@@ -39,19 +39,54 @@ class PiSetupControllerTest extends TestCase
         $this->assertStringContainsString("'verify_ssl': keep('verify_ssl', False)", $script);
     }
 
-    public function test_setup_script_refreshes_full_source_snapshot(): void
+    public function test_setup_script_fetches_payload_from_this_server_not_github(): void
     {
         $script = $this->get('/pi/setup.sh')->assertOk()->getContent();
 
-        $this->assertStringContainsString('FMPLAYLIST_REPO="${FMPLAYLIST_REPO:-https://github.com/austiz/fmplaylist.git}"', $script);
-        $this->assertStringContainsString('FMPLAYLIST_REF="${FMPLAYLIST_REF:-main}"', $script);
-        $this->assertStringContainsString('git clone --depth 1 --branch "$FMPLAYLIST_REF" "$FMPLAYLIST_REPO"', $script);
+        // The Pi must install what this server reports as current. Cloning
+        // GitHub meant the server's hash described a different tree, so
+        // "update available" could never clear.
+        $this->assertStringNotContainsString('git clone', $script);
+        $this->assertStringContainsString('$BASE_URL/pi/manifest.json', $script);
+        $this->assertStringContainsString('$BASE_URL/pi/$name', $script);
+
+        // Every downloaded file is checksummed against the manifest.
+        $this->assertStringContainsString('checksum mismatch for $name', $script);
+
         $this->assertStringContainsString('SOURCE_MANIFEST_FILE="$STATE_DIR/source-files.txt"', $script);
-        $this->assertStringContainsString('find "$SRC" -maxdepth 1 -type f ! -name \'config.json\' -printf \'%f\n\' | sort > "$NEW_SOURCE_MANIFEST"', $script);
         $this->assertStringContainsString('rm -f "$DIR/$old_file"', $script);
-        $this->assertStringContainsString('find "$SRC" -maxdepth 1 -type f ! -name \'config.json\' -exec cp -f {} "$DIR/"', $script);
-        $this->assertStringContainsString('cp "$NEW_SOURCE_MANIFEST" "$SOURCE_MANIFEST_FILE"', $script);
-        $this->assertStringNotContainsString('for file in pi_daemon.py run.sh wifi_setup.sh; do', $script);
+    }
+
+    public function test_setup_script_never_destroys_a_working_binary(): void
+    {
+        $script = $this->get('/pi/setup.sh')->assertOk()->getContent();
+
+        // `make clean && make app` in the live tree deleted pi_fm_rds before
+        // rebuilding it, so a failed build left the Pi unable to transmit.
+        $this->assertStringNotContainsString('cd "$DIR" && make clean', $script);
+        $this->assertStringContainsString('cd "$SRC" && make app', $script);
+        $this->assertStringContainsString('The existing install is untouched and still running.', $script);
+    }
+
+    public function test_setup_script_detaches_the_restart_and_can_roll_back(): void
+    {
+        $script = $this->get('/pi/setup.sh')->assertOk()->getContent();
+
+        // A plain `systemctl restart` killed the installer during a self-update,
+        // because the installer runs inside the unit being restarted.
+        $this->assertStringContainsString('systemd-run --unit=fmplaylist-postinstall', $script);
+        $this->assertStringContainsString('--postinstall', $script);
+        $this->assertStringContainsString('rollback_install', $script);
+        $this->assertStringContainsString('run_health_check', $script);
+        $this->assertStringContainsString('LAST_GOOD_DIR="$PI_DIR/.last-good"', $script);
+    }
+
+    public function test_setup_script_preserves_admin_set_frequency(): void
+    {
+        $script = $this->get('/pi/setup.sh')->assertOk()->getContent();
+
+        // Was hardcoded to 96.9, silently resetting every updated Pi.
+        $this->assertStringContainsString("'freq': keep('freq', 96.9)", $script);
     }
 
     public function test_setup_script_preserves_runtime_state_and_rewrites_config(): void
@@ -75,7 +110,6 @@ class PiSetupControllerTest extends TestCase
         $this->assertStringContainsString('native_checksum()', $script);
         $this->assertStringContainsString('FMPLAYLIST_FORCE_REBUILD="${FMPLAYLIST_FORCE_REBUILD:-0}"', $script);
         $this->assertStringContainsString('elif [ "$NEW_NATIVE_SHA" != "$OLD_NATIVE_SHA" ]; then', $script);
-        $this->assertStringContainsString('cd "$DIR" && make clean && make app', $script);
         $this->assertStringContainsString('echo "$NEW_NATIVE_SHA" > "$NATIVE_SHA_FILE"', $script);
     }
 }

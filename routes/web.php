@@ -20,6 +20,9 @@ use Illuminate\Support\Facades\Route;
 
 // Pi setup download routes
 Route::get('/pi/setup.sh', [PiSetupController::class, 'setup'])->name('pi.setup');
+// Payload manifest — the Pi diffs this against its local files and downloads
+// only what changed. Must be registered before the /pi/{filename} catch-all.
+Route::get('/pi/manifest.json', [PiSetupController::class, 'manifest'])->name('pi.manifest');
 
 // Serve public storage files — symlinks unreliable on LiteSpeed shared hosting.
 // /files/ prefix avoids conflict with Laravel's built-in storage.local route at /storage/.
@@ -83,6 +86,7 @@ Route::middleware(['auth', EnsureActiveStation::class])->prefix('admin')->name('
     Route::patch('/tokens/{token}', [TokenController::class, 'update'])->name('tokens.update');
     Route::post('/tokens/{token}/regenerate', [TokenController::class, 'regenerate'])->name('tokens.regenerate');
     Route::delete('/tokens/{token}', [TokenController::class, 'destroy'])->name('tokens.destroy');
+    Route::post('/tokens/{token}/command', [TokenController::class, 'dispatchCommand'])->name('tokens.command');
     Route::get('/history', [HistoryController::class, 'index'])->name('history');
     Route::delete('/queue/{queueItem}', [QueueAdminController::class, 'destroy'])->name('queue.destroy');
 });

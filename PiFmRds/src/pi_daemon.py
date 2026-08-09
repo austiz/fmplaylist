@@ -48,6 +48,7 @@ RTMP_PORT   = 1935
 FM_CTL_FIFO = '/tmp/fm_ctl'   # named pipe for live RDS updates (pi_fm_rds -ctl)
 STATUS_PATH = os.path.join(SCRIPT_DIR, 'status.json')   # local health snapshot, see _write_status_file
 WIFI_PROFILES_PATH = '/etc/fmplaylist/wifi-networks.json'   # saved networks, see load_wifi_profiles
+LAST_UPDATE_PATH   = '/etc/fmplaylist/last-update.json'     # written by setup.sh, see _read_last_update
 
 
 def _own_daemon_hash() -> str:
@@ -168,6 +169,11 @@ _WIFI_WATCHDOG_S = 300.0
 
 # Guards against re-triggering a self-update while one is already downloading/restarting
 _update_in_progress: bool = False
+
+# Admin-requested off-air. Deliberately NOT persisted: a Pi that reboots should
+# come back transmitting, because the most likely reason it rebooted is that
+# someone was trying to fix it.
+_fm_suppressed: bool = False
 
 
 @dataclasses.dataclass
@@ -581,14 +587,17 @@ def _apply_wifi(pending: dict) -> None:
         _wifi_pending_ssid = ''
 
 
-def _apply_daemon_update(cfg: dict) -> None:
+def _apply_daemon_update(cfg: dict) -> bool:
     """
-    Download and run the robust installer. Exits the process so systemd
-    (Restart=always) relaunches after the source payload is refreshed.
+    Download and run the installer. The installer schedules its own detached
+    restart and health check, so this returns rather than exiting.
+
+    Returns True if the installer ran, False if one was already in flight.
     """
     global _update_in_progress
     if _update_in_progress:
-        return
+        print(f'[{_ts()}][update] already in progress — ignoring')
+        return False
     _update_in_progress = True
 
     tmp = os.path.join('/tmp', f'fmplaylist-setup-{os.getpid()}.sh')
@@ -616,15 +625,178 @@ def _apply_daemon_update(cfg: dict) -> None:
         if result.returncode != 0:
             raise RuntimeError(f'installer exited {result.returncode}')
 
-        print(f'[{_ts()}][update] installer completed — restarting')
-        _stop_event.set()
-        _stop_fm()
-        os._exit(0)   # systemd relaunches the service with the new file
+        # No os._exit() here any more. The installer now schedules its own
+        # detached restart + health check (systemd-run), which can roll back if
+        # the new version fails to come up. Exiting ourselves would race that,
+        # and would give up the process before it could report anything.
+        print(f'[{_ts()}][update] installer completed — restart scheduled by installer')
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return True
     except Exception as exc:
         print(f'[{_ts()}][update] ERROR: {exc} — keeping current version')
         if os.path.exists(tmp):
             os.remove(tmp)
         _update_in_progress = False
+        raise
+
+
+def _read_last_update() -> dict:
+    """Outcome of the most recent install, written by setup.sh. Lives in /etc so
+    it survives the source sweep that setup.sh performs inside SCRIPT_DIR."""
+    try:
+        with open(LAST_UPDATE_PATH) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _detached_run(argv: list) -> None:
+    """Run something that will kill this process (restart/reboot) without being
+    killed by it. systemd-run hands ownership to PID 1; a plain subprocess would
+    sit in our own cgroup and die with the unit mid-action."""
+    if shutil.which('systemd-run'):
+        subprocess.run(
+            ['systemd-run', '--collect', '--on-active=2', *argv],
+            check=False, timeout=30,
+        )
+    else:
+        subprocess.Popen(argv, start_new_session=True)
+
+
+def _run_setup_script(cfg: dict, args: list, timeout: int = 900) -> str:
+    """Download and run the installer in one of its modes. Returns its output."""
+    tmp = os.path.join('/tmp', f'fmplaylist-setup-{os.getpid()}.sh')
+    url = cfg['server_url'].rstrip('/') + '/pi/setup.sh'
+    req = urllib.request.Request(url, headers={'X-Pi-Token': cfg['api_key']})
+    # Never skip cert validation for code about to run as root, even when the
+    # admin has set verify_ssl=false for ordinary API calls.
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        installer = resp.read()
+    if not installer:
+        raise ValueError('empty installer download')
+
+    with open(tmp, 'wb') as f:
+        f.write(installer)
+    os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    try:
+        r = subprocess.run(
+            ['bash', tmp, *args],
+            timeout=timeout, cwd=SCRIPT_DIR,
+            capture_output=True, text=True,
+        )
+        out = (r.stdout or '') + (r.stderr or '')
+        if r.returncode != 0:
+            raise RuntimeError(f'installer exited {r.returncode}: {out[-2000:]}')
+        return out
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _cmd_fetch_logs(_cfg: dict, payload: str) -> str:
+    lines = '200'
+    if payload and payload.strip().isdigit():
+        lines = str(min(int(payload.strip()), 2000))
+    r = subprocess.run(
+        ['journalctl', '-u', 'fmplaylist', '-n', lines, '--no-pager'],
+        capture_output=True, text=True, timeout=60,
+    )
+    out = (r.stdout or '') + (r.stderr or '')
+    # The server caps the ack at 20k; truncate here so the ack isn't rejected
+    # outright and the admin gets the most recent lines rather than nothing.
+    return out[-19000:]
+
+
+def _handle_commands(cfg: dict, commands: list) -> None:
+    for cmd in commands:
+        if not isinstance(cmd, dict) or not cmd.get('id'):
+            continue
+        threading.Thread(
+            target=_run_command, args=(cfg, cmd), daemon=True,
+            name=f"Cmd-{cmd.get('command', '?')}",
+        ).start()
+
+
+def _ack_command(cfg: dict, cmd_id, ok: bool, result: str) -> None:
+    api_post(cfg, '/api/pi/ack-command', {
+        'id': cmd_id,
+        'ok': bool(ok),
+        'result': (result or '')[:19000],
+    })
+
+
+def _run_command(cfg: dict, cmd: dict) -> None:
+    global _fm_suppressed
+    cmd_id = cmd.get('id')
+    name = str(cmd.get('command', ''))
+    payload = str(cmd.get('payload') or '')
+
+    print(f'[{_ts()}][cmd] {name} (#{cmd_id})')
+    try:
+        # These take the daemon down, so the ack has to go out first — after
+        # the action there is no process left to report anything.
+        if name in ('reboot', 'restart_daemon'):
+            _ack_command(cfg, cmd_id, True, f'{name} scheduled')
+            if name == 'reboot':
+                _detached_run(['systemctl', 'reboot'])
+            else:
+                _detached_run(['systemctl', 'restart', 'fmplaylist'])
+            return
+
+        if name == 'update':
+            ran = _apply_daemon_update(cfg)
+            _ack_command(
+                cfg, cmd_id, ran,
+                'installer ran; restart scheduled' if ran
+                else 'an update is already in progress',
+            )
+            return
+
+        if name == 'rollback':
+            out = _run_setup_script(cfg, ['--rollback'])
+            _ack_command(cfg, cmd_id, True, out[-19000:])
+            return
+
+        if name == 'rebuild':
+            os.environ['FMPLAYLIST_FORCE_REBUILD'] = '1'
+            try:
+                ran = _apply_daemon_update(cfg)
+            finally:
+                os.environ.pop('FMPLAYLIST_FORCE_REBUILD', None)
+            _ack_command(
+                cfg, cmd_id, ran,
+                'rebuild ran; restart scheduled' if ran
+                else 'an update is already in progress',
+            )
+            return
+
+        if name == 'fm_stop':
+            _fm_suppressed = True
+            _stop_fm()
+            _ack_command(cfg, cmd_id, True, 'transmitter stopped')
+            return
+
+        if name == 'fm_start':
+            _fm_suppressed = False
+            _ensure_fm_running(merged_cfg(_local))
+            _ack_command(cfg, cmd_id, True, 'transmitter started')
+            return
+
+        if name == 'fetch_logs':
+            _ack_command(cfg, cmd_id, True, _cmd_fetch_logs(cfg, payload))
+            return
+
+        # Unknown commands are reported, not dropped: a silently ignored command
+        # looks identical to an offline Pi from the admin page.
+        _ack_command(cfg, cmd_id, False, f'unknown command: {name}')
+    except Exception as exc:
+        print(f'[{_ts()}][cmd] {name} FAILED: {exc}')
+        try:
+            _ack_command(cfg, cmd_id, False, str(exc)[:19000])
+        except Exception:
+            pass
 
 
 # SSID being applied right now — prevents re-triggering while script is running
@@ -709,6 +881,9 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
         # Lets the admin page show drift between the saved list on the server and
         # what this Pi actually has on disk.
         'wifi_profiles_rev':   load_wifi_profiles()['rev'],
+        # Outcome of the last install — including a rollback the admin never saw
+        # happen, which is otherwise invisible from the web side.
+        'last_update_result':  _read_last_update().get('result', ''),
     }
     if _last_error is not None:
         payload['last_error_kind'] = _last_error['kind']
@@ -775,6 +950,12 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
 
         if result.get('apply_update'):
             threading.Thread(target=_apply_daemon_update, args=(cfg,), daemon=True).start()
+
+        # Per-device command queue. Unlike the station-wide flags above, these
+        # are addressed to this Pi and are only cleared once acknowledged.
+        commands = result.get('commands')
+        if commands:
+            _handle_commands(cfg, commands)
     else:
         print(f'[{_ts()}][hb] WARNING heartbeat failed')
     return result
@@ -952,6 +1133,11 @@ def _low_priority() -> None:
 
 def _ensure_fm_running(cfg: dict, ps: str = '', rt: str = '') -> bool:
     global _fm_proc
+    # Admin has taken this Pi off the air. Checked here rather than at the call
+    # sites because the audio thread re-invokes this constantly — without the
+    # gate the carrier would come straight back up on the next chunk.
+    if _fm_suppressed:
+        return False
     with _fm_lock:
         if _fm_proc is not None and _fm_proc.poll() is None:
             return True

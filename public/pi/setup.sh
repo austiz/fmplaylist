@@ -6,26 +6,44 @@ set -Eeuo pipefail
 # Served through PiSetupController, which rewrites this line to the requesting
 # host. Keep it on one line, exactly this shape — the controller matches it.
 BASE_URL="https://fmplaylist.com"
-FMPLAYLIST_REPO="${FMPLAYLIST_REPO:-https://github.com/austiz/fmplaylist.git}"
-FMPLAYLIST_REF="${FMPLAYLIST_REF:-main}"
 FMPLAYLIST_FORCE_REBUILD="${FMPLAYLIST_FORCE_REBUILD:-0}"
 APT_LOCK_TIMEOUT="${APT_LOCK_TIMEOUT:-600}"
-APT_PACKAGES=(git ffmpeg build-essential python3 python3-requests libsndfile1-dev espeak)
+# git is gone: the payload now comes from the server that serves this script, so
+# the version the Pi runs and the version the server reports are the same thing
+# by construction. GitHub is no longer a runtime dependency of an update.
+APT_PACKAGES=(curl ffmpeg build-essential python3 python3-requests libsndfile1-dev espeak)
 
 # Never let a package's post-install prompt block an unattended run.
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 
-TOKEN="${1:-}"
-if [ -z "$TOKEN" ]; then
-  echo "ERROR: pass your Pi token as an argument."
-  echo "  curl -fsSL $BASE_URL/pi/setup.sh | sudo bash -s -- YOUR_TOKEN"
-  exit 1
+# Absolute path to this script, so the detached postinstall run can re-invoke it.
+SCRIPT_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || true)"
+if [ -z "$SCRIPT_SELF" ] || [ ! -f "$SCRIPT_SELF" ]; then
+  # Piped from curl: there is no file to re-exec, so persist a copy.
+  SCRIPT_SELF="/usr/local/lib/fmplaylist-setup.sh"
 fi
+
+MODE="install"
+SOURCE_HASH=""
+case "${1:-}" in
+  --postinstall) MODE="postinstall"; SOURCE_HASH="${2:-}" ;;
+  --rollback)    MODE="rollback" ;;
+esac
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "ERROR: run through sudo so system packages and systemd can be installed."
   exit 1
+fi
+
+TOKEN=""
+if [ "$MODE" = "install" ]; then
+  TOKEN="${1:-}"
+  if [ -z "$TOKEN" ]; then
+    echo "ERROR: pass your Pi token as an argument."
+    echo "  curl -fsSL $BASE_URL/pi/setup.sh | sudo bash -s -- YOUR_TOKEN"
+    exit 1
+  fi
 fi
 
 # Resolving the install user has to survive a detached run (systemd-run, cron,
@@ -65,6 +83,89 @@ cleanup() {
 }
 trap cleanup EXIT
 
+LAST_GOOD_DIR="$PI_DIR/.last-good"
+
+# Update outcome, read back by the daemon and reported to the admin UI. Written
+# to /etc so it survives the source sweep in $DIR.
+# Never allowed to fail the caller: this only records what happened. A
+# read-only /etc or a full disk must not turn a successful rollback into a
+# reported failure.
+record_update() {
+  local result="$1" message="$2"
+  {
+    mkdir -p /etc/fmplaylist && chmod 700 /etc/fmplaylist &&
+    cat > /etc/fmplaylist/last-update.json <<JSON
+{
+  "result": "$result",
+  "hash": "${SOURCE_HASH:-}",
+  "at": "$(date -Is 2>/dev/null || date)",
+  "message": "$message"
+}
+JSON
+    chmod 600 /etc/fmplaylist/last-update.json
+  } 2>/dev/null || echo "==> WARNING: could not write /etc/fmplaylist/last-update.json"
+  return 0
+}
+
+# Healthy means more than "systemd says active" — a daemon that starts and then
+# fails to key the transmitter is exactly the regression worth rolling back.
+# status.json is written by the scheduler roughly every 30s.
+run_health_check() {
+  local deadline=$((SECONDS + 120)) status_file="$DIR/status.json" fm_running=""
+
+  echo "==> Waiting for daemon to come up healthy..."
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if systemctl is-active --quiet fmplaylist; then
+      fm_running="$(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print("1" if json.load(f).get("fm_running") else "")
+except Exception:
+    print("")
+' "$status_file" 2>/dev/null || true)"
+      if [ -n "$fm_running" ]; then
+        echo "==> Healthy: service active and transmitting."
+        return 0
+      fi
+    fi
+    sleep 3
+  done
+
+  echo "ERROR: daemon did not report a running transmitter within 120s."
+  journalctl -u fmplaylist -n 40 --no-pager || true
+  return 1
+}
+
+# Restore the pre-update code + binary. Media in $DIR is never touched, so
+# songs and commercials survive a rollback untouched.
+rollback_install() {
+  if [ ! -d "$LAST_GOOD_DIR" ]; then
+    echo "ERROR: no snapshot at $LAST_GOOD_DIR — cannot roll back."
+    return 1
+  fi
+
+  echo "==> Rolling back to previous install..."
+  systemctl stop fmplaylist >/dev/null 2>&1 || true
+
+  local name
+  for path in "$LAST_GOOD_DIR"/*; do
+    [ -f "$path" ] || continue
+    name="$(basename "$path")"
+    [ "$name" = "source-files.txt" ] && continue
+    [ "$name" = "native.sha256" ] && continue
+    cp -f "$path" "$DIR/$name"
+  done
+  [ -f "$LAST_GOOD_DIR/source-files.txt" ] && cp -f "$LAST_GOOD_DIR/source-files.txt" "$SOURCE_MANIFEST_FILE" || true
+  [ -f "$LAST_GOOD_DIR/native.sha256" ] && cp -f "$LAST_GOOD_DIR/native.sha256" "$NATIVE_SHA_FILE" || true
+  chmod +x "$DIR/pi_fm_rds" 2>/dev/null || true
+  chmod +x "$DIR/run.sh" "$DIR/wifi_apply.sh" "$DIR/whisper.sh" 2>/dev/null || true
+
+  systemctl start fmplaylist >/dev/null 2>&1 || true
+  echo "==> Rollback complete."
+  return 0
+}
+
 native_checksum() {
   local source_dir="$1"
   (
@@ -80,6 +181,32 @@ native_checksum() {
     \) -print | sort | xargs sha256sum
   ) | sha256sum | awk '{print $1}'
 }
+
+# ── Non-install modes ────────────────────────────────────────────────────────
+# Both run detached (systemd-run) so they survive the daemon restart they cause.
+
+if [ "$MODE" = "postinstall" ]; then
+  systemctl restart fmplaylist
+  if run_health_check; then
+    record_update "ok" "installed and healthy"
+    exit 0
+  fi
+  if rollback_install && run_health_check; then
+    record_update "rolled_back" "update failed health check; previous version restored"
+    exit 1
+  fi
+  record_update "failed" "update failed and rollback did not recover"
+  exit 1
+fi
+
+if [ "$MODE" = "rollback" ]; then
+  if rollback_install && run_health_check; then
+    record_update "rolled_back" "manual rollback"
+    exit 0
+  fi
+  record_update "failed" "manual rollback did not recover"
+  exit 1
+fi
 
 # A fresh Pi frequently has apt busy or half-configured on first boot:
 # unattended-upgrades holds the dpkg lock, or a previous apt run was killed
@@ -128,29 +255,100 @@ apt_retry() {
   done
 }
 
-# Clone into a guaranteed-empty target: a clone killed partway leaves a
-# non-empty directory that makes every later attempt fail on its own debris.
-clone_source() {
-  local attempt=1
+fetch_url() {
+  local url="$1" dest="$2" attempt=1
   while true; do
-    rm -rf "$WORK_DIR/repo"
-    if git clone --depth 1 --branch "$FMPLAYLIST_REF" "$FMPLAYLIST_REPO" "$WORK_DIR/repo"; then
+    if curl -fsSL --max-time 300 -o "$dest" "$url"; then
       return 0
     fi
     if [ "$attempt" -ge 3 ]; then
-      echo "ERROR: could not clone $FMPLAYLIST_REPO#$FMPLAYLIST_REF after 3 attempts."
-      echo "       Check network/DNS: ping -c3 github.com"
-      rm -rf "$WORK_DIR/repo"
+      echo "ERROR: could not download $url after 3 attempts." >&2
       return 1
     fi
-    echo "==> Clone failed (attempt $attempt/3), retrying..."
+    echo "==> Download failed (attempt $attempt/3), retrying: $url"
     attempt=$((attempt + 1))
     sleep 5
   done
 }
 
+# Assemble the payload from the server, reusing local files whose hash already
+# matches. FTPA.wav alone is ~48 MB and never changes, so a code-only update
+# transfers tens of KB rather than the whole payload — the difference between
+# seconds and many minutes on a Pi Zero W's wifi.
+fetch_source() {
+  local out="$1"
+  local manifest="$WORK_DIR/manifest.json"
+
+  mkdir -p "$out"
+  echo "==> Fetching payload manifest..."
+  fetch_url "$BASE_URL/pi/manifest.json" "$manifest" || return 1
+
+  SOURCE_HASH="$(python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    print(json.load(f).get("hash", ""))
+' "$manifest")"
+
+  if [ -z "$SOURCE_HASH" ]; then
+    echo "ERROR: manifest has no hash — is $BASE_URL serving the app?" >&2
+    return 1
+  fi
+  echo "==> Payload version: $SOURCE_HASH"
+
+  # name<TAB>sha256 for every file in the payload
+  local list="$WORK_DIR/manifest.tsv"
+  python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    files = json.load(f).get("files", {})
+for name in sorted(files):
+    # A name with a separator would let a compromised/typo manifest write
+    # outside the payload dir; dotfiles are not part of the flat payload.
+    if "/" in name or "\\" in name or name.startswith("."):
+        continue
+    sha = files[name].get("sha256", "")
+    if sha:
+        sys.stdout.write(name + "\t" + sha + "\n")
+' "$manifest" | tr -d '\r' > "$list"
+
+  if [ ! -s "$list" ]; then
+    echo "ERROR: manifest listed no files." >&2
+    return 1
+  fi
+
+  local name want have reused=0 fetched=0
+  while IFS=$'\t' read -r name want; do
+    [ -n "$name" ] || continue
+    have=""
+    if [ -f "$DIR/$name" ]; then
+      have="$(sha256sum "$DIR/$name" 2>/dev/null | awk '{print $1}')"
+    fi
+
+    if [ "$have" = "$want" ]; then
+      cp -f "$DIR/$name" "$out/$name"
+      reused=$((reused + 1))
+      continue
+    fi
+
+    fetch_url "$BASE_URL/pi/$name" "$out/$name" || return 1
+
+    # Verify what we got. A truncated download that still builds is exactly the
+    # kind of corruption that would otherwise ship silently to a transmitter.
+    have="$(sha256sum "$out/$name" | awk '{print $1}')"
+    if [ "$have" != "$want" ]; then
+      echo "ERROR: checksum mismatch for $name (expected $want, got $have)" >&2
+      return 1
+    fi
+    fetched=$((fetched + 1))
+  done < "$list"
+
+  cut -f1 "$list" > "$WORK_DIR/source-files.txt"
+  echo "==> Payload ready: $fetched downloaded, $reused unchanged"
+  return 0
+}
+
 echo "==> FM Playlist setup for user: $REAL_USER  dir: $DIR"
-echo "==> Source: $FMPLAYLIST_REPO#$FMPLAYLIST_REF"
+echo "==> Source: $BASE_URL"
 
 if grep -qi 'Raspberry Pi 5' /proc/device-tree/model 2>/dev/null; then
   echo "WARNING: Pi 5 (BCM2712) cannot drive pi_fm_rds - the DMA/PWM subsystem changed."
@@ -163,7 +361,7 @@ apt_repair
 apt_retry apt-get update -qq
 apt_retry apt-get install -y -qq "${APT_PACKAGES[@]}"
 
-for required_bin in git ffmpeg make gcc python3 espeak; do
+for required_bin in curl ffmpeg make gcc python3 espeak sha256sum; do
   if ! command -v "$required_bin" >/dev/null 2>&1; then
     echo "ERROR: required command '$required_bin' is missing after package install."
     exit 1
@@ -174,18 +372,18 @@ if ! python3 -c 'import requests' >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "==> Fetching fresh source snapshot..."
-clone_source
-SRC="$WORK_DIR/repo/PiFmRds/src"
+mkdir -p "$DIR" "$STATE_DIR" "$DIR/commercials" "$DIR/sound-bytes"
+
+echo "==> Fetching source payload..."
+SRC="$WORK_DIR/src"
+fetch_source "$SRC"
 
 for required in pi_daemon.py Makefile pi_fm_rds.c run.sh wifi_apply.sh FTPA.wav; do
   if [ ! -f "$SRC/$required" ]; then
-    echo "ERROR: source snapshot missing PiFmRds/src/$required"
+    echo "ERROR: payload is missing $required"
     exit 1
   fi
 done
-
-mkdir -p "$DIR" "$STATE_DIR" "$DIR/commercials" "$DIR/sound-bytes"
 
 if [ -f "$DIR/pi_daemon.py" ] || [ -f "$DIR/pi_fm_rds" ]; then
   echo "==> Existing install - refreshing all app-controlled source files..."
@@ -196,13 +394,62 @@ fi
 NEW_NATIVE_SHA="$(native_checksum "$SRC")"
 OLD_NATIVE_SHA="$(cat "$NATIVE_SHA_FILE" 2>/dev/null || true)"
 NEW_SOURCE_MANIFEST="$WORK_DIR/source-files.txt"
-find "$SRC" -maxdepth 1 -type f ! -name 'config.json' -printf '%f\n' | sort > "$NEW_SOURCE_MANIFEST"
 
+# ── Build in staging, install only on success ────────────────────────────────
+# The old flow ran `make clean && make app` directly in the live tree, so a
+# failed build (OOM on a single-core Zero, disk full) deleted the working
+# transmitter binary. Nothing looked wrong until the next restart, at which
+# point the station went silent with only SSH to recover it. Build somewhere
+# disposable instead, and touch the live tree only once a binary exists.
+NEED_BUILD=""
+if [ ! -x "$DIR/pi_fm_rds" ]; then
+  NEED_BUILD="binary missing"
+elif [ "$FMPLAYLIST_FORCE_REBUILD" = "1" ]; then
+  NEED_BUILD="forced"
+elif [ "$NEW_NATIVE_SHA" != "$OLD_NATIVE_SHA" ]; then
+  NEED_BUILD="native source changed"
+fi
+
+if [ -n "$NEED_BUILD" ]; then
+  echo "==> Building pi_fm_rds in staging ($NEED_BUILD)..."
+  echo "    (single-core Pi Zero: this can take several minutes with no output)"
+  if ! ( cd "$SRC" && make app ); then
+    echo "ERROR: build failed. The existing install is untouched and still running."
+    exit 1
+  fi
+  if [ ! -x "$SRC/pi_fm_rds" ]; then
+    echo "ERROR: build reported success but no pi_fm_rds was produced."
+    echo "       The existing install is untouched and still running."
+    exit 1
+  fi
+  echo "==> Build OK"
+else
+  echo "==> Native source unchanged — reusing existing binary."
+  cp -f "$DIR/pi_fm_rds" "$SRC/pi_fm_rds"
+fi
+
+# ── Snapshot the current install so postinstall can roll back ────────────────
+# Only code + binary. Songs, commercials and sound bytes also live in $DIR and
+# can run to gigabytes; they are never part of an update, so never copied.
+echo "==> Snapshotting current install..."
+rm -rf "$LAST_GOOD_DIR.partial"
+mkdir -p "$LAST_GOOD_DIR.partial"
 if [ -f "$SOURCE_MANIFEST_FILE" ]; then
   while IFS= read -r old_file; do
-    case "$old_file" in
-      ""|*/*|*\\*) continue ;;
-    esac
+    case "$old_file" in ""|*/*|*\\*) continue ;; esac
+    [ -f "$DIR/$old_file" ] && cp -f "$DIR/$old_file" "$LAST_GOOD_DIR.partial/" || true
+  done < "$SOURCE_MANIFEST_FILE"
+fi
+[ -f "$DIR/pi_fm_rds" ] && cp -f "$DIR/pi_fm_rds" "$LAST_GOOD_DIR.partial/" || true
+[ -f "$SOURCE_MANIFEST_FILE" ] && cp -f "$SOURCE_MANIFEST_FILE" "$LAST_GOOD_DIR.partial/source-files.txt" || true
+[ -f "$NATIVE_SHA_FILE" ] && cp -f "$NATIVE_SHA_FILE" "$LAST_GOOD_DIR.partial/native.sha256" || true
+rm -rf "$LAST_GOOD_DIR"
+mv "$LAST_GOOD_DIR.partial" "$LAST_GOOD_DIR"
+
+# ── Install ──────────────────────────────────────────────────────────────────
+if [ -f "$SOURCE_MANIFEST_FILE" ]; then
+  while IFS= read -r old_file; do
+    case "$old_file" in ""|*/*|*\\*) continue ;; esac
     if ! grep -Fxq "$old_file" "$NEW_SOURCE_MANIFEST"; then
       rm -f "$DIR/$old_file"
       echo "==> Removed stale source file: $old_file"
@@ -210,10 +457,12 @@ if [ -f "$SOURCE_MANIFEST_FILE" ]; then
   done < "$SOURCE_MANIFEST_FILE"
 fi
 
-# Copy tracked top-level Pi source/support files. config.json is intentionally
-# skipped so local-only values can be preserved before the deterministic rewrite.
-find "$SRC" -maxdepth 1 -type f ! -name 'config.json' -exec cp -f {} "$DIR/" \;
+# config.json is intentionally not in the payload so local-only values survive
+# until the deterministic rewrite below.
+find "$SRC" -maxdepth 1 -type f -exec cp -f {} "$DIR/" \;
 cp "$NEW_SOURCE_MANIFEST" "$SOURCE_MANIFEST_FILE"
+echo "$NEW_NATIVE_SHA" > "$NATIVE_SHA_FILE"
+chmod +x "$DIR/pi_fm_rds" 2>/dev/null || true
 chmod +x "$DIR/run.sh" "$DIR/wifi_apply.sh" "$DIR/whisper.sh" 2>/dev/null || true
 
 # Saved wifi networks live outside $DIR so the stale-source sweep above can't
@@ -243,7 +492,10 @@ def keep(key, default):
 cfg = {
     'server_url': base_url,
     'api_key': token,
-    'freq': 96.9,
+    # Preserved, not reset: the daemon persists admin-set frequency changes here
+    # (send_heartbeat -> save_local_config). Hardcoding 96.9 silently knocked
+    # every updated Pi back to the default frequency.
+    'freq': keep('freq', 96.9),
     'pi_code': keep('pi_code', 'C0DE'),
     'callsign': keep('callsign', '96.9 FM '),
     'song_dir': install_dir,
@@ -267,28 +519,6 @@ finally:
         os.unlink(tmp)
 PY
 
-REBUILD_REASON=""
-if [ ! -x "$DIR/pi_fm_rds" ]; then
-  REBUILD_REASON="binary missing"
-elif [ "$FMPLAYLIST_FORCE_REBUILD" = "1" ]; then
-  REBUILD_REASON="forced"
-elif [ "$NEW_NATIVE_SHA" != "$OLD_NATIVE_SHA" ]; then
-  REBUILD_REASON="native source changed"
-fi
-
-if [ -n "$REBUILD_REASON" ]; then
-  echo "==> Rebuilding pi_fm_rds ($REBUILD_REASON)..."
-  echo "    (single-core Pi Zero: this can take several minutes with no output)"
-  cd "$DIR" && make clean && make app
-  if [ ! -x "$DIR/pi_fm_rds" ]; then
-    echo "ERROR: build reported success but $DIR/pi_fm_rds is missing."
-    exit 1
-  fi
-  echo "$NEW_NATIVE_SHA" > "$NATIVE_SHA_FILE"
-else
-  echo "==> pi_fm_rds native source unchanged, skipping rebuild."
-fi
-
 chown -R "$REAL_USER:$REAL_USER" "$PI_DIR"
 
 echo "==> Installing systemd service..."
@@ -311,26 +541,50 @@ SERVICE
 
 systemctl daemon-reload
 systemctl enable fmplaylist >/dev/null 2>&1
-systemctl restart fmplaylist
 
-# Don't claim success on a service that dies on startup (bad token, missing
-# audio file, unreadable config). Give it a few seconds to fail, then check.
-echo "==> Verifying daemon..."
-STARTUP_OK=0
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if systemctl is-active --quiet fmplaylist; then
-    STARTUP_OK=1
-    break
+# The restart must not be a child of the unit being restarted. During a
+# self-update this script runs inside fmplaylist.service's cgroup, so a plain
+# `systemctl restart` had systemd SIGTERM the installer mid-flight — which is
+# why the verification below never ran on any update, only on manual installs.
+# Hand both the restart and the health check to PID 1 and exit cleanly.
+echo "==> Scheduling detached restart + health check..."
+record_update "pending" "restart scheduled"
+
+# Persist a copy to re-exec: when this ran via `curl | bash` there is no script
+# file on disk to point systemd-run at.
+if [ ! -f "$SCRIPT_SELF" ] || [ "$SCRIPT_SELF" = "/usr/local/lib/fmplaylist-setup.sh" ]; then
+  mkdir -p /usr/local/lib
+  if fetch_url "$BASE_URL/pi/setup.sh" /usr/local/lib/fmplaylist-setup.sh; then
+    chmod 700 /usr/local/lib/fmplaylist-setup.sh
+    SCRIPT_SELF="/usr/local/lib/fmplaylist-setup.sh"
   fi
-  sleep 1
-done
-
-if [ "$STARTUP_OK" -ne 1 ]; then
-  echo ""
-  echo "ERROR: fmplaylist service is not running. Last 30 log lines:"
-  journalctl -u fmplaylist -n 30 --no-pager || true
-  exit 1
+else
+  cp -f "$SCRIPT_SELF" /usr/local/lib/fmplaylist-setup.sh 2>/dev/null || true
+  chmod 700 /usr/local/lib/fmplaylist-setup.sh 2>/dev/null || true
 fi
+
+if [ -f "$SCRIPT_SELF" ] && command -v systemd-run >/dev/null 2>&1; then
+  systemctl reset-failed fmplaylist-postinstall >/dev/null 2>&1 || true
+  systemd-run --unit=fmplaylist-postinstall --collect \
+    /bin/bash "$SCRIPT_SELF" --postinstall "$SOURCE_HASH" >/dev/null
+  echo ""
+  echo "Done! Source installed. Daemon restarting under systemd."
+  echo "  Health check will roll back automatically if it fails to come up."
+  echo "  Status: systemctl status fmplaylist --no-pager"
+  echo "  Logs:   sudo journalctl -u fmplaylist -f"
+  exit 0
+fi
+
+# systemd-run missing: fall back to the in-line path. Safe here because without
+# systemd-run this is almost certainly a manual install, not a self-update.
+echo "==> systemd-run unavailable — restarting inline"
+systemctl restart fmplaylist
+run_health_check || {
+  rollback_install
+  record_update "rolled_back" "daemon failed health check"
+  exit 1
+}
+record_update "ok" "installed $SOURCE_HASH"
 
 echo ""
 echo "Done! Source refreshed, config written, daemon running."

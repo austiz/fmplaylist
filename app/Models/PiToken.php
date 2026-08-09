@@ -22,10 +22,17 @@ class PiToken extends Model
         'pi_daemon_hash',
         'disk_free_bytes',
         'disk_total_bytes',
+        'pi_fm_running',
+        'pi_queue_depth',
+        'pi_last_error',
+        'pi_last_update_status',
+        'pi_last_update_at',
     ];
 
     protected $casts = [
         'last_seen_at' => 'datetime',
+        'pi_last_update_at' => 'datetime',
+        'pi_fm_running' => 'boolean',
         'pi_skip_next' => 'boolean',
     ];
 
