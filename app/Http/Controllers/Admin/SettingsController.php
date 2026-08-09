@@ -38,8 +38,8 @@ class SettingsController extends Controller
         return Inertia::render('admin/settings', [
             'settings' => $settings,
             'wifi' => [
-                'current_ssid' => Cache::get('pi.wifi_ssid', ''),
-                'networks' => Cache::get('pi.wifi_networks', []),
+                'current_ssid' => Cache::get("pi.wifi_ssid.{$station->id}", ''),
+                'networks' => Cache::get("pi.wifi_networks.{$station->id}", []),
                 'pending_ssid' => Setting::get('pending_wifi_ssid', '', $station->id),
                 'last_status' => $wifiStatusType,   // 'connected' | 'failed' | ''
                 'last_ssid' => $wifiStatusSsid,
@@ -55,7 +55,7 @@ class SettingsController extends Controller
                     ->all(),
                 // Differs while a Pi hasn't picked up the latest edit yet.
                 'saved_rev' => WifiNetwork::revisionFor($station->id),
-                'pi_rev' => Cache::get('pi.wifi_profiles_rev', ''),
+                'pi_rev' => Cache::get("pi.wifi_profiles_rev.{$station->id}", ''),
             ],
         ]);
     }

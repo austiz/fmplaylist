@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\PiCommand;
 use App\Models\PiToken;
 use App\Models\Station;
 use App\Services\DeviceSyncService;
+use App\Support\PiSource;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -18,10 +21,14 @@ class TokenController extends Controller
 
     public function index(): Response
     {
+        PiCommand::expireStale();
+
+        $currentHash = PiSource::hash();
+
         $tokens = PiToken::with('station')
             ->orderByDesc('created_at')
             ->get()
-            ->map(function (PiToken $t) {
+            ->map(function (PiToken $t) use ($currentHash) {
                 $progress = $this->deviceSyncService->downloadProgress($t);
 
                 return [
@@ -35,6 +42,19 @@ class TokenController extends Controller
                     'downloads_done' => $progress['done'],
                     'downloads_total' => $progress['total'],
                     'created_at' => $t->created_at->toDateString(),
+                    'status' => $t->pi_status,
+                    'mode' => $t->pi_mode,
+                    'ip' => $t->pi_ip,
+                    // Whether the station is actually on the air, as opposed to
+                    // merely having a live daemon process.
+                    'fm_running' => $t->pi_fm_running,
+                    'queue_depth' => $t->pi_queue_depth,
+                    'last_error' => $t->pi_last_error,
+                    'daemon_hash' => $t->pi_daemon_hash,
+                    'up_to_date' => $t->pi_daemon_hash !== null && $t->pi_daemon_hash === $currentHash,
+                    'last_update_status' => $t->pi_last_update_status,
+                    'last_update_at' => $t->pi_last_update_at?->diffForHumans(),
+                    'commands' => $this->recentCommands($t),
                 ];
             });
 
@@ -43,7 +63,67 @@ class TokenController extends Controller
             'stations' => Station::orderBy('name')->get(['id', 'name']),
             'newToken' => session('new_token'),
             'appUrl' => rtrim(config('app.url'), '/'),
+            'currentHash' => $currentHash,
         ]);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function recentCommands(PiToken $token): array
+    {
+        return PiCommand::query()
+            ->where('pi_token_id', $token->id)
+            ->orderByDesc('id')
+            ->limit(5)
+            ->get()
+            ->map(fn (PiCommand $c): array => [
+                'id' => $c->id,
+                'command' => $c->command,
+                'status' => $c->status,
+                'result' => $c->result,
+                'at' => $c->created_at?->diffForHumans(),
+            ])
+            ->all();
+    }
+
+    /**
+     * Queue an action for one device.
+     *
+     * Per-device on purpose: the station-scoped Setting flags this replaces were
+     * consumed by whichever Pi heartbeated first, so on a multi-Pi station the
+     * others silently never got the command.
+     */
+    public function dispatchCommand(Request $request, PiToken $token): RedirectResponse
+    {
+        $data = $request->validate([
+            'command' => ['required', 'string', Rule::in(PiCommand::COMMANDS)],
+            'payload' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        // Re-queuing while one is still in flight just stacks duplicate reboots.
+        $inFlight = PiCommand::query()
+            ->where('pi_token_id', $token->id)
+            ->where('command', $data['command'])
+            ->pending()
+            ->exists();
+
+        if ($inFlight) {
+            return back()->with('error', "\"{$data['command']}\" is already pending on {$token->label}.");
+        }
+
+        PiCommand::create([
+            'pi_token_id' => $token->id,
+            'command' => $data['command'],
+            'payload' => $data['payload'] ?? null,
+            'status' => 'queued',
+        ]);
+
+        Log::info('Pi command queued', [
+            'user' => auth()->id(),
+            'token_id' => $token->id,
+            'command' => $data['command'],
+        ]);
+
+        return back()->with('success', "Queued \"{$data['command']}\" for {$token->label}. It runs within 30 seconds.");
     }
 
     public function store(Request $request): RedirectResponse

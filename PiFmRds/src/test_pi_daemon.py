@@ -199,14 +199,20 @@ class UpdateInstallerTests(unittest.TestCase):
         with mock.patch('urllib.request.urlopen', return_value=response) as urlopen, \
                 mock.patch('builtins.open', mock.mock_open()) as opened, \
                 mock.patch('os.chmod') as chmod, \
+                mock.patch('os.path.exists', return_value=False), \
                 mock.patch('subprocess.run', return_value=completed) as run, \
-                mock.patch.object(pi_daemon, '_stop_fm'), \
-                mock.patch.object(pi_daemon.os, '_exit', side_effect=SystemExit):
-            with self.assertRaises(SystemExit):
-                pi_daemon._apply_daemon_update({
-                    'server_url': 'https://fmplaylist.com',
-                    'api_key': 'token123',
-                })
+                mock.patch.object(pi_daemon, '_stop_fm') as stop_fm, \
+                mock.patch.object(pi_daemon.os, '_exit', side_effect=SystemExit) as exit_call:
+            pi_daemon._apply_daemon_update({
+                'server_url': 'https://fmplaylist.com',
+                'api_key': 'token123',
+            })
+
+        # The daemon must NOT kill itself any more: the installer schedules its
+        # own detached restart plus a health check that can roll back. Exiting
+        # here would race that and give up the process before it could report.
+        exit_call.assert_not_called()
+        stop_fm.assert_not_called()
 
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, 'https://fmplaylist.com/pi/setup.sh')
@@ -358,6 +364,151 @@ class BootOrderTests(unittest.TestCase):
         # Both must start at 0 so the work main() no longer does happens at once.
         self.assertIn("'last_hb': 0.0", src)
         self.assertIn("'last_sync': 0.0", src)
+
+
+class CommandHandlingTests(unittest.TestCase):
+    """Per-device commands. Every path must ack: from the admin page an
+    unacknowledged command is indistinguishable from an offline Pi."""
+
+    def setUp(self):
+        self.cfg = {'server_url': 'https://fmplaylist.com', 'api_key': 'tok'}
+        self.acks = []
+        pi_daemon._fm_suppressed = False
+
+    def tearDown(self):
+        pi_daemon._fm_suppressed = False
+
+    def _capture_acks(self):
+        def fake_ack(cfg, cmd_id, ok, result):
+            self.acks.append({'id': cmd_id, 'ok': ok, 'result': result})
+        return mock.patch.object(pi_daemon, '_ack_command', side_effect=fake_ack)
+
+    def test_unknown_command_is_reported_not_dropped(self):
+        with self._capture_acks():
+            pi_daemon._run_command(self.cfg, {'id': 7, 'command': 'self_destruct'})
+
+        self.assertEqual(len(self.acks), 1)
+        self.assertFalse(self.acks[0]['ok'])
+        self.assertIn('unknown command', self.acks[0]['result'])
+
+    def test_reboot_acks_before_acting(self):
+        order = []
+        with mock.patch.object(pi_daemon, '_ack_command',
+                               side_effect=lambda *a: order.append('ack')), \
+                mock.patch.object(pi_daemon, '_detached_run',
+                                  side_effect=lambda *a: order.append('act')):
+            pi_daemon._run_command(self.cfg, {'id': 1, 'command': 'reboot'})
+
+        # Reversed, the ack could never be delivered — the box is already down.
+        self.assertEqual(order, ['ack', 'act'])
+
+    def test_restart_daemon_uses_detached_run(self):
+        with self._capture_acks(), \
+                mock.patch.object(pi_daemon, '_detached_run') as det:
+            pi_daemon._run_command(self.cfg, {'id': 2, 'command': 'restart_daemon'})
+
+        det.assert_called_once()
+        self.assertEqual(det.call_args.args[0], ['systemctl', 'restart', 'fmplaylist'])
+
+    def test_fm_stop_takes_transmitter_off_air_without_stopping_daemon(self):
+        with self._capture_acks(), mock.patch.object(pi_daemon, '_stop_fm') as stop:
+            pi_daemon._run_command(self.cfg, {'id': 3, 'command': 'fm_stop'})
+
+        stop.assert_called_once()
+        self.assertTrue(pi_daemon._fm_suppressed)
+        # Going off air is exactly when remote control matters most.
+        self.assertFalse(pi_daemon._stop_event.is_set())
+        self.assertTrue(self.acks[0]['ok'])
+
+    def test_suppressed_transmitter_does_not_restart_itself(self):
+        pi_daemon._fm_suppressed = True
+        # The audio thread calls this constantly; without the gate the carrier
+        # would come straight back up on the next chunk.
+        self.assertFalse(pi_daemon._ensure_fm_running({'freq': 96.9}))
+
+    def test_fm_start_clears_suppression(self):
+        pi_daemon._fm_suppressed = True
+        with self._capture_acks(), \
+                mock.patch.object(pi_daemon, '_ensure_fm_running', return_value=True) as ens:
+            pi_daemon._run_command(self.cfg, {'id': 4, 'command': 'fm_start'})
+
+        self.assertFalse(pi_daemon._fm_suppressed)
+        ens.assert_called_once()
+
+    def test_failing_command_acks_failure(self):
+        with self._capture_acks(), \
+                mock.patch.object(pi_daemon, '_run_setup_script',
+                                  side_effect=RuntimeError('installer exited 1')):
+            pi_daemon._run_command(self.cfg, {'id': 5, 'command': 'rollback'})
+
+        self.assertFalse(self.acks[0]['ok'])
+        self.assertIn('installer exited 1', self.acks[0]['result'])
+
+    def test_fetch_logs_returns_journal_output_truncated(self):
+        completed = mock.Mock(stdout='x' * 40000, stderr='')
+        with mock.patch('subprocess.run', return_value=completed):
+            out = pi_daemon._cmd_fetch_logs(self.cfg, '100')
+
+        # Server caps the ack at 20k; an oversized body would be rejected
+        # outright and the admin would get nothing at all.
+        self.assertLessEqual(len(out), 19000)
+
+    def test_fetch_logs_caps_requested_line_count(self):
+        completed = mock.Mock(stdout='ok', stderr='')
+        with mock.patch('subprocess.run', return_value=completed) as run:
+            pi_daemon._cmd_fetch_logs(self.cfg, '999999')
+
+        self.assertEqual(run.call_args.args[0][-2], '2000')
+
+    def test_update_already_in_progress_acks_failure_not_success(self):
+        # Acking success here would tell the admin an update happened when it
+        # was silently skipped.
+        pi_daemon._update_in_progress = True
+        try:
+            with self._capture_acks():
+                pi_daemon._run_command(self.cfg, {'id': 6, 'command': 'update'})
+        finally:
+            pi_daemon._update_in_progress = False
+
+        self.assertFalse(self.acks[0]['ok'])
+        self.assertIn('already in progress', self.acks[0]['result'])
+
+    def test_handle_commands_ignores_malformed_entries(self):
+        with mock.patch.object(pi_daemon.threading, 'Thread') as thread:
+            pi_daemon._handle_commands(self.cfg, [
+                {'id': 1, 'command': 'fetch_logs'},
+                {'command': 'no_id'},
+                'not-a-dict',
+            ])
+
+        self.assertEqual(thread.call_count, 1)
+
+
+class LastUpdateReportingTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self._orig = pi_daemon.LAST_UPDATE_PATH
+        pi_daemon.LAST_UPDATE_PATH = os.path.join(self.tmpdir.name, 'last-update.json')
+
+    def tearDown(self):
+        pi_daemon.LAST_UPDATE_PATH = self._orig
+        self.tmpdir.cleanup()
+
+    def test_missing_file_is_not_an_error(self):
+        self.assertEqual(pi_daemon._read_last_update(), {})
+
+    def test_rollback_result_is_readable(self):
+        with open(pi_daemon.LAST_UPDATE_PATH, 'w') as f:
+            json.dump({'result': 'rolled_back', 'message': 'health check failed'}, f)
+
+        # A rollback the admin never saw happen is otherwise invisible.
+        self.assertEqual(pi_daemon._read_last_update()['result'], 'rolled_back')
+
+    def test_corrupt_file_is_not_an_error(self):
+        with open(pi_daemon.LAST_UPDATE_PATH, 'w') as f:
+            f.write('{truncated')
+
+        self.assertEqual(pi_daemon._read_last_update(), {})
 
 
 if __name__ == '__main__':

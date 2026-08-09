@@ -93,6 +93,26 @@ export interface PiDevice {
     downloads_done: number;
     downloads_total: number;
     created_at: string;
+    status: string | null;
+    mode: string | null;
+    ip: string | null;
+    /** Null until a Pi running a build that reports it has checked in. */
+    fm_running: boolean | null;
+    queue_depth: number | null;
+    last_error: string | null;
+    daemon_hash: string | null;
+    up_to_date: boolean;
+    last_update_status: string | null;
+    last_update_at: string | null;
+    commands: PiCommand[];
+}
+
+export interface PiCommand {
+    id: number;
+    command: string;
+    status: 'queued' | 'sent' | 'acked' | 'failed';
+    result: string | null;
+    at: string | null;
 }
 
 export interface PaginatedResponse<T> {
