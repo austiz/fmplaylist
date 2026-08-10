@@ -484,6 +484,41 @@ class CommandHandlingTests(unittest.TestCase):
         self.assertEqual(thread.call_count, 1)
 
 
+class StatusFileTests(unittest.TestCase):
+    """setup.sh's health check reads this file to decide whether an update is
+    good. What it contains directly determines whether a Pi gets rolled back."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self._orig = pi_daemon.STATUS_PATH
+        pi_daemon.STATUS_PATH = os.path.join(self.tmpdir.name, 'status.json')
+        pi_daemon._fm_suppressed = False
+
+    def tearDown(self):
+        pi_daemon.STATUS_PATH = self._orig
+        pi_daemon._fm_suppressed = False
+        self.tmpdir.cleanup()
+
+    def _write(self):
+        pi_daemon._write_status_file({'freq': 96.9}, {'last_hb': time.time()})
+        with open(pi_daemon.STATUS_PATH) as f:
+            return json.load(f)
+
+    def test_status_reports_transmitter_state(self):
+        status = self._write()
+        self.assertIn('fm_running', status)
+        self.assertIn('updated_at', status)
+
+    def test_status_distinguishes_suppressed_from_broken(self):
+        pi_daemon._fm_suppressed = True
+        status = self._write()
+
+        # Without this flag, setup.sh cannot tell "admin took it off air" from
+        # "the update broke the transmitter", and rolls back a good install.
+        self.assertFalse(status['fm_running'])
+        self.assertTrue(status['fm_suppressed'])
+
+
 class LastUpdateReportingTests(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()

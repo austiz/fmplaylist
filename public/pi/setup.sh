@@ -107,24 +107,48 @@ JSON
   return 0
 }
 
+# Restart the daemon and prove the NEW one is healthy.
+#
+# The status file must be removed first. It is written by the daemon that is
+# about to be replaced, and it says fm_running:true — so a health check that
+# reads whatever is on disk passes instantly and would happily bless a build
+# that crash-loops seconds later, silently disabling rollback entirely.
+restart_and_verify() {
+  rm -f "$DIR/status.json"
+  HEALTH_SINCE="$(date +%s)"
+  systemctl restart fmplaylist
+  run_health_check
+}
+
 # Healthy means more than "systemd says active" — a daemon that starts and then
 # fails to key the transmitter is exactly the regression worth rolling back.
-# status.json is written by the scheduler roughly every 30s.
+# The scheduler writes status.json on its first tick, within seconds of boot.
 run_health_check() {
-  local deadline=$((SECONDS + 120)) status_file="$DIR/status.json" fm_running=""
+  local deadline=$((SECONDS + 120)) status_file="$DIR/status.json" healthy=""
+  local since="${HEALTH_SINCE:-0}"
 
   echo "==> Waiting for daemon to come up healthy..."
   while [ "$SECONDS" -lt "$deadline" ]; do
     if systemctl is-active --quiet fmplaylist; then
-      fm_running="$(python3 -c '
-import json, sys
+      # Second guard behind the rm above: even if the delete failed (read-only
+      # fs, permissions), a status file older than the restart proves nothing
+      # about the version we just installed.
+      healthy="$(python3 -c '
+import json, os, sys
+path, since = sys.argv[1], float(sys.argv[2])
 try:
-    with open(sys.argv[1]) as f:
-        print("1" if json.load(f).get("fm_running") else "")
+    if os.path.getmtime(path) < since:
+        print("")
+    else:
+        with open(path) as f:
+            data = json.load(f)
+        # An admin who deliberately took this Pi off air has not made the
+        # update unhealthy; rolling back on that would be wrong.
+        print("1" if (data.get("fm_running") or data.get("fm_suppressed")) else "")
 except Exception:
     print("")
-' "$status_file" 2>/dev/null || true)"
-      if [ -n "$fm_running" ]; then
+' "$status_file" "$since" 2>/dev/null || true)"
+      if [ -n "$healthy" ]; then
         echo "==> Healthy: service active and transmitting."
         return 0
       fi
@@ -186,12 +210,11 @@ native_checksum() {
 # Both run detached (systemd-run) so they survive the daemon restart they cause.
 
 if [ "$MODE" = "postinstall" ]; then
-  systemctl restart fmplaylist
-  if run_health_check; then
+  if restart_and_verify; then
     record_update "ok" "installed and healthy"
     exit 0
   fi
-  if rollback_install && run_health_check; then
+  if rollback_install && restart_and_verify; then
     record_update "rolled_back" "update failed health check; previous version restored"
     exit 1
   fi
@@ -200,7 +223,7 @@ if [ "$MODE" = "postinstall" ]; then
 fi
 
 if [ "$MODE" = "rollback" ]; then
-  if rollback_install && run_health_check; then
+  if rollback_install && restart_and_verify; then
     record_update "rolled_back" "manual rollback"
     exit 0
   fi
@@ -578,12 +601,14 @@ fi
 # systemd-run missing: fall back to the in-line path. Safe here because without
 # systemd-run this is almost certainly a manual install, not a self-update.
 echo "==> systemd-run unavailable — restarting inline"
-systemctl restart fmplaylist
-run_health_check || {
-  rollback_install
-  record_update "rolled_back" "daemon failed health check"
+if ! restart_and_verify; then
+  if rollback_install && restart_and_verify; then
+    record_update "rolled_back" "daemon failed health check; previous version restored"
+  else
+    record_update "failed" "update failed and rollback did not recover"
+  fi
   exit 1
-}
+fi
 record_update "ok" "installed $SOURCE_HASH"
 
 echo ""
