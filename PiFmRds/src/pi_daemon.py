@@ -149,7 +149,7 @@ _recently_pushed: collections.deque = collections.deque(maxlen=30)
 _fallback_pcm: 'bytes | None' = None
 
 # WiFi state — reported back to server via heartbeat so admin can see result
-_wifi_applied_ssid: str = ''   # set after successful wifi_setup.sh run
+_wifi_applied_ssid: str = ''   # set after successful wifi_apply.sh run
 _wifi_failed_ssid:  str = ''   # set after failed run
 
 # Last API-call failure, kept for status.json / the heartbeat payload — without this, a
@@ -545,7 +545,7 @@ def _scan_wifi_info() -> dict:
 
 
 def _apply_wifi(pending: dict) -> None:
-    """Run wifi_setup.sh in a daemon thread; report result via next heartbeat."""
+    """Run wifi_apply.sh in a daemon thread; report result via next heartbeat."""
     global _wifi_applied_ssid, _wifi_failed_ssid, _wifi_pending_ssid
     ssid     = pending.get('ssid', '')
     password = pending.get('password', '')
@@ -577,7 +577,7 @@ def _apply_wifi(pending: dict) -> None:
                 _wifi_failed_ssid  = ssid
                 _wifi_applied_ssid = ''
         except Exception as exc:
-            print(f'[{_ts()}][wifi] ERROR running wifi_setup.sh: {exc}')
+            print(f'[{_ts()}][wifi] ERROR running wifi_apply.sh: {exc}')
             _wifi_failed_ssid  = ssid
             _wifi_applied_ssid = ''
     finally:
@@ -841,6 +841,10 @@ def _write_status_file(cfg: dict, state: dict) -> None:
             'ready_queue_depth':    _ready_q.qsize(),
             'last_heartbeat_ago_s': round(time.time() - state.get('last_hb', 0.0), 1),
             'last_error':           _last_error,
+            # Distinguishes "off air because the admin asked" from "off air
+            # because something broke" — setup.sh's health check would otherwise
+            # roll back a perfectly good update on a deliberately silent Pi.
+            'fm_suppressed':        _fm_suppressed,
         }
         tmp = STATUS_PATH + '.tmp'
         with open(tmp, 'w') as f:
@@ -1433,7 +1437,10 @@ def _audio_write_loop(cfg: dict, local: dict) -> None:
         _rt = rds_rt(cfg, current.title, current.artist)
 
         if not _ensure_fm_running(cfg, ps=_ps, rt=_rt):
-            print(f'[{_ts()}][audio] FM failed to start — retrying in 5s')
+            # Suppressed is a deliberate admin action, not a failure — saying
+            # "failed to start" every 5s would bury real problems in the journal.
+            if not _fm_suppressed:
+                print(f'[{_ts()}][audio] FM failed to start — retrying in 5s')
             time.sleep(5)
             continue
 

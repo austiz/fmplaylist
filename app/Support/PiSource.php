@@ -63,6 +63,29 @@ class PiSource
     }
 
     /**
+     * Cheap fingerprint of the source dir: newest mtime, file count, total size.
+     *
+     * Folded into the cache keys so a deploy invalidates them immediately. With
+     * a plain 5-minute TTL, the window right after a deploy served a manifest
+     * of the OLD hashes while the files on disk were already new — every Pi
+     * updating in that window failed checksum verification and aborted.
+     */
+    private static function fingerprint(): string
+    {
+        $newest = 0;
+        $count = 0;
+        $bytes = 0;
+
+        foreach (self::files() as $path) {
+            $newest = max($newest, (int) filemtime($path));
+            $bytes += (int) filesize($path);
+            $count++;
+        }
+
+        return "{$newest}-{$count}-{$bytes}";
+    }
+
+    /**
      * Per-file sha256 + size, for delta downloads.
      *
      * The Pi skips any file whose local hash already matches, so a code-only
@@ -73,7 +96,7 @@ class PiSource
      */
     public static function manifest(): array
     {
-        return Cache::remember('pi.source_manifest', 300, function (): array {
+        return Cache::remember('pi.source_manifest.'.self::fingerprint(), 300, function (): array {
             $manifest = [];
 
             foreach (self::files() as $name => $path) {
@@ -101,7 +124,7 @@ class PiSource
      */
     public static function hash(): string
     {
-        return Cache::remember('pi.latest_source_hash', 300, function (): string {
+        return Cache::remember('pi.latest_source_hash.'.self::fingerprint(), 300, function (): string {
             $hashes = [];
 
             foreach (self::manifest() as $name => $meta) {
@@ -114,10 +137,17 @@ class PiSource
         });
     }
 
-    /** Drop the cached manifest/hash — call after the source dir changes. */
+    /**
+     * Drop the cached manifest/hash for the current source state.
+     *
+     * Rarely needed — the fingerprint in the cache key means a changed source
+     * dir already misses the old entry. Useful when file contents change
+     * without altering mtime/size/count.
+     */
     public static function forget(): void
     {
-        Cache::forget('pi.source_manifest');
-        Cache::forget('pi.latest_source_hash');
+        $fingerprint = self::fingerprint();
+        Cache::forget('pi.source_manifest.'.$fingerprint);
+        Cache::forget('pi.latest_source_hash.'.$fingerprint);
     }
 }
