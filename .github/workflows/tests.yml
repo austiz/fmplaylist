@@ -6,23 +6,40 @@ on:
       - develop
       - main
       - master
-      - workos
   pull_request:
     branches:
       - develop
       - main
       - master
-      - workos
 
 permissions:
   contents: read
 
 jobs:
-  ci:
+  app:
+    name: app (php ${{ matrix.php-version }}, ${{ matrix.database }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         php-version: ['8.4', '8.5']
+        database: [sqlite, mysql]
+
+    # Production is MySQL. SQLite silently no-ops `lockForUpdate()`, so the
+    # queue's concurrency guarantees are only really tested by the mysql leg.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: fmplaylist_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -ppassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
 
     steps:
       - name: Checkout code
@@ -60,5 +77,32 @@ jobs:
       - name: Run Type Analysis
         run: composer types:check
 
+      # PHPUnit's <env> entries do not override variables already present in the
+      # environment, so setting these here is enough to switch the connection.
       - name: Tests
         run: php artisan test
+        env:
+          DB_CONNECTION: ${{ matrix.database == 'mysql' && 'mysql' || 'sqlite' }}
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: ${{ matrix.database == 'mysql' && 'fmplaylist_test' || ':memory:' }}
+          DB_USERNAME: root
+          DB_PASSWORD: password
+
+  daemon:
+    name: pi daemon
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      # Stdlib unittest only — pi_daemon.py has no third-party dependencies.
+      - name: Tests
+        run: python -m unittest discover -s PiFmRds/src -p 'test_*.py' -v
