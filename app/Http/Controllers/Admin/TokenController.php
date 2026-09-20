@@ -28,12 +28,11 @@ class TokenController extends Controller
 
         $currentHash = PiSource::hash();
 
-        $tokens = PiToken::with('station')
-            ->orderByDesc('created_at')
-            ->get()
-            ->map(function (PiToken $t) use ($currentHash) {
-                $progress = $this->deviceSyncService->downloadProgress($t);
+        $devices = PiToken::with('station')->orderByDesc('created_at')->get();
+        $progress = $this->deviceSyncService->downloadProgressFor($devices->pluck('id')->all());
 
+        $tokens = $devices
+            ->map(function (PiToken $t) use ($currentHash, $progress) {
                 return [
                     'id' => $t->id,
                     'label' => $t->label,
@@ -42,7 +41,7 @@ class TokenController extends Controller
                     'last_seen_at' => $t->last_seen_at?->diffForHumans(),
                     'disk_free_bytes' => $t->disk_free_bytes,
                     'disk_total_bytes' => $t->disk_total_bytes,
-                    'downloads_done' => $progress['done'],
+                    'downloads_done' => $progress['done'][$t->id] ?? 0,
                     'downloads_total' => $progress['total'],
                     'created_at' => $t->created_at->toDateString(),
                     'status' => $t->pi_status,

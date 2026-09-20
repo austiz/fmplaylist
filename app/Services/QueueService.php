@@ -330,38 +330,45 @@ class QueueService
     }
 
     /**
+     * Reconcile what a device says is on its SD card against what we think it holds.
+     *
+     * Three queries regardless of library size. It used to be two per reported file --
+     * a lookup and a firstOrCreate -- so a Pi reporting a 500-song card spent a
+     * thousand round trips inside one request.
+     *
      * @param  array<int, array{filename: string, file_size?: int|null}>  $songs
      * @return array{added: int, unchanged: int}
      */
     public function syncLibrary(PiToken $token, array $songs): array
     {
-        $added = 0;
-        $unchanged = 0;
+        $filenames = collect($songs)
+            ->pluck('filename')
+            ->reject(fn (string $name) => $this->isRuntimePiFile($name))
+            ->unique();
 
-        foreach ($songs as $data) {
-            $filename = $data['filename'];
-            if ($this->isRuntimePiFile($filename)) {
-                continue;
-            }
+        $songIds = MediaAsset::query()->songs()
+            ->whereIn('filename', $filenames)
+            ->pluck('id');
 
-            $song = MediaAsset::query()->songs()->where('filename', $filename)->first();
-            if (! $song) {
-                continue;
-            }
+        $known = DeviceDownload::where('pi_token_id', $token->id)
+            ->where('media_type', 'song')
+            ->whereIn('media_id', $songIds)
+            ->pluck('media_id');
 
-            $download = DeviceDownload::firstOrCreate(
-                ['pi_token_id' => $token->id, 'media_type' => 'song', 'media_id' => $song->id],
-                ['downloaded_at' => now()]
-            );
+        $new = $songIds->diff($known);
 
-            if ($download->wasRecentlyCreated) {
-                $added++;
-            } else {
-                $unchanged++;
-            }
+        if ($new->isNotEmpty()) {
+            DeviceDownload::insert($new->map(fn (int $id) => [
+                'pi_token_id' => $token->id,
+                'media_type' => 'song',
+                'media_id' => $id,
+                'downloaded_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ])->all());
         }
 
-        return compact('added', 'unchanged');
+        return ['added' => $new->count(), 'unchanged' => $known->count()];
     }
 
     private function isRuntimePiFile(string $filename): bool
@@ -376,11 +383,31 @@ class QueueService
         ], true);
     }
 
+    /**
+     * Close the gaps a played or removed item leaves in the pending positions.
+     *
+     * One UPDATE per distinct shift rather than one per row. This runs on every song
+     * change, and it was the most frequent N+1 in the app; in the ordinary case -- the
+     * head of the queue was just played, so everything behind it moves up one -- that
+     * is a single statement, and rows already in the right place are not touched.
+     */
     private function compactPositions(): void
     {
-        $items = QueueItem::pending()->get();
-        foreach ($items as $i => $item) {
-            $item->update(['position' => $i + 1]);
+        $positions = QueueItem::pending()->pluck('position', 'id');
+
+        $shifts = [];
+        $target = 0;
+
+        foreach ($positions as $id => $position) {
+            $target++;
+
+            if ($position !== $target) {
+                $shifts[$position - $target][] = $id;
+            }
+        }
+
+        foreach ($shifts as $by => $ids) {
+            QueueItem::whereIn('id', $ids)->decrement('position', $by);
         }
     }
 

@@ -32,15 +32,13 @@ class DeviceSyncService
     /** @return Collection<int, array{type: string, item_id: int, filename: string, title: string, download_url: string}> */
     public function pendingDownloadsFor(PiToken $token): Collection
     {
-        $downloaded = $this->downloadedIds($token);
-
         $assets = MediaAsset::query()
             ->active()
             ->whereNotNull('storage_path')
+            ->whereNotIn('id', $this->downloadedIds($token))
             ->get(['id', 'type', 'filename', 'title', 'storage_path']);
 
         return $this->inTypeOrder($assets)
-            ->reject(fn (MediaAsset $a) => in_array($a->id, $downloaded[$a->type->value], true))
             ->map(fn (MediaAsset $a) => [
                 'type' => $a->type->value,
                 'item_id' => $a->id,
@@ -54,14 +52,12 @@ class DeviceSyncService
     /** @return Collection<int, array{type: string, item_id: int, filename: string}> */
     public function pendingDeletesFor(PiToken $token): Collection
     {
-        $downloaded = $this->downloadedIds($token);
-
         $assets = MediaAsset::query()
             ->where('pi_delete_requested', true)
+            ->whereIn('id', $this->downloadedIds($token))
             ->get(['id', 'type', 'filename']);
 
         return $this->inTypeOrder($assets)
-            ->filter(fn (MediaAsset $a) => in_array($a->id, $downloaded[$a->type->value], true))
             ->map(fn (MediaAsset $a) => [
                 'type' => $a->type->value,
                 'item_id' => $a->id,
@@ -154,28 +150,48 @@ class DeviceSyncService
             ->exists();
     }
 
-    /** @return array{done: int, total: int} */
-    public function downloadProgress(PiToken $token): array
+    /**
+     * How far through the library each of the given devices is.
+     *
+     * Takes the whole device list rather than one device at a time: the total is the
+     * same for every one of them, and the per-device tallies come back in one grouped
+     * query, so the devices page costs two queries instead of two per row.
+     *
+     * @param  array<int, int>  $tokenIds
+     * @return array{total: int, done: array<int, int>} done is token_id => count, missing key means zero
+     */
+    public function downloadProgressFor(array $tokenIds): array
     {
-        $downloaded = $this->downloadedIds($token);
-
         $total = MediaAsset::query()->active()->count();
-        $done = array_sum(array_map('count', $downloaded));
 
-        return ['done' => min($done, $total), 'total' => $total];
-    }
-
-    /** @return array<string, array<int, int>> keyed by MediaType value */
-    private function downloadedIds(PiToken $token): array
-    {
-        $rows = DeviceDownload::where('pi_token_id', $token->id)->get(['media_type', 'media_id']);
-
-        $ids = [];
-        foreach (MediaType::cases() as $type) {
-            $ids[$type->value] = $rows->where('media_type', $type->value)->pluck('media_id')->all();
+        if ($tokenIds === []) {
+            return ['total' => $total, 'done' => []];
         }
 
-        return $ids;
+        $done = DeviceDownload::query()
+            ->whereIn('pi_token_id', $tokenIds)
+            ->selectRaw('pi_token_id, count(*) as held')
+            ->groupBy('pi_token_id')
+            ->pluck('held', 'pi_token_id')
+            ->map(fn ($held) => min((int) $held, $total))
+            ->all();
+
+        return ['total' => $total, 'done' => $done];
+    }
+
+    /**
+     * The media ids this device holds.
+     *
+     * Flat, not keyed by type: since the three tables became one, `media_id` is a
+     * `media_assets` primary key and is unique across types on its own. That lets the
+     * two callers above push their filtering into the query instead of loading the
+     * whole library and rejecting most of it in PHP.
+     *
+     * @return Collection<int, int>
+     */
+    private function downloadedIds(PiToken $token): Collection
+    {
+        return DeviceDownload::where('pi_token_id', $token->id)->pluck('media_id');
     }
 
     /**

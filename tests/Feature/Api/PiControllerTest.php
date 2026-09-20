@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\DeviceDownload;
 use App\Models\MediaAsset;
 use App\Models\PiToken;
 use App\Models\QueueItem;
@@ -45,6 +46,47 @@ class PiControllerTest extends TestCase
         );
 
         $this->assertCount(1, $settingsQueries);
+    }
+
+    /**
+     * `syncLibrary()` used to run a lookup and a firstOrCreate for every filename the
+     * device reported, so a Pi with a 500-song card spent a thousand round trips in one
+     * request. The cost is now flat in the size of the report.
+     */
+    public function test_sync_library_cost_does_not_grow_with_the_library(): void
+    {
+        $songs = MediaAsset::factory()->count(40)->create();
+        $payload = ['songs' => $songs->map(fn (MediaAsset $s) => ['filename' => $s->filename])->all()];
+
+        DB::enableQueryLog();
+
+        $this->postJson('/api/pi/sync-library', $payload, $this->piHeaders())
+            ->assertOk()
+            ->assertJson(['added' => 40, 'unchanged' => 0]);
+
+        $this->assertLessThan(10, count(DB::getQueryLog()));
+
+        // And a second identical report is the same handful of queries, recording nothing new.
+        DB::flushQueryLog();
+
+        $this->postJson('/api/pi/sync-library', $payload, $this->piHeaders())
+            ->assertOk()
+            ->assertJson(['added' => 0, 'unchanged' => 40]);
+
+        $this->assertLessThan(10, count(DB::getQueryLog()));
+        $this->assertSame(40, DeviceDownload::where('pi_token_id', PiToken::first()->id)->count());
+    }
+
+    public function test_sync_library_ignores_the_daemons_own_runtime_files(): void
+    {
+        $song = MediaAsset::factory()->create();
+
+        $this->postJson('/api/pi/sync-library', ['songs' => [
+            ['filename' => $song->filename],
+            ['filename' => 'emergency.wav'],
+        ]], $this->piHeaders())->assertOk()->assertJson(['added' => 1]);
+
+        $this->assertSame(1, DeviceDownload::count());
     }
 
     public function test_queue_requires_token(): void

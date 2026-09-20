@@ -2,10 +2,12 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Models\MediaAsset;
 use App\Models\PiToken;
 use App\Models\Station;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class TokenControllerTest extends TestCase
@@ -18,6 +20,35 @@ class TokenControllerTest extends TestCase
     {
         parent::setUp();
         $this->admin = User::factory()->create();
+    }
+
+    /**
+     * The devices page used to recompute the library total once per device row, on top
+     * of a per-device tally. Both now come from one pair of queries, so adding devices
+     * does not add queries to the page.
+     */
+    public function test_the_devices_page_does_not_query_per_device(): void
+    {
+        MediaAsset::factory()->count(5)->create();
+
+        $measure = function (int $devices): int {
+            PiToken::query()->delete();
+            for ($i = 0; $i < $devices; $i++) {
+                PiToken::generate("Pi {$i}");
+            }
+
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->actingAs($this->admin)->get('/admin/tokens')->assertOk();
+
+            return count(DB::getQueryLog());
+        };
+
+        $one = $measure(1);
+        $six = $measure(6);
+
+        // recentCommands() is still one bounded query per device; nothing else may scale.
+        $this->assertLessThanOrEqual($one + 5, $six);
     }
 
     public function test_store_creates_a_device_assigned_to_a_station(): void
