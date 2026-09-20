@@ -4,6 +4,11 @@ For a vehicle install: phone hotspot for WiFi, USB car charger for power, wire a
 
 Works on both Pi 3 Model B+ and Pi Zero 2 WH. The 3B+ is easier to set up (Ethernet port, full USB-A ports, bigger board to handle). The Zero 2 WH is easier to hide.
 
+This is the minimal install — a bare wire on GPIO 4, no filter and no amp, which is
+what fits in a car. For the full chain (bandpass filter, 5 W amp, ground plane antenna,
+battery), see `docs/HARDWARE.md`. Pi 5 will not work at all: its DMA/PWM subsystem
+changed and PiFmRds cannot drive it.
+
 ---
 
 ## What you need

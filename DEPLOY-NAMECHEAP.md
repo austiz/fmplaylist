@@ -9,7 +9,7 @@ CI/CD via GitHub Actions: tests run on every push; if they pass, the app is depl
 - **Namecheap plan** — Stellar, Stellar Plus, or Stellar Business (all include SSH)
 - **Domain** already pointed at Namecheap nameservers
 - **GitHub repo** for the project (public or private)
-- PHP 8.4 or newer — selected in cPanel (8.3 is not supported — composer.lock requires 8.4+)
+- **PHP 8.4.1 or newer** — selected in cPanel. 8.3 will not work: Laravel 13 pulls in Symfony 8, which requires 8.4.1. This is the only version number in the project; `composer.json` declares the same floor.
 
 ---
 
@@ -27,9 +27,9 @@ ssh yourusername@server123.web-hosting.com -p 21098
 
 Your home directory is `/home/yourusername/`. The default web root is `public_html/`.
 
-### 2 — Set PHP 8.3
+### 2 — Set PHP 8.4
 
-In **cPanel → Software → MultiPHP Manager**, set PHP **8.4** for your domain's directory.
+In **cPanel → Software → MultiPHP Manager**, set PHP **8.4** (or 8.5) for your domain's directory.
 
 Confirm in SSH:
 
@@ -88,24 +88,37 @@ After this, the repo appears in the Git Version Control list. The **Deploy HEAD 
 
 > **Note on built assets**: `public/build/` is gitignored so it is not in the repo. The **Deploy HEAD Commit** button runs `composer install` and artisan caches but cannot build frontend assets (no Node.js on shared hosting). Use GitHub Actions (`deploy.yml`) for normal deploys — it builds assets locally and rsyncs them. Use the cPanel button only as a fallback for PHP-only changes (migrations, config updates).
 
-### 7 — Set the document root
+### 7 — The document root
 
-The app's web root is `~/fmplaylist/public/`, not `public_html/`.
-
-In **cPanel → Domains** (or **Addon Domains / Subdomains**), edit the document root for your domain and set it to:
+The app's web root is `~/fmplaylist/public/`. The cleanest arrangement is to point the
+domain straight at it, in **cPanel → Domains → Document Root**:
 
 ```
 fmplaylist/public
 ```
 
-This tells Apache to serve `~/fmplaylist/public/` as the website root.
+**On the primary domain of a Stellar plan you usually cannot**, because the docroot is
+locked to `~/public_html`. That is why the deploy workflow maintains `public_html` as a
+thin mirror rather than assuming the docroot moved. Its **Sync public_html** step, which
+runs after every deploy:
 
-> **Alternative**: If you can't change the document root, put a redirect in `public_html/.htaccess`:
-> ```apache
-> RewriteEngine On
-> RewriteRule ^(.*)$ /home/yourusername/fmplaylist/public/$1 [L]
-> ```
-> This is less clean — changing the document root is preferred.
+| What | How |
+| --- | --- |
+| `public_html/index.php` | Overwritten with a one-line proxy: `<?php require '<app>/public/index.php';` |
+| Root-level static files | `favicon.ico`, `manifest.json`, `sw.js`, `robots.txt` … copied from `public/` (top level only) |
+| `public_html/build` | Removed and re-copied whole, so a stale Vite manifest can never survive a deploy |
+| `public_html/storage` | Symlinked to `<app>/storage/app/public` if it is not already a symlink |
+
+Two things follow from this that are easy to get wrong:
+
+- **Root-level static files are copied, not synced.** A file you delete from `public/`
+  stays in `public_html` until you remove it by hand. Only `build/` is replaced wholesale.
+- **If you *do* move the document root to `fmplaylist/public`**, the sync step becomes
+  harmless but pointless, and `public_html` is then a second copy of the site that
+  nothing serves. Pick one and know which you picked.
+
+The `.htaccess` redirect approach is a third option and is worse than both — it rewrites
+every request through an extra pass and breaks path handling for uploads.
 
 ### 8 — Configure the environment
 
@@ -242,6 +255,36 @@ push to main
 
 ---
 
+## The three deploy paths
+
+There are three ways code reaches the server, and they do **not** do the same things.
+Knowing which one you just used explains most "it worked locally" failures.
+
+| | `deploy.yml` (push to `main`) | `.cpanel.yml` (**Deploy HEAD Commit** button) | By hand over SSH |
+|---|---|---|---|
+| Runs tests first | yes | no | no |
+| Builds `public/build` | yes, in Actions, then rsyncs it | **no** — no Node.js on the server | only if you build and upload it yourself |
+| `composer install --no-dev` | yes | yes | yours to run |
+| `migrate --force` | yes | yes | yours to run |
+| `optimize:clear` before re-caching | yes | yes | yours to run |
+| `storage:link` | yes | yes | yours to run |
+| Maintenance mode (`down`/`up`) | yes | no | no |
+| Syncs `public_html` | yes | **no** | **no** |
+
+**Use `deploy.yml` — push to `main` — for everything normal.** It is the only path that
+builds frontend assets and the only one that updates `public_html`.
+
+**The cPanel button is a PHP-only fallback.** Because it cannot build assets and does not
+sync `public_html`, deploying a commit that touched anything under `resources/js` leaves
+the server running new PHP against the *previous* build. The Vite manifest and the asset
+filenames disagree, and the site renders blank. Recover by re-running the Actions
+workflow (**Actions → Deploy → Run workflow**), which rebuilds and re-syncs.
+
+Safe uses for the button: migrations, config changes, backend-only fixes — and only when
+Actions is unavailable.
+
+---
+
 ## Shared Hosting Limitations
 
 ### `ffprobe` / audio duration extraction
@@ -337,11 +380,11 @@ The Pi downloads source files from `/pi/*.` These are served directly from `PiFm
 
 ## Checklist
 
-- [ ] PHP 8.3+ set in MultiPHP Manager
+- [ ] PHP 8.4.1+ set in MultiPHP Manager
 - [ ] MySQL database + user created
 - [ ] SSH key generated in cPanel → added to GitHub Deploy Keys
 - [ ] Repo cloned via cPanel Git Version Control
-- [ ] Document root set to `fmplaylist/public`
+- [ ] Document root decided — either `fmplaylist/public`, or left at `public_html` and synced by CI
 - [ ] `.env` configured (`APP_KEY`, DB, `SESSION_SECURE_COOKIE=true`)
 - [ ] `php artisan storage:link` run
 - [ ] `public/.user.ini` upload limits set
