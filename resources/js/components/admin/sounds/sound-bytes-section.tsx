@@ -1,5 +1,6 @@
 import { router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
+import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -68,9 +69,7 @@ function SoundByteUploadForm() {
                     onChange={handleFile}
                     className="block w-full text-sm text-muted-foreground file:mr-4 file:border file:border-border file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-bold file:tracking-wide file:text-foreground file:uppercase hover:file:bg-card"
                 />
-                {form.errors.file && (
-                    <p className="text-xs text-red-400">{form.errors.file}</p>
-                )}
+                <FieldError message={form.errors.file} />
             </div>
             <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
                 <div className="space-y-1">
@@ -81,11 +80,7 @@ function SoundByteUploadForm() {
                         placeholder="Laser drop, local shoutout, sweep"
                         required
                     />
-                    {form.errors.title && (
-                        <p className="text-xs text-red-400">
-                            {form.errors.title}
-                        </p>
-                    )}
+                    <FieldError message={form.errors.title} />
                 </div>
                 <div className="space-y-1">
                     <Label>Category</Label>
@@ -172,11 +167,7 @@ function SoundByteRow({ soundByte }: { soundByte: MediaAsset }) {
                             maxLength={8}
                             className="font-mono uppercase"
                         />
-                        {editForm.errors.rds_ps && (
-                            <p className="text-xs text-red-400">
-                                {editForm.errors.rds_ps}
-                            </p>
-                        )}
+                        <FieldError message={editForm.errors.rds_ps} />
                     </div>
                 </div>
                 <p className="text-xs text-muted-foreground">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { FieldError } from '@/components/field-error';
 import { useFmLive } from '@/hooks/use-fm-live';
 
 export function ChatPanel() {
@@ -102,7 +103,7 @@ export function ChatPanel() {
                 onSubmit={submit}
                 className="space-y-2 border-t border-border p-3"
             >
-                {error && <p className="text-xs text-red-400">{error}</p>}
+                <FieldError message={error} />
                 <div className="flex gap-2">
                     <input
                         type="text"

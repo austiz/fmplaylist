@@ -123,6 +123,34 @@ export interface PiCommand {
     at: string | null;
 }
 
+/** One access point from the Pi's last scan. */
+export interface WifiNetwork {
+    ssid: string;
+    signal: number; // 0-100
+    security: string; // 'WPA2' | 'Open' | etc.
+    active: boolean;
+}
+
+/** An entry in the fallback chain the Pi stores on disk. */
+export interface SavedNetwork {
+    id: number;
+    ssid: string;
+    priority: number;
+    has_password: boolean;
+}
+
+/** Everything the Settings page knows about the Pi's network state. */
+export interface WifiInfo {
+    current_ssid: string;
+    networks: WifiNetwork[];
+    pending_ssid: string;
+    last_status: string; // 'connected' | 'failed' | ''
+    last_ssid: string;
+    saved: SavedNetwork[];
+    saved_rev: string; // hash of the saved list on the server
+    pi_rev: string; // what the Pi last reported having
+}
+
 export interface PaginatedResponse<T> {
     data: T[];
     links: { url: string | null; label: string; active: boolean }[];

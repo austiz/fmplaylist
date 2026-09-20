@@ -1,5 +1,6 @@
 import { useForm } from '@inertiajs/react';
 import { AdminLayout } from '@/components/admin-layout';
+import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -61,11 +62,7 @@ export default function Stations({ stations }: Props) {
                             placeholder="e.g. Downtown 96.9"
                             required
                         />
-                        {form.errors.name && (
-                            <p className="text-xs text-red-400">
-                                {form.errors.name}
-                            </p>
-                        )}
+                        <FieldError message={form.errors.name} />
                     </div>
                     <Button
                         type="submit"

@@ -1,5 +1,6 @@
 import { router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
+import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,9 +52,7 @@ function CommercialUploadForm() {
                     onChange={handleFile}
                     className="block w-full text-sm text-muted-foreground file:mr-4 file:border file:border-border file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-bold file:tracking-wide file:text-foreground file:uppercase hover:file:bg-card"
                 />
-                {form.errors.file && (
-                    <p className="text-xs text-red-400">{form.errors.file}</p>
-                )}
+                <FieldError message={form.errors.file} />
             </div>
             <div className="space-y-1">
                 <Label>Title</Label>
@@ -63,9 +62,7 @@ function CommercialUploadForm() {
                     placeholder="Sponsor spot, PSA, promo"
                     required
                 />
-                {form.errors.title && (
-                    <p className="text-xs text-red-400">{form.errors.title}</p>
-                )}
+                <FieldError message={form.errors.title} />
             </div>
             <Button
                 type="submit"
