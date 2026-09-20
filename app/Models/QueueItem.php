@@ -61,11 +61,15 @@ class QueueItem extends Model
     }
 
     /**
+     * Filter only, deliberately no ordering: an ORDER BY bundled into a status
+     * scope follows callers into aggregate queries, where MySQL's default
+     * ONLY_FULL_GROUP_BY rejects it outright. Callers that want recency say so.
+     *
      * @param  Builder<QueueItem>  $query
      * @return Builder<QueueItem>
      */
     public function scopePlayed(Builder $query): Builder
     {
-        return $query->where('status', 'played')->orderByDesc('played_at');
+        return $query->where('status', 'played');
     }
 }
