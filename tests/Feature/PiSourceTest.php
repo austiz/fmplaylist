@@ -32,12 +32,40 @@ class PiSourceTest extends TestCase
 
         $this->assertArrayHasKey('pi_daemon.py', $manifest);
         $this->assertArrayHasKey('wifi_apply.sh', $manifest);
+        // The installer runs `make app` on the device, so the build inputs ship too.
+        $this->assertArrayHasKey('Makefile', $manifest);
+        $this->assertArrayHasKey('pi_fm_rds.c', $manifest);
         // config.json is per-device state written by the installer, never shipped.
         $this->assertArrayNotHasKey('config.json', $manifest);
 
         foreach ($manifest as $meta) {
             $this->assertSame(64, strlen($meta['sha256']));
         }
+    }
+
+    public function test_tests_and_unused_demo_audio_are_not_shipped_to_devices(): void
+    {
+        $manifest = PiSource::manifest();
+
+        // Nothing on a transmitter runs these, and the demo wavs are 3.6 MB of
+        // upstream sample audio that nothing in this project references.
+        foreach (['test_pi_daemon.py', 'rds_strings_test.c', 'sound.wav', 'stereo_44100.wav'] as $name) {
+            $this->assertArrayNotHasKey($name, $manifest);
+            $this->assertNull(PiSource::path($name), "{$name} is still downloadable");
+        }
+    }
+
+    public function test_a_stray_file_in_the_source_dir_is_not_auto_deployed(): void
+    {
+        // The payload was everything in the directory, so anything that ever landed
+        // there -- a dump, a backup, an editor's stray save -- went out to every
+        // transmitter on the next update.
+        $this->scratch = $this->scratchPath('database_backup.sql');
+        file_put_contents($this->scratch, '-- secrets
+');
+
+        $this->assertArrayNotHasKey('database_backup.sql', PiSource::manifest());
+        $this->get('/pi/database_backup.sql')->assertNotFound();
     }
 
     public function test_served_files_match_their_manifest_hashes(): void

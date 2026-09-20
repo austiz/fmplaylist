@@ -19,11 +19,37 @@ class PiSource
     public const DIR = 'PiFmRds/src';
 
     /**
+     * What may be sent to a device, by extension.
+     *
+     * An allowlist, not a denylist. This used to ship everything in the source dir,
+     * which meant anything that ever landed there -- a dump, a backup, an editor's
+     * stray save -- auto-deployed to every transmitter on the next update. The Pi
+     * compiles PiFmRds itself (`make app` in the installer), so the C sources and
+     * the Makefile are payload, not leftovers.
+     */
+    private const EXTENSIONS = ['c', 'h', 'py', 'sh', 'wav'];
+
+    /** Files that are in the source dir but are not part of an install. */
+    private const EXCLUDE = [
+        // Per-device state, written by the installer.
+        'config.json',
+        // Tests. `make app` does not build rds_strings_test, and the daemon's own
+        // suite runs in CI, not on a transmitter.
+        'test_pi_daemon.py',
+        'rds_strings_test.c',
+        // Upstream PiFmRds's demo audio -- 3.6 MB that nothing in this project or in
+        // the build references, sent over a Pi Zero W's wifi on every first install.
+        'sound.wav',
+        'sound_22050.wav',
+        'stereo_44100.wav',
+        'noise_22050.wav',
+    ];
+
+    /**
      * Files the Pi installs, name => absolute path, sorted by name.
      *
-     * Everything in the source dir except config.json, which is per-device state
-     * written by the installer. Directories and dotfiles are skipped: the Pi's
-     * own manifest is a flat list of plain filenames.
+     * Directories and dotfiles are skipped: the Pi's own manifest is a flat list
+     * of plain filenames.
      *
      * @return array<string, string>
      */
@@ -36,7 +62,12 @@ class PiSource
             if (! is_string($name) || str_starts_with($name, '.')) {
                 continue;
             }
-            if ($name === 'config.json') {
+            if (in_array($name, self::EXCLUDE, true)) {
+                continue;
+            }
+            if ($name !== 'Makefile' && ! in_array(
+                strtolower(pathinfo($name, PATHINFO_EXTENSION)), self::EXTENSIONS, true
+            )) {
                 continue;
             }
 
