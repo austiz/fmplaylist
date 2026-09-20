@@ -9,6 +9,7 @@ import {
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { withStation } from '@/lib/station';
 import type { PiStatus, Station } from '@/types/fm';
 
 const nav = [
@@ -28,10 +29,9 @@ function PiStatusBar({ stationSlug }: { stationSlug?: string }) {
     useEffect(() => {
         const poll = async () => {
             try {
-                const url = stationSlug
-                    ? `/api/pi-status?station=${stationSlug}`
-                    : '/api/pi-status';
-                const res = await fetch(url);
+                const res = await fetch(
+                    withStation('/api/pi-status', stationSlug),
+                );
 
                 if (res.ok) {
                     setPi(await res.json());

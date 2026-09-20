@@ -17,8 +17,8 @@ class QueueAdminController extends Controller
     {
         $station = $this->activeStation($request);
 
-        abort_unless($queueItem->station_id === $station->id, 404);
-
+        // No ownership check: the binding resolved under `StationScope`, so an id from
+        // another station never became a model in the first place.
         if ($queueItem->status !== 'pending') {
             return back()->with('error', 'Only pending requests can be removed.');
         }

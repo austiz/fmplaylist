@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\ConnectWifiRequest;
 use App\Http\Requests\Admin\StoreWifiNetworkRequest;
 use App\Http\Requests\Admin\UpdateStationSettingsRequest;
+use App\Models\PiCommand;
 use App\Models\Setting;
 use App\Models\WifiNetwork;
 use App\Support\StationSettings;
@@ -103,9 +104,7 @@ class SettingsController extends Controller
         $station = $this->activeStation($request);
         $data = $request->validated();
 
-        $existing = WifiNetwork::where('station_id', $station->id)
-            ->where('ssid', $data['ssid'])
-            ->first();
+        $existing = WifiNetwork::where('ssid', $data['ssid'])->first();
 
         if ($existing) {
             // Re-adding an existing SSID means "fix the password", not "duplicate".
@@ -119,19 +118,15 @@ class SettingsController extends Controller
             'ssid' => $data['ssid'],
             'password' => $data['password'] ?? null,
             // Append to the end of the fallback chain.
-            'priority' => (int) WifiNetwork::where('station_id', $station->id)->max('priority') + 1,
+            'priority' => (int) WifiNetwork::max('priority') + 1,
             'active' => true,
         ]);
 
         return back()->with('success', "Saved \"{$data['ssid']}\". Pi picks it up within 30 seconds.");
     }
 
-    public function destroyWifiNetwork(Request $request, WifiNetwork $wifiNetwork): RedirectResponse
+    public function destroyWifiNetwork(WifiNetwork $wifiNetwork): RedirectResponse
     {
-        $station = $this->activeStation($request);
-
-        abort_unless($wifiNetwork->station_id === $station->id, 404);
-
         $ssid = $wifiNetwork->ssid;
         $wifiNetwork->delete();
 
@@ -141,17 +136,13 @@ class SettingsController extends Controller
     /** Reorder the fallback chain. Expects the full ordered list of ids. */
     public function reorderWifiNetworks(Request $request): RedirectResponse
     {
-        $station = $this->activeStation($request);
-
         $data = $request->validate([
             'ids' => ['required', 'array'],
             'ids.*' => ['integer'],
         ]);
 
         foreach (array_values($data['ids']) as $index => $id) {
-            WifiNetwork::where('station_id', $station->id)
-                ->where('id', $id)
-                ->update(['priority' => $index]);
+            WifiNetwork::where('id', $id)->update(['priority' => $index]);
         }
 
         return back()->with('success', 'Network order updated.');
@@ -161,8 +152,10 @@ class SettingsController extends Controller
     {
         $station = $this->activeStation($request);
 
-        Setting::set(SettingKey::PiUpdateRequested, '1', $station->id);
+        $reached = PiCommand::broadcastTo($station->id, 'update');
 
-        return back()->with('success', 'Update queued — Pi will refresh the full source payload and restart within 30 seconds.');
+        return back()->with('success', $reached === 0
+            ? 'No device is registered on this station, so there was nothing to update.'
+            : "Update queued for {$reached} device(s) — each refreshes the full source payload and restarts within 30 seconds.");
     }
 }

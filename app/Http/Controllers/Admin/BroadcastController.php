@@ -10,6 +10,7 @@ use App\Http\Requests\Admin\SetBroadcastModeRequest;
 use App\Http\Requests\Admin\UpdateRdsRequest;
 use App\Models\MediaAsset;
 use App\Models\NowPlaying;
+use App\Models\PiCommand;
 use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Setting;
@@ -143,12 +144,22 @@ class BroadcastController extends Controller
     {
         $station = $this->activeStation($request);
 
-        QueueItem::where('station_id', $station->id)->pending()->update(['status' => 'skipped', 'played_at' => now()]);
-        Setting::set(SettingKey::PiEmergency, '1', $station->id);
+        QueueItem::forStation($station->id)->pending()->update(['status' => 'skipped', 'played_at' => now()]);
+
+        // One command per device, not one flag for the station: the flag was cleared by
+        // whichever Pi heartbeated first, so a second transmitter stayed on the music.
+        $reached = PiCommand::broadcastTo(
+            $station->id,
+            'emergency',
+            (string) Setting::get(SettingKey::EmergencyAnnouncement, $station->id),
+        );
+
         PiToken::where('station_id', $station->id)->update(['pi_skip_next' => true]);
         $this->queueService->bumpQueueVersion($station->id);
 
-        return back()->with('success', 'Emergency broadcast triggered — Pi switches within 30 s.');
+        return back()->with('success', $reached === 0
+            ? 'Emergency queued, but no device is registered on this station.'
+            : "Emergency broadcast sent to {$reached} device(s) — each switches within 30 s.");
     }
 
     /**

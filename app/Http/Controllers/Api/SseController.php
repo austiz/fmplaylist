@@ -24,12 +24,12 @@ class SseController extends Controller
             // cycle rather than a precise per-connection presence set — the cache store here
             // is `database` (no tag support), so a TTL'd presence set would mean a
             // read-modify-write every 2s per open tab instead of one atomic op per ~55s.
-            Cache::increment('sse.listener_count');
+            Cache::increment("sse.listener_count.{$stationId}");
             $decremented = false;
-            register_shutdown_function(function () use (&$decremented) {
+            register_shutdown_function(function () use (&$decremented, $stationId) {
                 if (! $decremented) {
                     $decremented = true;
-                    Cache::decrement('sse.listener_count');
+                    Cache::decrement("sse.listener_count.{$stationId}");
                 }
             });
 
@@ -42,8 +42,8 @@ class SseController extends Controller
             $np = Cache::get("sse.now_playing.{$stationId}");
             $pi = Cache::get("sse.pi_status.{$stationId}");
             $qv = Cache::get("sse.queue_version.{$stationId}", '0');
-            $chatVer = Cache::get('sse.chat_version', '0');
-            $listenerCount = max(0, (int) Cache::get('sse.listener_count', 1));
+            $chatVer = Cache::get("sse.chat_version.{$stationId}", '0');
+            $listenerCount = max(0, (int) Cache::get("sse.listener_count.{$stationId}", 1));
 
             // Send initial state immediately so the client is current on connect
             echo "event: now-playing\ndata: ".json_encode($np, JSON_THROW_ON_ERROR)."\n\n";
@@ -67,7 +67,7 @@ class SseController extends Controller
                 $np = Cache::get("sse.now_playing.{$stationId}");
                 $pi = Cache::get("sse.pi_status.{$stationId}");
                 $qv = Cache::get("sse.queue_version.{$stationId}", '0');
-                $chatVer = Cache::get('sse.chat_version', '0');
+                $chatVer = Cache::get("sse.chat_version.{$stationId}", '0');
 
                 $npHash = md5(json_encode($np, JSON_THROW_ON_ERROR));
                 $piHash = md5(json_encode($pi, JSON_THROW_ON_ERROR));
@@ -88,7 +88,9 @@ class SseController extends Controller
                 }
 
                 if ($chatVer !== $lastChatVer) {
-                    $msg = ChatMessage::latest()->first(['id', 'name', 'message', 'created_at']);
+                    // Named, not ambient: this runs inside the streamed response, long
+                    // after the request that resolved the station has finished.
+                    $msg = ChatMessage::forStation($stationId)->latest()->first(['id', 'name', 'message', 'created_at']);
                     if ($msg) {
                         echo "event: chat-message\ndata: ".json_encode($msg, JSON_THROW_ON_ERROR)."\n\n";
                     }

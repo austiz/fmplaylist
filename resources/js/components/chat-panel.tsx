@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { FieldError } from '@/components/field-error';
 import { useFmLive } from '@/hooks/use-fm-live';
+import { withStation } from '@/lib/station';
 
 export function ChatPanel() {
-    const { chatMessages } = useFmLive();
+    const { chatMessages, stationSlug } = useFmLive();
     const [name, setName] = useState(() => {
         try {
             return localStorage.getItem('fm.chat_name') ?? '';
@@ -42,7 +43,7 @@ export function ChatPanel() {
         }
 
         try {
-            const res = await fetch('/api/chat', {
+            const res = await fetch(withStation('/api/chat', stationSlug), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

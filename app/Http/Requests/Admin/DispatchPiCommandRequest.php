@@ -13,7 +13,7 @@ class DispatchPiCommandRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'command' => ['required', 'string', Rule::in(PiCommand::COMMANDS)],
+            'command' => ['required', 'string', Rule::in(PiCommand::DISPATCHABLE)],
             'payload' => ['nullable', 'string', 'max:255'],
         ];
     }

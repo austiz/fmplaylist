@@ -207,7 +207,7 @@ class BroadcastControllerTest extends TestCase
         $this->assertSame('skipped', $playing->fresh()->status);
         $this->assertSame('pending', $pending->fresh()->status);
 
-        // Both Pis on the station get the flag — unlike pi_emergency below.
+        // Per-device column, so both Pis on the station skip rather than racing for one flag.
         foreach ($tokens as $token) {
             $this->assertTrue((bool) $token->fresh()->pi_skip_next);
         }
@@ -322,11 +322,12 @@ class BroadcastControllerTest extends TestCase
 
     // -- emergency ---------------------------------------------------------
 
-    public function test_emergency_clears_the_queue_and_raises_the_flag(): void
+    public function test_emergency_clears_the_queue_and_commands_the_device(): void
     {
         $pending = QueueItem::factory()->for($this->station)->count(3)->create();
         $playing = QueueItem::factory()->for($this->station)->playing()->create();
         $token = PiToken::factory()->for($this->station)->create();
+        Setting::set(SettingKey::EmergencyAnnouncement, 'evac.wav', $this->station->id);
         Cache::forget("sse.queue_version.{$this->station->id}");
 
         $this->actingAs($this->admin)
@@ -339,23 +340,55 @@ class BroadcastControllerTest extends TestCase
             $this->assertNotNull($item->fresh()->played_at);
         }
 
-        // Only pending rows are cleared; whatever is on air is stopped by the flag.
+        // Only pending rows are cleared; whatever is on air is stopped by the command.
         $this->assertSame('playing', $playing->fresh()->status);
-        $this->assertTrue(Setting::get(SettingKey::PiEmergency, $this->station->id));
+        $this->assertDatabaseHas('pi_commands', [
+            'pi_token_id' => $token->id,
+            'command' => 'emergency',
+            'payload' => 'evac.wav',
+            'status' => 'queued',
+        ]);
         $this->assertTrue((bool) $token->fresh()->pi_skip_next);
         $this->assertNotNull(Cache::get("sse.queue_version.{$this->station->id}"));
+    }
+
+    /**
+     * The bug this replaced: as a station-wide setting, the emergency was consumed by
+     * whichever Pi heartbeated first and the second one stayed on the music.
+     */
+    public function test_emergency_reaches_every_device_on_the_station(): void
+    {
+        $tokens = PiToken::factory()->for($this->station)->count(3)->create();
+
+        $this->actingAs($this->admin)->post('/admin/broadcast/emergency');
+
+        foreach ($tokens as $token) {
+            $this->assertDatabaseHas('pi_commands', [
+                'pi_token_id' => $token->id,
+                'command' => 'emergency',
+                'status' => 'queued',
+            ]);
+        }
     }
 
     public function test_emergency_is_scoped_to_the_active_station(): void
     {
         $other = Station::factory()->create();
         $otherPending = QueueItem::factory()->for($other)->create();
+        $otherToken = PiToken::factory()->for($other)->create();
+        $ourToken = PiToken::factory()->for($this->station)->create();
         $this->switchTo($other);
 
         $this->actingAs($this->admin)->post('/admin/broadcast/emergency');
 
         $this->assertSame('skipped', $otherPending->fresh()->status);
-        $this->assertTrue(Setting::get(SettingKey::PiEmergency, $other->id));
-        $this->assertFalse(Setting::get(SettingKey::PiEmergency, $this->station->id));
+        $this->assertDatabaseHas('pi_commands', [
+            'pi_token_id' => $otherToken->id,
+            'command' => 'emergency',
+        ]);
+        $this->assertDatabaseMissing('pi_commands', [
+            'pi_token_id' => $ourToken->id,
+            'command' => 'emergency',
+        ]);
     }
 }

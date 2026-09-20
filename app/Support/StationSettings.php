@@ -28,7 +28,7 @@ final class StationSettings
         );
     }
 
-    public function get(SettingKey $key): string|int|float|bool
+    public function get(SettingKey $key): string|int|float
     {
         $raw = $this->raw[$key->value] ?? null;
 
@@ -48,11 +48,6 @@ final class StationSettings
     public function float(SettingKey $key): float
     {
         return (float) $this->get($key);
-    }
-
-    public function bool(SettingKey $key): bool
-    {
-        return (bool) $this->get($key);
     }
 
     /**

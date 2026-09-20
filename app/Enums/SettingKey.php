@@ -33,8 +33,6 @@ enum SettingKey: string
     case EmergencyAnnouncement = 'emergency_announcement';
 
     // -- Station state the Pi consumes and clears --------------------------
-    case PiEmergency = 'pi_emergency';
-    case PiUpdateRequested = 'pi_update_requested';
     case PendingWifiSsid = 'pending_wifi_ssid';
     case PendingWifiPassword = 'pending_wifi_password';
     case LastWifiStatus = 'last_wifi_status';
@@ -47,7 +45,7 @@ enum SettingKey: string
     case LastCommercialId = 'last_commercial_id';
 
     /** The value when the station has no row for this key. Its type is the key's type. */
-    public function default(): string|int|float|bool
+    public function default(): string|int|float
     {
         return match ($this) {
             self::Frequency => 96.9,
@@ -64,7 +62,6 @@ enum SettingKey: string
             self::RdsRt, self::RdsPs => '',
             self::EmergencyAnnouncement => 'announcement.wav',
 
-            self::PiEmergency, self::PiUpdateRequested => false,
             self::PendingWifiSsid, self::PendingWifiPassword, self::LastWifiStatus => '',
 
             self::SongsSinceLastCommercial, self::SongsSinceLastSoundByte,
@@ -73,13 +70,11 @@ enum SettingKey: string
     }
 
     /** Turn a stored string into the key's declared type. */
-    public function cast(string $raw): string|int|float|bool
+    public function cast(string $raw): string|int|float
     {
         $default = $this->default();
 
         return match (true) {
-            // '0' and '' are the falsey spellings the Pi flags are written with.
-            is_bool($default) => $raw !== '' && $raw !== '0',
             is_int($default) => (int) $raw,
             is_float($default) => (float) $raw,
             default => $raw,

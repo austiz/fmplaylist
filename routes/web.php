@@ -16,6 +16,7 @@ use App\Http\Controllers\PublicFileController;
 use App\Http\Controllers\QueueController;
 use App\Http\Controllers\SongController;
 use App\Http\Middleware\EnsureActiveStation;
+use App\Http\Middleware\ResolvePublicStation;
 use Illuminate\Support\Facades\Route;
 
 // Pi setup download routes
@@ -30,14 +31,18 @@ Route::get('/files/{path}', PublicFileController::class)
 Route::get('/pi/{filename}', [PiSetupController::class, 'file'])->name('pi.file')
     ->where('filename', '[a-zA-Z0-9_\-\.]+');
 
-// Public
-Route::get('/', [HomeController::class, 'index'])->name('home');
-Route::get('/songs', [SongController::class, 'index'])->name('songs.index');
-Route::post('/songs/{song}/request', [SongController::class, 'request'])
-    ->name('songs.request')
-    ->middleware('throttle:5,1');
-Route::get('/queue', [QueueController::class, 'index'])->name('queue.index');
-Route::get('/drive', [HomeController::class, 'drive'])->name('drive');
+// Public. The middleware resolves `?station=` before route-model binding, so
+// `{song}` is looked up under `StationScope` and an id from another station 404s
+// instead of being requestable onto this one.
+Route::middleware(ResolvePublicStation::class)->group(function () {
+    Route::get('/', [HomeController::class, 'index'])->name('home');
+    Route::get('/songs', [SongController::class, 'index'])->name('songs.index');
+    Route::post('/songs/{song}/request', [SongController::class, 'request'])
+        ->name('songs.request')
+        ->middleware('throttle:5,1');
+    Route::get('/queue', [QueueController::class, 'index'])->name('queue.index');
+    Route::get('/drive', [HomeController::class, 'drive'])->name('drive');
+});
 
 // Admin (dashboard alias for Wayfinder compatibility)
 Route::middleware(['auth'])->get('/dashboard', fn () => redirect('/admin'))->name('dashboard');
@@ -59,6 +64,11 @@ Route::middleware(['auth', EnsureActiveStation::class])->prefix('admin')->name('
     // Songs, commercials and sound bytes are one table behind one controller; the
     // URLs and route names stay as they were, and `defaults('type', …)` tells the
     // controller which of the three it is serving.
+    //
+    // The controller never asks for the active station, and does not need to: being
+    // inside this group is what scopes it. `EnsureActiveStation` runs before route-model
+    // binding (see bootstrap/app.php), so `{mediaAsset}` resolves under `StationScope`
+    // and an id from another station 404s instead of binding.
     foreach ([
         'songs' => MediaType::Song,
         'commercials' => MediaType::Commercial,

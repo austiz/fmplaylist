@@ -17,7 +17,7 @@ class Setting extends Model
 {
     protected $fillable = ['station_id', 'key', 'value'];
 
-    public static function get(SettingKey $key, ?int $stationId = null): string|int|float|bool
+    public static function get(SettingKey $key, ?int $stationId = null): string|int|float
     {
         $row = static::query()
             ->where('station_id', $stationId ?? Station::defaultId())

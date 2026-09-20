@@ -20,8 +20,8 @@ class PiCommand extends Model
     /** @use HasFactory<PiCommandFactory> */
     use HasFactory;
 
-    /** Actions the daemon knows how to run. Anything else is rejected up front. */
-    public const COMMANDS = [
+    /** Actions an admin can aim at one device from the Devices page. */
+    public const DISPATCHABLE = [
         'update',
         'rollback',
         'rebuild',
@@ -31,6 +31,15 @@ class PiCommand extends Model
         'fm_start',
         'fetch_logs',
     ];
+
+    /**
+     * Everything the daemon knows how to run.
+     *
+     * `emergency` is not dispatchable: it carries the announcement filename as its
+     * payload and is raised for a whole station from the Broadcast page, so there is
+     * no sense in aiming it at a single Pi.
+     */
+    public const COMMANDS = [...self::DISPATCHABLE, 'emergency'];
 
     /** Actions that interrupt the broadcast — the UI confirms before sending these. */
     public const DISRUPTIVE = [
@@ -46,6 +55,41 @@ class PiCommand extends Model
         'sent_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
+
+    /**
+     * Queue $command for every device on a station, skipping any that already have
+     * one in flight.
+     *
+     * Station-wide actions used to be `Setting` flags that the config response
+     * cleared, so whichever Pi heartbeated first consumed the flag and the second Pi
+     * on the station never saw the emergency or the update. One row per device means
+     * each one gets it, and each one acknowledges it.
+     *
+     * @return int the number of devices the command reached
+     */
+    public static function broadcastTo(int $stationId, string $command, ?string $payload = null): int
+    {
+        $tokenIds = PiToken::where('station_id', $stationId)->pluck('id');
+
+        $alreadyQueued = static::query()
+            ->whereIn('pi_token_id', $tokenIds)
+            ->where('command', $command)
+            ->pending()
+            ->pluck('pi_token_id');
+
+        $targets = $tokenIds->diff($alreadyQueued);
+
+        foreach ($targets as $tokenId) {
+            static::create([
+                'pi_token_id' => $tokenId,
+                'command' => $command,
+                'payload' => $payload,
+                'status' => 'queued',
+            ]);
+        }
+
+        return $targets->count();
+    }
 
     /** @return BelongsTo<PiToken, $this> */
     public function piToken(): BelongsTo

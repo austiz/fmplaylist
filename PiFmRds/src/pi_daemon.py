@@ -787,6 +787,13 @@ def _run_command(cfg: dict, cmd: dict) -> None:
             _ack_command(cfg, cmd_id, True, _cmd_fetch_logs(cfg, payload))
             return
 
+        if name == 'emergency':
+            # Used to arrive as a station-wide `emergency` flag on the config
+            # response, which the first Pi to heartbeat cleared for everyone.
+            _handle_emergency(cfg, payload)
+            _ack_command(cfg, cmd_id, True, f'emergency broadcast: {payload}')
+            return
+
         # Unknown commands are reported, not dropped: a silently ignored command
         # looks identical to an offline Pi from the admin page.
         _ack_command(cfg, cmd_id, False, f'unknown command: {name}')
@@ -948,14 +955,9 @@ def send_heartbeat(cfg: dict, status: str, mode: str) -> 'dict | None':
             except Exception as exc:
                 print(f'[{_ts()}][wifi] ERROR saving profiles: {exc}')
 
-        if result.get('emergency') and result.get('emergency_file'):
-            _handle_emergency(cfg, result['emergency_file'])
-
-        if result.get('apply_update'):
-            threading.Thread(target=_apply_daemon_update, args=(cfg,), daemon=True).start()
-
-        # Per-device command queue. Unlike the station-wide flags above, these
-        # are addressed to this Pi and are only cleared once acknowledged.
+        # Per-device command queue. Emergency broadcasts and daemon updates come
+        # through here too: as station-wide config flags they were cleared by
+        # whichever Pi heartbeated first, so a second Pi never saw them.
         commands = result.get('commands')
         if commands:
             _handle_commands(cfg, commands)

@@ -1,6 +1,7 @@
 import { Link, usePage } from '@inertiajs/react';
 import { Gauge, List, Music, Radio } from 'lucide-react';
 import type { PropsWithChildren } from 'react';
+import { withStation } from '@/lib/station';
 import type { Station } from '@/types/fm';
 
 const navLinks = [
@@ -24,10 +25,7 @@ export function PublicLayout({ children }: PropsWithChildren) {
     }>();
     const freq = props.frequency ?? '96.9';
     const stationSlug = props.publicStation?.slug;
-    const withStation = (href: string) =>
-        stationSlug
-            ? `${href}?station=${encodeURIComponent(stationSlug)}`
-            : href;
+    const tagged = (href: string) => withStation(href, stationSlug);
     const path = url.split('?')[0] || '/';
     const active = (href: string) =>
         href === '/' ? path === '/' : path.startsWith(href);
@@ -38,7 +36,7 @@ export function PublicLayout({ children }: PropsWithChildren) {
             <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-sm">
                 <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-2.5">
                     <Link
-                        href={withStation('/')}
+                        href={tagged('/')}
                         className="group flex items-center gap-2"
                     >
                         <span className="font-display text-xl font-bold tracking-tight text-red-500 transition-colors group-hover:text-red-400">
@@ -55,7 +53,7 @@ export function PublicLayout({ children }: PropsWithChildren) {
                         {navLinks.map(({ href, label }) => (
                             <Link
                                 key={label}
-                                href={withStation(href)}
+                                href={tagged(href)}
                                 className={`py-1 transition-colors ${active(href) ? 'text-foreground' : 'hover:text-foreground'}`}
                             >
                                 {label}
@@ -87,7 +85,7 @@ export function PublicLayout({ children }: PropsWithChildren) {
                 {tabs.map(({ href, label, Icon }) => (
                     <Link
                         key={label}
-                        href={withStation(href)}
+                        href={tagged(href)}
                         className={`flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-bold tracking-wider uppercase transition-colors ${
                             active(href)
                                 ? 'text-red-500'

@@ -45,7 +45,7 @@ class PublicTest extends TestCase
     public function test_song_request_can_target_public_station_slug(): void
     {
         $stationB = Station::create(['name' => 'Station B', 'slug' => 'station-b']);
-        $song = MediaAsset::factory()->create(['active' => true]);
+        $song = MediaAsset::factory()->create(['active' => true, 'station_id' => $stationB->id]);
 
         $this->post("/songs/{$song->id}/request?station=station-b", ['name' => 'Tester'])
             ->assertRedirect();
@@ -55,6 +55,21 @@ class PublicTest extends TestCase
             'media_asset_id' => $song->id,
             'requested_by_name' => 'Tester',
         ]);
+    }
+
+    /**
+     * The `{song}` binding runs under the resolved station, so a library id from
+     * elsewhere cannot be requested onto this one by guessing it.
+     */
+    public function test_song_request_cannot_reach_another_stations_library(): void
+    {
+        Station::create(['name' => 'Station B', 'slug' => 'station-b']);
+        $songOnDefault = MediaAsset::factory()->create(['active' => true]);
+
+        $this->post("/songs/{$songOnDefault->id}/request?station=station-b", ['name' => 'Tester'])
+            ->assertNotFound();
+
+        $this->assertDatabaseMissing('queue_items', ['media_asset_id' => $songOnDefault->id]);
     }
 
     public function test_songs_page_shares_public_station_context(): void

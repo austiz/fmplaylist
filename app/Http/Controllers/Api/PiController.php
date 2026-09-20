@@ -173,14 +173,6 @@ class PiController extends Controller
         $station = Station::find($stationId) ?? Station::findOrFail(Station::defaultId());
         $config = $this->buildConfig($station, $token);
 
-        // Consume emergency / update flags after including them in this response
-        if ($config['emergency'] ?? false) {
-            Setting::set(SettingKey::PiEmergency, '0', $stationId);
-        }
-        if ($config['apply_update'] ?? false) {
-            Setting::set(SettingKey::PiUpdateRequested, '0', $stationId);
-        }
-
         return response()->json([
             ...$config,
             'skip_next' => $skipNext,
@@ -191,8 +183,9 @@ class PiController extends Controller
     /**
      * Hand this device its queued commands and mark them sent.
      *
-     * Scoped to $token, so unlike the station-wide flags it sits beside, one Pi
-     * picking up work can never starve another on the same station.
+     * Scoped to $token, so one Pi picking up work can never starve another on the
+     * same station -- which is exactly what the station-wide `emergency` and
+     * `apply_update` config flags used to do before they moved onto this queue.
      *
      * @return array<int, array{id: int, command: string, payload: string|null}>
      */
@@ -374,9 +367,6 @@ class PiController extends Controller
             // no server contact at all.
             'wifi_profiles' => WifiNetwork::profilesFor($station->id),
             'wifi_profiles_rev' => WifiNetwork::revisionFor($station->id),
-            'emergency' => $settings->bool(SettingKey::PiEmergency),
-            'emergency_file' => $settings->string(SettingKey::EmergencyAnnouncement),
-            'apply_update' => $settings->bool(SettingKey::PiUpdateRequested),
         ];
     }
 

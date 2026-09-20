@@ -4,16 +4,20 @@ use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\PiController;
 use App\Http\Controllers\Api\SseController;
 use App\Http\Middleware\AuthenticatePiToken;
+use App\Http\Middleware\ResolvePublicStation;
 use Illuminate\Support\Facades\Route;
 
-// Public endpoints — no auth
-Route::get('/now-playing', [PiController::class, 'nowPlayingPublic'])->middleware('throttle:60,1');
-Route::get('/pi-status', [PiController::class, 'piStatus'])->middleware('throttle:60,1');
-// SSE: one persistent connection per browser tab; 30/min covers reconnects and page reloads
-Route::get('/events', [SseController::class, 'stream'])->middleware('throttle:30,1');
-// Listener chat
-Route::get('/chat', [ChatController::class, 'index']);
-Route::post('/chat', [ChatController::class, 'store'])->middleware('throttle:10,1');
+// Public endpoints — no auth. All of them read `?station=`, so the station is
+// resolved once by middleware rather than by each controller body.
+Route::middleware(ResolvePublicStation::class)->group(function () {
+    Route::get('/now-playing', [PiController::class, 'nowPlayingPublic'])->middleware('throttle:60,1');
+    Route::get('/pi-status', [PiController::class, 'piStatus'])->middleware('throttle:60,1');
+    // SSE: one persistent connection per browser tab; 30/min covers reconnects and page reloads
+    Route::get('/events', [SseController::class, 'stream'])->middleware('throttle:30,1');
+    // Listener chat
+    Route::get('/chat', [ChatController::class, 'index']);
+    Route::post('/chat', [ChatController::class, 'store'])->middleware('throttle:10,1');
+});
 
 // Pi-authenticated endpoints — rate-limited to 120/min (Pi polls every 30s, downloads bursts)
 Route::middleware([AuthenticatePiToken::class, 'throttle:120,1'])->prefix('pi')->group(function () {

@@ -11,6 +11,7 @@ import {
 import type { PropsWithChildren } from 'react';
 import { getCommutePalette } from '@/lib/commute';
 import type { CommutePalette } from '@/lib/commute';
+import { withStation } from '@/lib/station';
 import type { NowPlayingData, PiStatus, Station } from '@/types/fm';
 
 export interface ChatMsg {
@@ -36,6 +37,8 @@ interface FmLiveValue {
     /** Current commute-phase palette/copy set, refreshed on a shared timer so every
      *  consumer (visualizer, hero copy, Driving Mode) rolls over together. */
     palette: CommutePalette;
+    /** The station every listener request has to be tagged with, `null` on the default. */
+    stationSlug: string | null;
 }
 
 const FmLiveContext = createContext<FmLiveValue | null>(null);
@@ -76,7 +79,7 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
     // Seed chat history once for the session.
     useEffect(() => {
         let cancelled = false;
-        fetch('/api/chat')
+        fetch(withStation('/api/chat', stationSlug))
             .then((r) => r.json())
             .then((data: ChatMsg[]) => {
                 if (!cancelled) {
@@ -88,13 +91,10 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [stationSlug]);
 
     useEffect(() => {
-        const eventsUrl = stationSlug
-            ? `/api/events?station=${encodeURIComponent(stationSlug)}`
-            : '/api/events';
-        const es = new EventSource(eventsUrl);
+        const es = new EventSource(withStation('/api/events', stationSlug));
 
         es.onopen = () => setConnected(true);
         es.onerror = () => setConnected(false);
@@ -178,6 +178,7 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
             connected,
             listenerCount,
             palette,
+            stationSlug,
         }),
         [
             nowPlaying,
@@ -189,6 +190,7 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
             connected,
             listenerCount,
             palette,
+            stationSlug,
         ],
     );
 
