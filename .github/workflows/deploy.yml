@@ -3,6 +3,15 @@ name: Deploy to Namecheap
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      rebuild_database:
+        description: >-
+          DANGER: type REBUILD to drop every table and re-run the migrations
+          from scratch, seeding a fresh admin user. Anything in the production
+          database is destroyed. Leave blank for a normal deploy.
+        required: false
+        default: ''
 
 concurrency:
   group: deploy-production
@@ -117,7 +126,14 @@ jobs:
           script: |
             set -e
             cd "${{ secrets.DEPLOY_PATH }}"
-            git pull origin main --ff-only
+            # Fetch and reset, not pull --ff-only: the server clone is a
+            # mirror of origin, not a place anything is authored, and a pull
+            # aborts the whole deploy the moment main's history is rewritten
+            # -- which a rebaseline does. Tracked files are restored to
+            # origin/main; .env, storage and the rest are untracked and
+            # survive, which is why this is reset and not clean.
+            git fetch origin main
+            git reset --hard origin/main
             mkdir -p storage/framework/cache storage/framework/sessions \
                      storage/framework/views storage/logs bootstrap/cache
             chmod -R 775 storage bootstrap/cache
@@ -145,7 +161,13 @@ jobs:
       # .env lives on the server permanently — never overwritten by CI
       - name: Run Laravel artisan commands
         uses: appleboy/ssh-action@v1.2.5
+        env:
+          # Empty on every push -- `inputs` only has a value on a manual run --
+          # so the destructive branch below is unreachable except by someone
+          # deliberately typing REBUILD into the workflow_dispatch form.
+          REBUILD_DB: ${{ inputs.rebuild_database }}
         with:
+          envs: REBUILD_DB
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
@@ -172,7 +194,12 @@ jobs:
             # stopped at line one. A failed deploy should cost the new release,
             # not the running site.
             trap '$PHP_BIN artisan up || true' EXIT
-            $PHP_BIN artisan migrate --force
+            if [ "$REBUILD_DB" = "REBUILD" ]; then
+              echo "REBUILD requested: dropping every table and migrating from scratch."
+              $PHP_BIN artisan migrate:fresh --force --seed
+            else
+              $PHP_BIN artisan migrate --force
+            fi
             $PHP_BIN artisan optimize:clear
             $PHP_BIN artisan config:cache
             $PHP_BIN artisan route:cache
