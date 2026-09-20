@@ -165,6 +165,13 @@ jobs:
             elif [ -f "/usr/local/bin/php" ]; then PHP_BIN="/usr/local/bin/php"
             else echo "php not found" >&2; exit 1; fi
             echo "PHP: $($PHP_BIN -v | head -n1)"
+            # Bring the site back on the way out, however we leave. Step 1 puts
+            # it into maintenance mode and `set -e` used to abandon it there:
+            # one failed migration on 2026-09-20 left fmplaylist.com serving 503
+            # for hours, because `artisan up` was the last line of a script that
+            # stopped at line one. A failed deploy should cost the new release,
+            # not the running site.
+            trap '$PHP_BIN artisan up || true' EXIT
             $PHP_BIN artisan migrate --force
             $PHP_BIN artisan optimize:clear
             $PHP_BIN artisan config:cache
@@ -173,7 +180,6 @@ jobs:
             $PHP_BIN artisan event:cache
             $PHP_BIN artisan storage:link || true
             $PHP_BIN artisan optimize
-            $PHP_BIN artisan up
             echo "Deploy complete: $(date)"
 
       # Step 4: keep public_html in sync (document root locked on shared hosting)
@@ -201,3 +207,24 @@ jobs:
               ln -s "$APP/storage/app/public" "$DOCROOT/storage"
             fi
             echo "public_html synced."
+
+      # Last resort: the trap in step 3 only fires if step 3 got to run at all.
+      # If the upload or the maintenance-mode step itself failed, the site is
+      # still down and nothing else will lift it.
+      - name: Lift maintenance mode after a failed deploy
+        if: failure()
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          passphrase: ${{ secrets.DEPLOY_PASSPHRASE }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            cd "${{ secrets.DEPLOY_PATH }}"
+            if command -v php >/dev/null 2>&1; then PHP_BIN="php"
+            elif [ -f "/opt/alt/php85/usr/bin/php" ]; then PHP_BIN="/opt/alt/php85/usr/bin/php"
+            elif [ -f "/opt/alt/php84/usr/bin/php" ]; then PHP_BIN="/opt/alt/php84/usr/bin/php"
+            elif [ -f "/usr/local/bin/php" ]; then PHP_BIN="/usr/local/bin/php"
+            else echo "php not found" >&2; exit 0; fi
+            $PHP_BIN artisan up || true
