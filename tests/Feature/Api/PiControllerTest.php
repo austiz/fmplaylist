@@ -228,7 +228,7 @@ class PiControllerTest extends TestCase
         $stationB = Station::create(['name' => 'Station B', 'slug' => 'station-b']);
         ['raw' => $rawB] = PiToken::generate('Pi B', $stationB->id);
 
-        $songA = MediaAsset::factory()->create(['active' => true]);
+        $songA = MediaAsset::factory()->create(['active' => true, 'station_id' => Station::defaultId()]);
         QueueItem::create([
             'station_id' => Station::defaultId(),
             'media_asset_id' => $songA->id,
@@ -236,7 +236,7 @@ class PiControllerTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $songB = MediaAsset::factory()->create(['active' => true]);
+        $songB = MediaAsset::factory()->create(['active' => true, 'station_id' => $stationB->id]);
         QueueItem::create([
             'station_id' => $stationB->id,
             'media_asset_id' => $songB->id,

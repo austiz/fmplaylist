@@ -285,7 +285,7 @@ class QueueServiceTest extends TestCase
     {
         config(['fm.autofill_target' => 0]);
         $other = Station::factory()->create();
-        MediaAsset::factory()->soundByte()->create();
+        MediaAsset::factory()->soundByte()->create(['station_id' => $other->id]);
         Setting::set(SettingKey::SoundByteInterval, 2, $other->id);
         Setting::set(SettingKey::SongsSinceLastSoundByte, 9, $other->id);
 

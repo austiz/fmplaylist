@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\MediaType;
 use App\Enums\SettingKey;
+use App\Models\Concerns\BelongsToStation;
 use Database\Factories\MediaAssetFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -27,9 +28,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class MediaAsset extends Model
 {
     /** @use HasFactory<MediaAssetFactory> */
-    use HasFactory;
+    use BelongsToStation, HasFactory;
 
     protected $fillable = [
+        'station_id',
         'type',
         'title',
         'artist',

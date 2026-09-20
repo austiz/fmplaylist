@@ -2,17 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToStation;
 use Database\Factories\WifiNetworkFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WifiNetwork extends Model
 {
     /** @use HasFactory<WifiNetworkFactory> */
-    use HasFactory;
+    use BelongsToStation, HasFactory;
 
     protected $fillable = [
         'station_id', 'ssid', 'password', 'priority', 'active',
@@ -32,12 +32,6 @@ class WifiNetwork extends Model
         return $query->where('active', true);
     }
 
-    /** @return BelongsTo<Station, $this> */
-    public function station(): BelongsTo
-    {
-        return $this->belongsTo(Station::class);
-    }
-
     /**
      * Ordered list handed to the Pi. Lowest priority number is tried first;
      * ties break on id so the ordering is stable across requests (an unstable
@@ -45,11 +39,11 @@ class WifiNetwork extends Model
      *
      * @return Collection<int, WifiNetwork>
      */
-    public static function ordered(?int $stationId = null): Collection
+    public static function ordered(int $stationId): Collection
     {
         return self::query()
             ->active()
-            ->where('station_id', $stationId)
+            ->forStation($stationId)
             ->orderBy('priority')
             ->orderBy('id')
             ->get();
@@ -60,7 +54,7 @@ class WifiNetwork extends Model
      *
      * @return array<int, array{ssid: string, password: string, priority: int}>
      */
-    public static function profilesFor(?int $stationId = null): array
+    public static function profilesFor(int $stationId): array
     {
         return static::ordered($stationId)
             ->map(fn (self $n): array => [
@@ -77,7 +71,7 @@ class WifiNetwork extends Model
      * stored copy and only re-runs nmcli when it differs — reconfiguring the
      * interface every 30s would be wasted CPU on a Pi Zero mid-broadcast.
      */
-    public static function revisionFor(?int $stationId = null): string
+    public static function revisionFor(int $stationId): string
     {
         $profiles = static::profilesFor($stationId);
 

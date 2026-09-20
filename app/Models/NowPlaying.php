@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToStation;
 use Database\Factories\NowPlayingFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class NowPlaying extends Model
 {
     /** @use HasFactory<NowPlayingFactory> */
-    use HasFactory;
+    use BelongsToStation, HasFactory;
 
     protected $table = 'now_playing';
 
@@ -45,14 +46,14 @@ class NowPlaying extends Model
         return $this->belongsTo(QueueItem::class);
     }
 
-    /** @return BelongsTo<Station, $this> */
-    public function station(): BelongsTo
-    {
-        return $this->belongsTo(Station::class);
-    }
-
+    /**
+     * The one row for a station.
+     *
+     * Deliberately shadows the query scope the trait supplies: there is at most one
+     * now-playing row per station, so every caller wants the model, never a builder.
+     */
     public static function forStation(int $stationId): ?self
     {
-        return static::with('mediaAsset')->where('station_id', $stationId)->first();
+        return static::query()->forStation($stationId)->with('mediaAsset')->first();
     }
 }

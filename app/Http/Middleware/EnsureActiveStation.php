@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\Station;
+use App\Support\CurrentStation;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -14,7 +15,7 @@ class EnsureActiveStation
 
     public function handle(Request $request, Closure $next): Response
     {
-        $stationId = session('active_station_id');
+        $stationId = (int) session('active_station_id');
         $station = $stationId ? Station::find($stationId) : null;
 
         if (! $station) {
@@ -35,6 +36,7 @@ class EnsureActiveStation
         }
 
         $request->attributes->set('active_station', $station);
+        CurrentStation::set($station);
 
         return $next($request);
     }

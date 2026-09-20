@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToStation;
 use Database\Factories\QueueItemFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class QueueItem extends Model
 {
     /** @use HasFactory<QueueItemFactory> */
-    use HasFactory;
+    use BelongsToStation, HasFactory;
 
     protected $fillable = [
         'station_id',
@@ -39,12 +40,6 @@ class QueueItem extends Model
         return $this->belongsTo(MediaAsset::class);
     }
 
-    /** @return BelongsTo<Station, $this> */
-    public function station(): BelongsTo
-    {
-        return $this->belongsTo(Station::class);
-    }
-
     /**
      * @param  Builder<QueueItem>  $query
      * @return Builder<QueueItem>
@@ -52,15 +47,6 @@ class QueueItem extends Model
     public function scopePending(Builder $query): Builder
     {
         return $query->where('status', 'pending')->orderBy('position');
-    }
-
-    /**
-     * @param  Builder<QueueItem>  $query
-     * @return Builder<QueueItem>
-     */
-    public function scopeForStation(Builder $query, int $stationId): Builder
-    {
-        return $query->where('station_id', $stationId);
     }
 
     /**

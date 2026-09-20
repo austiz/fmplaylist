@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\PiToken;
+use App\Support\CurrentStation;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -31,6 +32,7 @@ class AuthenticatePiToken
         $token->update(['last_seen_at' => now()]);
 
         $request->attributes->set('pi_token', $token);
+        CurrentStation::set($token->station_id);
 
         return $next($request);
     }
