@@ -4,7 +4,7 @@ import { AdminLayout } from '@/components/admin-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { Commercial, Song, SoundByte } from '@/types/fm';
+import type { MediaAsset, Song } from '@/types/fm';
 
 interface PiInfo {
     online: boolean;
@@ -16,8 +16,8 @@ interface PiInfo {
 
 interface Props {
     songs: Song[];
-    commercials: Pick<Commercial, 'id' | 'title' | 'play_count'>[];
-    soundBytes: Pick<SoundByte, 'id' | 'title' | 'category'>[];
+    commercials: Pick<MediaAsset, 'id' | 'title' | 'play_count'>[];
+    soundBytes: Pick<MediaAsset, 'id' | 'title' | 'category'>[];
     settings: Record<string, string>;
     pi: PiInfo;
     nowPlaying: { title: string; artist: string; type: string } | null;

@@ -13,28 +13,14 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { useDebouncedSearch } from '@/hooks/use-debounced-search';
-import type { Commercial, PaginatedResponse, SoundByte } from '@/types/fm';
+import type { MediaAsset, PaginatedResponse } from '@/types/fm';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface AdminSong {
-    id: number;
-    title: string;
-    artist: string;
-    filename: string;
-    duration_formatted?: string;
-    file_size: number | null;
-    available: boolean;
-    has_file: boolean;
-    devices_have: number;
-    pi_delete_requested: boolean;
-    created_at: string;
-}
-
 interface Props {
-    songs: PaginatedResponse<AdminSong>;
-    commercials: Commercial[];
-    soundBytes: SoundByte[];
+    songs: PaginatedResponse<MediaAsset>;
+    commercials: MediaAsset[];
+    soundBytes: MediaAsset[];
     /** Pi devices that have checked in at least once — the denominator for "on Pi". */
     deviceCount: number;
     search: string;
@@ -211,7 +197,7 @@ function SongUploadForm() {
     );
 }
 
-function SongRow({ song }: { song: AdminSong }) {
+function SongRow({ song }: { song: MediaAsset }) {
     const [editing, setEditing] = useState(false);
     const form = useForm({ title: song.title, artist: song.artist });
 
@@ -294,7 +280,7 @@ function SongRow({ song }: { song: AdminSong }) {
                 onClick={() => router.patch(`/admin/songs/${song.id}/toggle`)}
                 className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
             >
-                {song.available ? 'Hide' : 'Show'}
+                {song.active ? 'Hide' : 'Show'}
             </button>
             {!song.pi_delete_requested && (
                 <button
@@ -316,7 +302,7 @@ function SongsSection({
     songs,
     search,
 }: {
-    songs: PaginatedResponse<AdminSong>;
+    songs: PaginatedResponse<MediaAsset>;
     search: string;
 }) {
     const pending = songs.data.filter(
@@ -438,7 +424,7 @@ function CommercialUploadForm() {
     );
 }
 
-function CommercialRow({ commercial }: { commercial: Commercial }) {
+function CommercialRow({ commercial }: { commercial: MediaAsset }) {
     const [editing, setEditing] = useState(false);
     const editForm = useForm({
         title: commercial.title,
@@ -559,7 +545,7 @@ function CommercialRow({ commercial }: { commercial: Commercial }) {
     );
 }
 
-function CommercialsSection({ commercials }: { commercials: Commercial[] }) {
+function CommercialsSection({ commercials }: { commercials: MediaAsset[] }) {
     const [search, setSearch] = useState('');
     const filtered = commercials.filter((c) =>
         `${c.title} ${c.filename ?? ''}`
@@ -698,7 +684,7 @@ function SoundByteUploadForm() {
     );
 }
 
-function SoundByteRow({ soundByte }: { soundByte: SoundByte }) {
+function SoundByteRow({ soundByte }: { soundByte: MediaAsset }) {
     const [editing, setEditing] = useState(false);
     const editForm = useForm({
         title: soundByte.title,
@@ -860,7 +846,7 @@ function SoundByteRow({ soundByte }: { soundByte: SoundByte }) {
     );
 }
 
-function SoundBytesSection({ soundBytes }: { soundBytes: SoundByte[] }) {
+function SoundBytesSection({ soundBytes }: { soundBytes: MediaAsset[] }) {
     const [search, setSearch] = useState('');
     const filtered = soundBytes.filter((sb) =>
         `${sb.title} ${sb.category} ${sb.filename ?? ''}`

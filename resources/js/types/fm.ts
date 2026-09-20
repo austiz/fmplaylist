@@ -1,46 +1,48 @@
+/** How the server spells each kind of audio in the one media library. */
+export type MediaKind = 'song' | 'commercial' | 'sound_byte';
+
+/**
+ * A track as the listener-facing pages receive it: enough to name it and request it.
+ */
 export interface Song {
     id: number;
     title: string;
     artist: string;
     duration_formatted?: string;
-    filename?: string;
-    file_size?: number;
-    available?: boolean;
-    created_at?: string;
 }
 
-export interface Commercial {
+/**
+ * A row on the admin Sounds page, exactly as `MediaAssetResource` serializes it.
+ *
+ * Songs, commercials and sound bytes share one table, one controller and one
+ * resource, so they share one interface here too -- this used to be three
+ * near-identical declarations plus a fourth copy inside `sounds.tsx`. The fields
+ * below the shared block belong to a single kind, which is why they are optional.
+ */
+export interface MediaAsset {
     id: number;
     title: string;
-    filename?: string;
+    filename: string;
     duration_formatted?: string;
-    file_size?: number | null;
-    active?: boolean;
+    file_size: number | null;
+    active: boolean;
+    /** Whether a web-side copy exists to serve to devices. */
+    has_file: boolean;
+    /** Devices that have actually downloaded this — the authoritative "on Pi" signal. */
+    devices_have: number;
+    pi_delete_requested: boolean;
+    created_at: string;
+
+    /** Songs only. */
+    artist?: string;
+
+    /** Commercials only. */
     rotation_order?: number;
     play_count?: number;
-    /** Whether a web-side copy exists to serve to devices. */
-    has_file?: boolean;
-    /** Pi devices that have actually downloaded this — authoritative "on Pi" signal. */
-    devices_have?: number;
-    pi_delete_requested?: boolean;
-    created_at?: string;
-}
 
-export interface SoundByte {
-    id: number;
-    title: string;
-    category: 'jingle' | 'shoutout' | 'drop' | 'id';
+    /** Sound bytes only. */
+    category?: 'jingle' | 'shoutout' | 'drop' | 'id';
     rds_ps?: string | null;
-    filename?: string;
-    duration_formatted?: string;
-    file_size?: number | null;
-    active?: boolean;
-    /** Whether a web-side copy exists to serve to devices. */
-    has_file?: boolean;
-    /** Pi devices that have actually downloaded this — authoritative "on Pi" signal. */
-    devices_have?: number;
-    pi_delete_requested?: boolean;
-    created_at?: string;
 }
 
 export interface QueueItem {

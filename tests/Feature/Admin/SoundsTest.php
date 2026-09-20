@@ -62,6 +62,28 @@ class SoundsTest extends TestCase
                 ->where('soundBytes.0.title', 'Drop'));
     }
 
+    /**
+     * One resource serializes all three, so the shared keys must be spelled the
+     * same for all three. Songs used to report `available` for the very same
+     * column the other two called `active`.
+     */
+    public function test_every_type_reports_the_same_shared_keys(): void
+    {
+        $shared = ['id', 'title', 'filename', 'file_size', 'active', 'has_file', 'devices_have', 'pi_delete_requested'];
+
+        MediaAsset::factory()->create();
+        MediaAsset::factory()->commercial()->create();
+        MediaAsset::factory()->soundByte()->create();
+
+        $this->actingAs($this->admin)
+            ->get('/admin/sounds')
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p
+                ->has('songs.data.0', fn ($row) => $row->hasAll($shared)->etc())
+                ->has('commercials.0', fn ($row) => $row->hasAll($shared)->etc())
+                ->has('soundBytes.0', fn ($row) => $row->hasAll($shared)->etc()));
+    }
+
     public function test_song_search_does_not_leak_other_types(): void
     {
         MediaAsset::factory()->create(['title' => 'Shared Name']);

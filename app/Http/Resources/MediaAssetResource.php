@@ -11,10 +11,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * The admin Sounds row for one media asset.
  *
  * Replaces the three hand-written array mappers SoundsController used to carry, which
- * had drifted apart in key names as well as content. The drift is preserved on purpose
- * for now — songs still report `available` where commercials and sound bytes report
- * `active`, because the React page reads those names. Unifying them is a frontend
- * change, not a backend one.
+ * had drifted apart in key names as well as content — songs reported `available`
+ * where the other two reported `active` for the same column.
  *
  * @property MediaAsset $resource
  */
@@ -40,6 +38,7 @@ class MediaAssetResource extends JsonResource
             'filename' => $asset->filename,
             'duration_formatted' => $asset->duration_formatted,
             'file_size' => $asset->file_size,
+            'active' => $asset->active,
             'has_file' => (bool) $asset->storage_path,
             'devices_have' => $this->holderCounts[$asset->id] ?? 0,
             'pi_delete_requested' => $asset->pi_delete_requested,
@@ -54,15 +53,12 @@ class MediaAssetResource extends JsonResource
         return match ($asset->type) {
             MediaType::Song => [
                 'artist' => $asset->artist,
-                'available' => $asset->active,
             ],
             MediaType::Commercial => [
-                'active' => $asset->active,
                 'rotation_order' => $asset->rotation_order,
                 'play_count' => $asset->play_count,
             ],
             MediaType::SoundByte => [
-                'active' => $asset->active,
                 'category' => $asset->category,
                 'rds_ps' => $asset->rds_ps,
             ],
