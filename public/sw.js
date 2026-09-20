@@ -1,38 +1,79 @@
-const CACHE = 'fm-v1';
+const CACHE = 'fm-v2';
+const SHELL = ['/', '/songs', '/queue'];
 
-// On install: cache the app shell pages so they open offline
+// On install: cache the app shell pages so they open offline.
 self.addEventListener('install', (e) => {
     e.waitUntil(
-        caches.open(CACHE).then(c => c.addAll(['/', '/songs', '/queue']))
+        caches.open(CACHE).then((c) =>
+            // One page at a time, not addAll: addAll rejects as a unit, so a
+            // single route that 503s -- a deploy running, the app in
+            // maintenance mode -- would abort the whole install and leave the
+            // site with no worker at all.
+            Promise.all(
+                SHELL.map((url) => c.add(url).catch(() => undefined)),
+            ),
+        ),
     );
     self.skipWaiting();
 });
 
-self.addEventListener('activate', () => self.clients.claim());
+self.addEventListener('activate', (e) => {
+    e.waitUntil(
+        caches
+            .keys()
+            .then((keys) =>
+                Promise.all(
+                    keys
+                        .filter((k) => k !== CACHE)
+                        .map((k) => caches.delete(k)),
+                ),
+            )
+            .then(() => self.clients.claim()),
+    );
+});
 
 self.addEventListener('fetch', (e) => {
     const { request } = e;
 
-    // SSE and API calls always go to the network
+    // SSE and API calls always go to the network.
     if (request.url.includes('/api/')) return;
 
-    // Navigation requests: network first, fall back to cached shell
+    // Anything that is not a GET -- requesting a song, reordering the queue,
+    // posting to chat -- is left to the network untouched. Cache.put throws on
+    // a POST, and the rejection surfaces as an unhandled error in the console.
+    if (request.method !== 'GET') return;
+
+    // Navigation requests: network first, fall back to cached shell.
     if (request.mode === 'navigate') {
         e.respondWith(
-            fetch(request).catch(() => caches.match('/'))
+            fetch(request).catch(async () => {
+                // `??`, not `||`: caches.match resolves to undefined on a miss,
+                // and responding with undefined is a network error, not a
+                // fallback.
+                const hit = await caches.match(request);
+
+                return hit ?? (await caches.match('/'));
+            }),
         );
         return;
     }
 
-    // Static assets: network first, cache as fallback
+    // Static assets: network first, cache as fallback.
     e.respondWith(
         fetch(request)
-            .then(res => {
+            .then((res) => {
                 if (res.ok) {
-                    caches.open(CACHE).then(c => c.put(request, res.clone()));
+                    // Cloned here and not inside the then() below: the clone
+                    // has to be taken before the body is handed back to the
+                    // page, or there is nothing left to copy and it throws
+                    // "Response body is already used".
+                    const copy = res.clone();
+
+                    caches.open(CACHE).then((c) => c.put(request, copy));
                 }
+
                 return res;
             })
-            .catch(() => caches.match(request))
+            .catch(() => caches.match(request)),
     );
 });
