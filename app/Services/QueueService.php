@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\MediaType;
+use App\Enums\SettingKey;
 use App\Http\Resources\NowPlayingResource;
 use App\Models\DeviceDownload;
 use App\Models\MediaAsset;
@@ -11,6 +12,7 @@ use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Setting;
 use App\Models\Station;
+use App\Support\StationSettings;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -54,15 +56,18 @@ class QueueService
     {
         $this->autoFillQueue($stationId);
 
+        // Six reads, one query. This runs on the Pi's 30-second poll.
+        $settings = StationSettings::for($stationId);
+
         // ── Commercial scheduling ─────────────────────────────────────────
         $commercial = null;
-        $forcedCommercialId = (int) Setting::get('force_commercial_id', 0, $stationId);
+        $forcedCommercialId = $settings->int(SettingKey::ForceCommercialId);
         if ($forcedCommercialId) {
             $commercial = MediaAsset::query()->ofType(MediaType::Commercial)->active()->find($forcedCommercialId);
         }
         if (! $commercial) {
-            $comInterval = (int) Setting::get('commercial_interval', 0, $stationId);
-            $songsSinceCom = (int) Setting::get('songs_since_last_commercial', 0, $stationId);
+            $comInterval = $settings->int(SettingKey::CommercialInterval);
+            $songsSinceCom = $settings->int(SettingKey::SongsSinceLastCommercial);
             if ($comInterval > 0 && $songsSinceCom >= $comInterval) {
                 $commercial = MediaAsset::nextCommercialInRotation($stationId);
             }
@@ -70,13 +75,13 @@ class QueueService
 
         // ── Sound byte scheduling ─────────────────────────────────────────
         $soundByte = null;
-        $forcedSoundByteId = (int) Setting::get('force_sound_byte_id', 0, $stationId);
+        $forcedSoundByteId = $settings->int(SettingKey::ForceSoundByteId);
         if ($forcedSoundByteId) {
             $soundByte = MediaAsset::query()->ofType(MediaType::SoundByte)->active()->find($forcedSoundByteId);
         }
         if (! $soundByte) {
-            $sbInterval = (int) Setting::get('sound_byte_interval', 0, $stationId);
-            $songsSinceSb = (int) Setting::get('songs_since_last_sound_byte', 0, $stationId);
+            $sbInterval = $settings->int(SettingKey::SoundByteInterval);
+            $songsSinceSb = $settings->int(SettingKey::SongsSinceLastSoundByte);
             if ($sbInterval > 0 && $songsSinceSb >= $sbInterval) {
                 $soundByte = MediaAsset::query()->ofType(MediaType::SoundByte)->active()->inRandomOrder()->first();
             }
@@ -210,8 +215,8 @@ class QueueService
 
     private function onSongPlayed(int $stationId, ?int $queueItemId): void
     {
-        Setting::inc('songs_since_last_commercial', 1, $stationId);
-        Setting::inc('songs_since_last_sound_byte', 1, $stationId);
+        Setting::inc(SettingKey::SongsSinceLastCommercial, 1, $stationId);
+        Setting::inc(SettingKey::SongsSinceLastSoundByte, 1, $stationId);
 
         if ($queueItemId) {
             QueueItem::where('id', $queueItemId)->update(['status' => 'playing']);
@@ -221,18 +226,18 @@ class QueueService
 
     private function onCommercialPlayed(int $stationId, ?int $commercialId): void
     {
-        Setting::set('songs_since_last_commercial', 0, $stationId);
-        Setting::set('force_commercial_id', 0, $stationId);
+        Setting::set(SettingKey::SongsSinceLastCommercial, 0, $stationId);
+        Setting::set(SettingKey::ForceCommercialId, 0, $stationId);
         if ($commercialId) {
-            Setting::set('last_commercial_id', $commercialId, $stationId);
+            Setting::set(SettingKey::LastCommercialId, $commercialId, $stationId);
             MediaAsset::where('id', $commercialId)->increment('play_count');
         }
     }
 
     private function onSoundBytePlayed(int $stationId): void
     {
-        Setting::set('songs_since_last_sound_byte', 0, $stationId);
-        Setting::set('force_sound_byte_id', 0, $stationId);
+        Setting::set(SettingKey::SongsSinceLastSoundByte, 0, $stationId);
+        Setting::set(SettingKey::ForceSoundByteId, 0, $stationId);
     }
 
     public function addToQueue(int $stationId, int $songId, ?string $name): QueueItem

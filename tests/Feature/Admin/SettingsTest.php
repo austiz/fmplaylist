@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Enums\SettingKey;
 use App\Models\Setting;
 use App\Models\Station;
 use App\Models\User;
@@ -79,8 +80,8 @@ class SettingsTest extends TestCase
             ->assertRedirect();
 
         // Default station's frequency was updated...
-        $this->assertSame('101.5', Setting::get('frequency', null, Station::defaultId()));
+        $this->assertSame(101.5, Setting::get(SettingKey::Frequency, Station::defaultId()));
         // ...but station B, which was never the active session station, is untouched.
-        $this->assertNull(Setting::get('frequency', null, $stationB->id));
+        $this->assertSame(SettingKey::Frequency->default(), Setting::get(SettingKey::Frequency, $stationB->id));
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Enums\SettingKey;
 use App\Models\DeviceDownload;
 use App\Models\MediaAsset;
 use App\Models\NowPlaying;
@@ -202,7 +203,7 @@ class QueueServiceTest extends TestCase
         config(['fm.autofill_target' => 0]);
         $forced = MediaAsset::factory()->commercial()->create();
         MediaAsset::factory()->commercial()->create();
-        Setting::set('force_commercial_id', $forced->id, $this->station->id);
+        Setting::set(SettingKey::ForceCommercialId, $forced->id, $this->station->id);
 
         $result = $this->service->getNextForPi($this->station->id);
 
@@ -214,7 +215,7 @@ class QueueServiceTest extends TestCase
     {
         config(['fm.autofill_target' => 0]);
         $forced = MediaAsset::factory()->commercial()->create(['active' => false]);
-        Setting::set('force_commercial_id', $forced->id, $this->station->id);
+        Setting::set(SettingKey::ForceCommercialId, $forced->id, $this->station->id);
 
         $this->assertNull($this->service->getNextForPi($this->station->id)['commercial']);
     }
@@ -223,8 +224,8 @@ class QueueServiceTest extends TestCase
     {
         config(['fm.autofill_target' => 0]);
         $commercial = MediaAsset::factory()->commercial()->create(['rotation_order' => 1]);
-        Setting::set('commercial_interval', 4, $this->station->id);
-        Setting::set('songs_since_last_commercial', 4, $this->station->id);
+        Setting::set(SettingKey::CommercialInterval, 4, $this->station->id);
+        Setting::set(SettingKey::SongsSinceLastCommercial, 4, $this->station->id);
 
         $this->assertSame(
             $commercial->id,
@@ -236,8 +237,8 @@ class QueueServiceTest extends TestCase
     {
         config(['fm.autofill_target' => 0]);
         MediaAsset::factory()->commercial()->create();
-        Setting::set('commercial_interval', 4, $this->station->id);
-        Setting::set('songs_since_last_commercial', 3, $this->station->id);
+        Setting::set(SettingKey::CommercialInterval, 4, $this->station->id);
+        Setting::set(SettingKey::SongsSinceLastCommercial, 3, $this->station->id);
 
         $this->assertNull($this->service->getNextForPi($this->station->id)['commercial']);
     }
@@ -246,8 +247,8 @@ class QueueServiceTest extends TestCase
     {
         config(['fm.autofill_target' => 0]);
         MediaAsset::factory()->commercial()->create();
-        Setting::set('commercial_interval', 0, $this->station->id);
-        Setting::set('songs_since_last_commercial', 99, $this->station->id);
+        Setting::set(SettingKey::CommercialInterval, 0, $this->station->id);
+        Setting::set(SettingKey::SongsSinceLastCommercial, 99, $this->station->id);
 
         $this->assertNull($this->service->getNextForPi($this->station->id)['commercial']);
     }
@@ -258,7 +259,7 @@ class QueueServiceTest extends TestCase
     {
         config(['fm.autofill_target' => 0]);
         $forced = MediaAsset::factory()->soundByte()->create(['category' => 'drop', 'rds_ps' => 'DROP']);
-        Setting::set('force_sound_byte_id', $forced->id, $this->station->id);
+        Setting::set(SettingKey::ForceSoundByteId, $forced->id, $this->station->id);
 
         $soundByte = $this->service->getNextForPi($this->station->id)['sound_byte'];
 
@@ -271,8 +272,8 @@ class QueueServiceTest extends TestCase
     {
         config(['fm.autofill_target' => 0]);
         $soundByte = MediaAsset::factory()->soundByte()->create();
-        Setting::set('sound_byte_interval', 2, $this->station->id);
-        Setting::set('songs_since_last_sound_byte', 2, $this->station->id);
+        Setting::set(SettingKey::SoundByteInterval, 2, $this->station->id);
+        Setting::set(SettingKey::SongsSinceLastSoundByte, 2, $this->station->id);
 
         $this->assertSame(
             $soundByte->id,
@@ -285,8 +286,8 @@ class QueueServiceTest extends TestCase
         config(['fm.autofill_target' => 0]);
         $other = Station::factory()->create();
         MediaAsset::factory()->soundByte()->create();
-        Setting::set('sound_byte_interval', 2, $other->id);
-        Setting::set('songs_since_last_sound_byte', 9, $other->id);
+        Setting::set(SettingKey::SoundByteInterval, 2, $other->id);
+        Setting::set(SettingKey::SongsSinceLastSoundByte, 9, $other->id);
 
         $this->assertNull($this->service->getNextForPi($this->station->id)['sound_byte']);
         $this->assertNotNull($this->service->getNextForPi($other->id)['sound_byte']);
@@ -298,8 +299,8 @@ class QueueServiceTest extends TestCase
     {
         $song = MediaAsset::factory()->create();
         $item = QueueItem::factory()->for($this->station)->for($song)->atPosition(1)->create();
-        Setting::set('songs_since_last_commercial', 2, $this->station->id);
-        Setting::set('songs_since_last_sound_byte', 5, $this->station->id);
+        Setting::set(SettingKey::SongsSinceLastCommercial, 2, $this->station->id);
+        Setting::set(SettingKey::SongsSinceLastSoundByte, 5, $this->station->id);
 
         $this->service->markNowPlaying($this->station->id, 'song', $item->id, $song->filename);
 
@@ -308,8 +309,8 @@ class QueueServiceTest extends TestCase
         $this->assertSame($song->id, $np->media_asset_id);
         $this->assertSame($item->id, $np->queue_item_id);
         $this->assertSame('playing', $item->fresh()->status);
-        $this->assertSame(3, (int) Setting::get('songs_since_last_commercial', 0, $this->station->id));
-        $this->assertSame(6, (int) Setting::get('songs_since_last_sound_byte', 0, $this->station->id));
+        $this->assertSame(3, (int) Setting::get(SettingKey::SongsSinceLastCommercial, $this->station->id));
+        $this->assertSame(6, (int) Setting::get(SettingKey::SongsSinceLastSoundByte, $this->station->id));
     }
 
     public function test_marking_a_song_playing_compacts_the_remaining_positions(): void
@@ -362,27 +363,27 @@ class QueueServiceTest extends TestCase
     public function test_a_played_commercial_resets_its_counters_and_records_the_play(): void
     {
         $commercial = MediaAsset::factory()->commercial()->create(['play_count' => 4]);
-        Setting::set('songs_since_last_commercial', 7, $this->station->id);
-        Setting::set('force_commercial_id', $commercial->id, $this->station->id);
+        Setting::set(SettingKey::SongsSinceLastCommercial, 7, $this->station->id);
+        Setting::set(SettingKey::ForceCommercialId, $commercial->id, $this->station->id);
 
         $this->service->markNowPlaying($this->station->id, 'commercial', null, null, $commercial->id);
 
-        $this->assertSame(0, (int) Setting::get('songs_since_last_commercial', null, $this->station->id));
-        $this->assertSame(0, (int) Setting::get('force_commercial_id', null, $this->station->id));
-        $this->assertSame($commercial->id, (int) Setting::get('last_commercial_id', null, $this->station->id));
+        $this->assertSame(0, (int) Setting::get(SettingKey::SongsSinceLastCommercial, $this->station->id));
+        $this->assertSame(0, (int) Setting::get(SettingKey::ForceCommercialId, $this->station->id));
+        $this->assertSame($commercial->id, (int) Setting::get(SettingKey::LastCommercialId, $this->station->id));
         $this->assertSame(5, $commercial->fresh()->play_count);
         $this->assertSame('commercial', NowPlaying::forStation($this->station->id)->type);
     }
 
     public function test_a_played_sound_byte_resets_its_counters(): void
     {
-        Setting::set('songs_since_last_sound_byte', 6, $this->station->id);
-        Setting::set('force_sound_byte_id', 12, $this->station->id);
+        Setting::set(SettingKey::SongsSinceLastSoundByte, 6, $this->station->id);
+        Setting::set(SettingKey::ForceSoundByteId, 12, $this->station->id);
 
         $this->service->markNowPlaying($this->station->id, 'sound_byte', null, null);
 
-        $this->assertSame(0, (int) Setting::get('songs_since_last_sound_byte', null, $this->station->id));
-        $this->assertSame(0, (int) Setting::get('force_sound_byte_id', null, $this->station->id));
+        $this->assertSame(0, (int) Setting::get(SettingKey::SongsSinceLastSoundByte, $this->station->id));
+        $this->assertSame(0, (int) Setting::get(SettingKey::ForceSoundByteId, $this->station->id));
         $this->assertSame('sound_byte', NowPlaying::forStation($this->station->id)->type);
     }
 

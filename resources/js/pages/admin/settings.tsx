@@ -62,12 +62,12 @@ function SignalBars({ signal }: { signal: number }) {
 
 export default function Settings({ settings, wifi }: Props) {
     const { data, setData, post, processing, errors } = useForm({
-        frequency: settings.frequency ?? '96.9',
-        callsign: settings.callsign ?? '96.9 FM',
-        fallback_song: settings.fallback_song ?? 'FTPA.wav',
-        commercial_interval: settings.commercial_interval ?? '0',
-        sound_byte_interval: settings.sound_byte_interval ?? '0',
-        fade_in_duration: settings.fade_in_duration ?? '0.5',
+        frequency: settings.frequency,
+        callsign: settings.callsign,
+        fallback_song: settings.fallback_song,
+        commercial_interval: settings.commercial_interval,
+        sound_byte_interval: settings.sound_byte_interval,
+        fade_in_duration: settings.fade_in_duration,
     });
 
     const [selectedSsid, setSelectedSsid] = useState('');

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\MediaType;
+use App\Enums\SettingKey;
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Controller;
 use App\Models\MediaAsset;
@@ -13,6 +14,7 @@ use App\Models\Setting;
 use App\Models\Station;
 use App\Services\QueueService;
 use App\Support\PiPresence;
+use App\Support\StationSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -26,15 +28,21 @@ class BroadcastController extends Controller
 
     public function __construct(private QueueService $queueService) {}
 
+    /** The mode and RDS keys the page's two forms edit. */
+    private const PAGE_KEYS = [
+        SettingKey::BroadcastMode,
+        SettingKey::LiveStreamUrl,
+        SettingKey::LiveAlsaDevice,
+        SettingKey::RdsRtMode,
+        SettingKey::RdsRt,
+        SettingKey::RdsPs,
+    ];
+
     public function index(Request $request): Response
     {
         $station = $this->activeStation($request);
 
-        $settingKeys = [
-            'broadcast_mode', 'live_stream_url', 'live_alsa_device',
-            'rds_rt_mode', 'rds_rt', 'rds_ps',
-        ];
-        $settings = Setting::whereIn('key', $settingKeys)->where('station_id', $station->id)->pluck('value', 'key');
+        $settings = StationSettings::for($station->id)->formValues(self::PAGE_KEYS);
 
         $np = NowPlaying::forStation($station->id);
 
@@ -62,9 +70,9 @@ class BroadcastController extends Controller
             'live_alsa_device' => ['nullable', 'string', 'max:50'],
         ]);
 
-        Setting::set('broadcast_mode', $data['broadcast_mode'], $station->id);
-        Setting::set('live_stream_url', $data['live_stream_url'] ?? '', $station->id);
-        Setting::set('live_alsa_device', $data['live_alsa_device'] ?? 'hw:1,0', $station->id);
+        Setting::set(SettingKey::BroadcastMode, $data['broadcast_mode'], $station->id);
+        Setting::set(SettingKey::LiveStreamUrl, $data['live_stream_url'] ?? '', $station->id);
+        Setting::set(SettingKey::LiveAlsaDevice, $data['live_alsa_device'] ?? 'hw:1,0', $station->id);
 
         return back()->with('success', 'Broadcast mode updated. Pi will switch within 30 seconds.');
     }
@@ -79,9 +87,9 @@ class BroadcastController extends Controller
             'rds_ps' => ['nullable', 'string', 'max:8'],
         ]);
 
-        Setting::set('rds_rt_mode', $data['rds_rt_mode'], $station->id);
-        Setting::set('rds_rt', $data['rds_rt'] ?? '', $station->id);
-        Setting::set('rds_ps', $data['rds_ps'] ?? '', $station->id);
+        Setting::set(SettingKey::RdsRtMode, $data['rds_rt_mode'], $station->id);
+        Setting::set(SettingKey::RdsRt, $data['rds_rt'] ?? '', $station->id);
+        Setting::set(SettingKey::RdsPs, $data['rds_ps'] ?? '', $station->id);
 
         return back()->with('success', 'RDS settings saved.');
     }
@@ -119,7 +127,7 @@ class BroadcastController extends Controller
             'commercial_id' => ['required', 'integer', $this->existsAs(MediaType::Commercial)],
         ]);
 
-        Setting::set('force_commercial_id', $data['commercial_id'], $station->id);
+        Setting::set(SettingKey::ForceCommercialId, $data['commercial_id'], $station->id);
 
         return back()->with('success', 'Commercial will play on next Pi poll (within 30 s).');
     }
@@ -132,7 +140,7 @@ class BroadcastController extends Controller
             'sound_byte_id' => ['required', 'integer', $this->existsAs(MediaType::SoundByte)],
         ]);
 
-        Setting::set('force_sound_byte_id', $data['sound_byte_id'], $station->id);
+        Setting::set(SettingKey::ForceSoundByteId, $data['sound_byte_id'], $station->id);
 
         return back()->with('success', 'Sound byte will play on next Pi poll (within 30 s).');
     }
@@ -142,7 +150,7 @@ class BroadcastController extends Controller
         $station = $this->activeStation($request);
 
         QueueItem::where('station_id', $station->id)->pending()->update(['status' => 'skipped', 'played_at' => now()]);
-        Setting::set('pi_emergency', '1', $station->id);
+        Setting::set(SettingKey::PiEmergency, '1', $station->id);
         PiToken::where('station_id', $station->id)->update(['pi_skip_next' => true]);
         $this->queueService->bumpQueueVersion($station->id);
 

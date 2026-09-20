@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\SettingKey;
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
 use App\Models\WifiNetwork;
+use App\Support\StationSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -16,31 +18,33 @@ class SettingsController extends Controller
 {
     use HasActiveStation;
 
+    /** The keys this page renders as a form. Order is the order they appear. */
+    private const EDITABLE_KEYS = [
+        SettingKey::Frequency,
+        SettingKey::Callsign,
+        SettingKey::FallbackSong,
+        SettingKey::CommercialInterval,
+        SettingKey::SoundByteInterval,
+        SettingKey::FadeInDuration,
+    ];
+
     public function index(Request $request): Response
     {
         $station = $this->activeStation($request);
 
-        $keys = [
-            'frequency',
-            'callsign',
-            'fallback_song',
-            'commercial_interval',
-            'sound_byte_interval',
-            'fade_in_duration',
-        ];
-        $settings = Setting::whereIn('key', $keys)->where('station_id', $station->id)->pluck('value', 'key');
+        $settings = StationSettings::for($station->id);
 
-        $lastWifiStatus = Setting::get('last_wifi_status', '', $station->id);
+        $lastWifiStatus = $settings->string(SettingKey::LastWifiStatus);
         [$wifiStatusType, $wifiStatusSsid] = str_contains($lastWifiStatus, ':')
             ? explode(':', $lastWifiStatus, 2)
             : ['', ''];
 
         return Inertia::render('admin/settings', [
-            'settings' => $settings,
+            'settings' => $settings->formValues(self::EDITABLE_KEYS),
             'wifi' => [
                 'current_ssid' => Cache::get("pi.wifi_ssid.{$station->id}", ''),
                 'networks' => Cache::get("pi.wifi_networks.{$station->id}", []),
-                'pending_ssid' => Setting::get('pending_wifi_ssid', '', $station->id),
+                'pending_ssid' => $settings->string(SettingKey::PendingWifiSsid),
                 'last_status' => $wifiStatusType,   // 'connected' | 'failed' | ''
                 'last_ssid' => $wifiStatusSsid,
                 // Saved fallback list. Passwords are never sent to the browser —
@@ -73,8 +77,10 @@ class SettingsController extends Controller
             'fade_in_duration' => ['required', 'numeric', 'min:0', 'max:3'],
         ]);
 
-        foreach ($data as $key => $value) {
-            Setting::set($key, $value, $station->id);
+        $settings = StationSettings::for($station->id);
+
+        foreach (self::EDITABLE_KEYS as $key) {
+            $settings->put($key, $data[$key->value]);
         }
 
         return back()->with('success', 'Settings saved.');
@@ -89,9 +95,9 @@ class SettingsController extends Controller
             'password' => ['nullable', 'string', 'max:128'],
         ]);
 
-        Setting::set('pending_wifi_ssid', $data['ssid'], $station->id);
-        Setting::set('pending_wifi_password', $data['password'] ?? '', $station->id);
-        Setting::set('last_wifi_status', '', $station->id);   // clear previous result
+        Setting::set(SettingKey::PendingWifiSsid, $data['ssid'], $station->id);
+        Setting::set(SettingKey::PendingWifiPassword, $data['password'] ?? '', $station->id);
+        Setting::set(SettingKey::LastWifiStatus, '', $station->id);   // clear previous result
 
         return back()->with('success', 'WiFi change queued. Pi will switch within 30 seconds.');
     }
@@ -170,7 +176,7 @@ class SettingsController extends Controller
     {
         $station = $this->activeStation($request);
 
-        Setting::set('pi_update_requested', '1', $station->id);
+        Setting::set(SettingKey::PiUpdateRequested, '1', $station->id);
 
         return back()->with('success', 'Update queued — Pi will refresh the full source payload and restart within 30 seconds.');
     }

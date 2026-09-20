@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\MediaType;
+use App\Enums\SettingKey;
 use Database\Factories\MediaAssetFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -113,7 +114,7 @@ class MediaAsset extends Model
     /** Next commercial in sequential rotation after the last-played id. Wraps around. */
     public static function nextCommercialInRotation(?int $stationId = null): ?self
     {
-        $lastId = (int) Setting::get('last_commercial_id', 0, $stationId);
+        $lastId = (int) Setting::get(SettingKey::LastCommercialId, $stationId);
 
         $rotation = static::query()->ofType(MediaType::Commercial)->active();
 

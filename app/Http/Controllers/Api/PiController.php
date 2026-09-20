@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\SettingKey;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\NowPlayingResource;
 use App\Models\NowPlaying;
@@ -15,6 +16,7 @@ use App\Services\QueueService;
 use App\Support\PiPresence;
 use App\Support\PiSource;
 use App\Support\PublicStation;
+use App\Support\StationSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -126,12 +128,12 @@ class PiController extends Controller
 
         // WiFi switch result — clear pending and store outcome
         if ($data['wifi_applied'] ?? null) {
-            Setting::set('pending_wifi_ssid', '', $stationId);
-            Setting::set('pending_wifi_password', '', $stationId);
-            Setting::set('last_wifi_status', 'connected:'.$data['wifi_applied'], $stationId);
+            Setting::set(SettingKey::PendingWifiSsid, '', $stationId);
+            Setting::set(SettingKey::PendingWifiPassword, '', $stationId);
+            Setting::set(SettingKey::LastWifiStatus, 'connected:'.$data['wifi_applied'], $stationId);
         }
         if ($data['wifi_failed'] ?? null) {
-            Setting::set('last_wifi_status', 'failed:'.$data['wifi_failed'], $stationId);
+            Setting::set(SettingKey::LastWifiStatus, 'failed:'.$data['wifi_failed'], $stationId);
         }
 
         // What the Pi actually has on disk, so the settings page can flag drift
@@ -197,10 +199,10 @@ class PiController extends Controller
 
         // Consume emergency / update flags after including them in this response
         if ($config['emergency'] ?? false) {
-            Setting::set('pi_emergency', '0', $stationId);
+            Setting::set(SettingKey::PiEmergency, '0', $stationId);
         }
         if ($config['apply_update'] ?? false) {
-            Setting::set('pi_update_requested', '0', $stationId);
+            Setting::set(SettingKey::PiUpdateRequested, '0', $stationId);
         }
 
         return response()->json([
@@ -387,33 +389,36 @@ class PiController extends Controller
     /** @return array<string, mixed> */
     private function buildConfig(Station $station, PiToken $token): array
     {
-        $pendingWifiSsid = Setting::get('pending_wifi_ssid', '', $station->id);
+        // One query for the whole bag: this used to be 16 separate SELECTs, on
+        // the path every device hits every 30 seconds.
+        $settings = StationSettings::for($station->id);
+        $pendingWifiSsid = $settings->string(SettingKey::PendingWifiSsid);
 
         return [
-            'freq' => (float) Setting::get('frequency', '96.9', $station->id),
-            'broadcast_mode' => Setting::get('broadcast_mode', 'normal', $station->id),
-            'live_stream_url' => Setting::get('live_stream_url', '', $station->id),
-            'live_alsa_device' => Setting::get('live_alsa_device', 'hw:1,0', $station->id),
-            'rds_rt_mode' => Setting::get('rds_rt_mode', 'auto', $station->id),
-            'rds_rt' => Setting::get('rds_rt', '', $station->id),
-            'rds_ps' => Setting::get('rds_ps', '', $station->id),
-            'callsign' => Setting::get('callsign', '96.9 FM', $station->id),
-            'fallback_song' => Setting::get('fallback_song', 'FTPA.wav', $station->id),
-            'fade_in_duration' => (float) Setting::get('fade_in_duration', 0.5, $station->id),
+            'freq' => $settings->float(SettingKey::Frequency),
+            'broadcast_mode' => $settings->string(SettingKey::BroadcastMode),
+            'live_stream_url' => $settings->string(SettingKey::LiveStreamUrl),
+            'live_alsa_device' => $settings->string(SettingKey::LiveAlsaDevice),
+            'rds_rt_mode' => $settings->string(SettingKey::RdsRtMode),
+            'rds_rt' => $settings->string(SettingKey::RdsRt),
+            'rds_ps' => $settings->string(SettingKey::RdsPs),
+            'callsign' => $settings->string(SettingKey::Callsign),
+            'fallback_song' => $settings->string(SettingKey::FallbackSong),
+            'fade_in_duration' => $settings->float(SettingKey::FadeInDuration),
             'pending_downloads' => $this->deviceSyncService->pendingDownloadsFor($token),
             'pending_deletes' => $this->deviceSyncService->pendingDeletesFor($token),
-            'pending_wifi' => $pendingWifiSsid ? [
+            'pending_wifi' => $pendingWifiSsid !== '' ? [
                 'ssid' => $pendingWifiSsid,
-                'password' => Setting::get('pending_wifi_password', '', $station->id),
+                'password' => $settings->string(SettingKey::PendingWifiPassword),
             ] : null,
             // Full saved list, best-first. The Pi caches this to disk and hands it
             // to NetworkManager, so it can rejoin a fallback network at boot with
             // no server contact at all.
             'wifi_profiles' => WifiNetwork::profilesFor($station->id),
             'wifi_profiles_rev' => WifiNetwork::revisionFor($station->id),
-            'emergency' => (bool) Setting::get('pi_emergency', '0', $station->id),
-            'emergency_file' => Setting::get('emergency_announcement', 'announcement.wav', $station->id),
-            'apply_update' => (bool) Setting::get('pi_update_requested', '0', $station->id),
+            'emergency' => $settings->bool(SettingKey::PiEmergency),
+            'emergency_file' => $settings->string(SettingKey::EmergencyAnnouncement),
+            'apply_update' => $settings->bool(SettingKey::PiUpdateRequested),
         ];
     }
 

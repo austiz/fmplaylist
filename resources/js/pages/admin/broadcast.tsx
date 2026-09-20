@@ -63,15 +63,15 @@ export default function Broadcast({
     nowPlaying,
 }: Props) {
     const modeForm = useForm({
-        broadcast_mode: settings.broadcast_mode ?? 'normal',
-        live_stream_url: settings.live_stream_url ?? '',
-        live_alsa_device: settings.live_alsa_device ?? 'hw:1,0',
+        broadcast_mode: settings.broadcast_mode,
+        live_stream_url: settings.live_stream_url,
+        live_alsa_device: settings.live_alsa_device,
     });
 
     const rdsForm = useForm({
-        rds_rt_mode: settings.rds_rt_mode ?? 'auto',
-        rds_rt: settings.rds_rt ?? '',
-        rds_ps: settings.rds_ps ?? '',
+        rds_rt_mode: settings.rds_rt_mode,
+        rds_rt: settings.rds_rt,
+        rds_ps: settings.rds_ps,
     });
 
     const skipForm = useForm({});

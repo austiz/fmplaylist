@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Enums\SettingKey;
 use App\Models\MediaAsset;
 use App\Models\PiToken;
 use App\Models\QueueItem;
@@ -79,7 +80,7 @@ class BroadcastControllerTest extends TestCase
         MediaAsset::factory()->commercial()->create(['title' => 'Live Spot']);
         MediaAsset::factory()->commercial()->create(['title' => 'Retired Spot', 'active' => false]);
         MediaAsset::factory()->soundByte()->create(['title' => 'Drop']);
-        Setting::set('broadcast_mode', 'usb_input', $this->station->id);
+        Setting::set(SettingKey::BroadcastMode, 'usb_input', $this->station->id);
 
         $this->actingAs($this->admin)
             ->get('/admin/broadcast')
@@ -95,8 +96,8 @@ class BroadcastControllerTest extends TestCase
     public function test_the_page_shows_only_the_active_stations_settings(): void
     {
         $other = Station::factory()->create();
-        Setting::set('rds_ps', 'DEFAULT', $this->station->id);
-        Setting::set('rds_ps', 'OTHER', $other->id);
+        Setting::set(SettingKey::RdsPs, 'DEFAULT', $this->station->id);
+        Setting::set(SettingKey::RdsPs, 'OTHER', $other->id);
 
         $this->switchTo($other);
 
@@ -118,9 +119,9 @@ class BroadcastControllerTest extends TestCase
             ->assertRedirect()
             ->assertSessionHas('success');
 
-        $this->assertSame('custom_stream', Setting::get('broadcast_mode', null, $this->station->id));
-        $this->assertSame('http://example.test/stream.mp3', Setting::get('live_stream_url', null, $this->station->id));
-        $this->assertSame('hw:2,0', Setting::get('live_alsa_device', null, $this->station->id));
+        $this->assertSame('custom_stream', Setting::get(SettingKey::BroadcastMode, $this->station->id));
+        $this->assertSame('http://example.test/stream.mp3', Setting::get(SettingKey::LiveStreamUrl, $this->station->id));
+        $this->assertSame('hw:2,0', Setting::get(SettingKey::LiveAlsaDevice, $this->station->id));
     }
 
     public function test_omitted_mode_fields_fall_back_to_their_defaults(): void
@@ -130,8 +131,8 @@ class BroadcastControllerTest extends TestCase
             ->assertRedirect();
 
         // Blank URL, but the ALSA device defaults to the capture card the Pi ships with.
-        $this->assertSame('', Setting::get('live_stream_url', null, $this->station->id));
-        $this->assertSame('hw:1,0', Setting::get('live_alsa_device', null, $this->station->id));
+        $this->assertSame('', Setting::get(SettingKey::LiveStreamUrl, $this->station->id));
+        $this->assertSame('hw:1,0', Setting::get(SettingKey::LiveAlsaDevice, $this->station->id));
     }
 
     public function test_an_unknown_broadcast_mode_is_rejected(): void
@@ -140,7 +141,8 @@ class BroadcastControllerTest extends TestCase
             ->post('/admin/broadcast/mode', ['broadcast_mode' => 'shortwave'])
             ->assertSessionHasErrors('broadcast_mode');
 
-        $this->assertNull(Setting::get('broadcast_mode', null, $this->station->id));
+        // Nothing was written, so the read falls back to the key's declared default.
+        $this->assertSame('normal', Setting::get(SettingKey::BroadcastMode, $this->station->id));
     }
 
     public function test_the_mode_is_written_to_the_active_station_only(): void
@@ -150,8 +152,9 @@ class BroadcastControllerTest extends TestCase
 
         $this->actingAs($this->admin)->post('/admin/broadcast/mode', ['broadcast_mode' => 'phone_stream']);
 
-        $this->assertSame('phone_stream', Setting::get('broadcast_mode', null, $other->id));
-        $this->assertNull(Setting::get('broadcast_mode', null, $this->station->id));
+        $this->assertSame('phone_stream', Setting::get(SettingKey::BroadcastMode, $other->id));
+        // Nothing was written, so the read falls back to the key's declared default.
+        $this->assertSame('normal', Setting::get(SettingKey::BroadcastMode, $this->station->id));
     }
 
     // -- updateRds ---------------------------------------------------------
@@ -167,9 +170,9 @@ class BroadcastControllerTest extends TestCase
             ->assertRedirect()
             ->assertSessionHas('success');
 
-        $this->assertSame('custom', Setting::get('rds_rt_mode', null, $this->station->id));
-        $this->assertSame('Now playing the good stuff', Setting::get('rds_rt', null, $this->station->id));
-        $this->assertSame('FMPLAY', Setting::get('rds_ps', null, $this->station->id));
+        $this->assertSame('custom', Setting::get(SettingKey::RdsRtMode, $this->station->id));
+        $this->assertSame('Now playing the good stuff', Setting::get(SettingKey::RdsRt, $this->station->id));
+        $this->assertSame('FMPLAY', Setting::get(SettingKey::RdsPs, $this->station->id));
     }
 
     public function test_the_rds_program_service_name_is_capped_at_eight_characters(): void
@@ -288,7 +291,7 @@ class BroadcastControllerTest extends TestCase
             ->assertRedirect()
             ->assertSessionHas('success');
 
-        $this->assertSame((string) $commercial->id, Setting::get('force_commercial_id', null, $this->station->id));
+        $this->assertSame($commercial->id, Setting::get(SettingKey::ForceCommercialId, $this->station->id));
     }
 
     public function test_forcing_a_commercial_requires_a_real_commercial(): void
@@ -307,7 +310,7 @@ class BroadcastControllerTest extends TestCase
             ->assertRedirect()
             ->assertSessionHas('success');
 
-        $this->assertSame((string) $soundByte->id, Setting::get('force_sound_byte_id', null, $this->station->id));
+        $this->assertSame($soundByte->id, Setting::get(SettingKey::ForceSoundByteId, $this->station->id));
     }
 
     public function test_forcing_a_sound_byte_requires_a_real_sound_byte(): void
@@ -338,7 +341,7 @@ class BroadcastControllerTest extends TestCase
 
         // Only pending rows are cleared; whatever is on air is stopped by the flag.
         $this->assertSame('playing', $playing->fresh()->status);
-        $this->assertSame('1', Setting::get('pi_emergency', null, $this->station->id));
+        $this->assertTrue(Setting::get(SettingKey::PiEmergency, $this->station->id));
         $this->assertTrue((bool) $token->fresh()->pi_skip_next);
         $this->assertNotNull(Cache::get("sse.queue_version.{$this->station->id}"));
     }
@@ -352,7 +355,7 @@ class BroadcastControllerTest extends TestCase
         $this->actingAs($this->admin)->post('/admin/broadcast/emergency');
 
         $this->assertSame('skipped', $otherPending->fresh()->status);
-        $this->assertSame('1', Setting::get('pi_emergency', null, $other->id));
-        $this->assertNull(Setting::get('pi_emergency', null, $this->station->id));
+        $this->assertTrue(Setting::get(SettingKey::PiEmergency, $other->id));
+        $this->assertFalse(Setting::get(SettingKey::PiEmergency, $this->station->id));
     }
 }

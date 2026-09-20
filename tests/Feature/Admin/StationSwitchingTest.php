@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Enums\SettingKey;
 use App\Models\Setting;
 use App\Models\Station;
 use App\Models\User;
@@ -44,8 +45,8 @@ class StationSwitchingTest extends TestCase
     public function test_settings_page_reflects_the_active_stations_data(): void
     {
         $stationB = Station::create(['name' => 'Station B', 'slug' => 'station-b']);
-        Setting::set('callsign', 'DEFAULT FM', Station::defaultId());
-        Setting::set('callsign', 'STATION B FM', $stationB->id);
+        Setting::set(SettingKey::Callsign, 'DEFAULT FM', Station::defaultId());
+        Setting::set(SettingKey::Callsign, 'STATION B FM', $stationB->id);
 
         $this->actingAs($this->admin)->post('/admin/stations/switch', ['station_id' => $stationB->id]);
 

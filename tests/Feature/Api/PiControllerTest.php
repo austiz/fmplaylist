@@ -8,6 +8,7 @@ use App\Models\QueueItem;
 use App\Models\Station;
 use App\Services\DeviceSyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PiControllerTest extends TestCase
@@ -25,6 +26,25 @@ class PiControllerTest extends TestCase
     private function piHeaders(): array
     {
         return ['X-Pi-Token' => $this->rawToken];
+    }
+
+    /**
+     * The device config used to be assembled with one SELECT per setting, so a Pi
+     * poll spent sixteen queries reading its own config. StationSettings loads the
+     * bag once; this keeps it that way.
+     */
+    public function test_the_device_config_reads_the_settings_bag_once(): void
+    {
+        DB::enableQueryLog();
+
+        $this->getJson('/api/pi/config', $this->piHeaders())->assertOk();
+
+        $settingsQueries = array_filter(
+            DB::getQueryLog(),
+            fn (array $q) => str_contains($q['query'], '"settings"')
+        );
+
+        $this->assertCount(1, $settingsQueries);
     }
 
     public function test_queue_requires_token(): void

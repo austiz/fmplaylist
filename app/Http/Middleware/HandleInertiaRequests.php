@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\SettingKey;
 use App\Models\Setting;
 use App\Models\Station;
 use App\Support\PublicStation;
@@ -49,7 +50,8 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => ['user' => $request->user()],
-            'frequency' => Setting::get('frequency', '96.9', $frequencyStationId),
+            // Rendered, not computed with — the shared prop is a display string.
+            'frequency' => (string) Setting::get(SettingKey::Frequency, $frequencyStationId),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'activeStation' => $activeStation ? ['id' => $activeStation->id, 'name' => $activeStation->name, 'slug' => $activeStation->slug] : null,
             'publicStation' => $publicStation ? ['id' => $publicStation->id, 'name' => $publicStation->name, 'slug' => $publicStation->slug] : null,
