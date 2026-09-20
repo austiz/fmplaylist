@@ -1,6 +1,7 @@
-import { Link, router } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
 import { LineSparkline } from '@/components/admin/sparkline';
 import { AdminLayout } from '@/components/admin-layout';
+import { Pagination } from '@/components/pagination';
 import { shortDay } from '@/lib/format';
 import type { PaginatedResponse } from '@/types/fm';
 
@@ -102,26 +103,7 @@ export default function History({ items, filter, playsLast7Days }: Props) {
                 ))}
             </div>
 
-            {items.last_page > 1 && (
-                <div className="mt-4 flex justify-center gap-1">
-                    {items.links.map((link, i) =>
-                        link.url ? (
-                            <Link
-                                key={i}
-                                href={link.url}
-                                className={`px-3 py-1.5 text-xs font-medium ${link.active ? 'bg-red-600 text-white' : 'border border-border text-muted-foreground hover:text-foreground'}`}
-                                dangerouslySetInnerHTML={{ __html: link.label }}
-                            />
-                        ) : (
-                            <span
-                                key={i}
-                                className="px-3 py-1.5 text-xs text-muted-foreground/30"
-                                dangerouslySetInnerHTML={{ __html: link.label }}
-                            />
-                        ),
-                    )}
-                </div>
-            )}
+            <Pagination page={items} className="mt-4" />
         </AdminLayout>
     );
 }

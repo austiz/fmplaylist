@@ -1,6 +1,7 @@
-import { Link, router, useForm } from '@inertiajs/react';
-import { createContext, useContext, useRef, useState } from 'react';
+import { router, useForm } from '@inertiajs/react';
+import { createContext, useContext, useState } from 'react';
 import { AdminLayout } from '@/components/admin-layout';
+import { Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +12,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { useDebouncedSearch } from '@/hooks/use-debounced-search';
 import type { Commercial, PaginatedResponse, SoundByte } from '@/types/fm';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -320,22 +322,9 @@ function SongsSection({
     const pending = songs.data.filter(
         (s) => s.devices_have === 0 && !s.pi_delete_requested,
     ).length;
-    const searchTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-    // Songs are server-paginated (50/page) across the whole library, so the search
-    // must hit the server too — filtering only `songs.data` would miss every song
-    // outside the currently-loaded page.
-    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value;
-        clearTimeout(searchTimeout.current);
-        searchTimeout.current = setTimeout(() => {
-            router.get(
-                '/admin/sounds',
-                { search: value },
-                { preserveState: true, replace: true, only: ['songs'] },
-            );
-        }, 300);
-    };
+    const handleSearch = useDebouncedSearch('/admin/sounds', {
+        only: ['songs'],
+    });
 
     return (
         <div className="space-y-6">
@@ -367,30 +356,7 @@ function SongsSection({
                         </p>
                     )}
                 </div>
-                {songs.last_page > 1 && (
-                    <div className="flex justify-center gap-1">
-                        {songs.links.map((link, i) =>
-                            link.url ? (
-                                <Link
-                                    key={i}
-                                    href={link.url}
-                                    className={`px-3 py-1.5 text-xs font-medium ${link.active ? 'bg-red-600 text-white' : 'border border-border text-muted-foreground hover:text-foreground'}`}
-                                    dangerouslySetInnerHTML={{
-                                        __html: link.label,
-                                    }}
-                                />
-                            ) : (
-                                <span
-                                    key={i}
-                                    className="px-3 py-1.5 text-xs text-muted-foreground/30"
-                                    dangerouslySetInnerHTML={{
-                                        __html: link.label,
-                                    }}
-                                />
-                            ),
-                        )}
-                    </div>
-                )}
+                <Pagination page={songs} />
             </div>
         </div>
     );

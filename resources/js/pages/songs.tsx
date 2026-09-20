@@ -1,5 +1,6 @@
-import { Link, router, useForm, usePage } from '@inertiajs/react';
-import { useRef, useState } from 'react';
+import { useForm, usePage } from '@inertiajs/react';
+import { useState } from 'react';
+import { Pagination } from '@/components/pagination';
 import { PublicLayout } from '@/components/public-layout';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useDebouncedSearch } from '@/hooks/use-debounced-search';
 import { pushRecent } from '@/lib/recents';
 import type { PaginatedResponse, Song, Station } from '@/types/fm';
 
@@ -131,19 +133,9 @@ export default function Songs({ songs, search, station }: Props) {
     const [requesting, setRequesting] = useState<Song | null>(null);
     const { props } = usePage<{ flash: { success?: string } }>();
     const flash = props.flash;
-    const searchTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value;
-        clearTimeout(searchTimeout.current);
-        searchTimeout.current = setTimeout(() => {
-            router.get(
-                '/songs',
-                { search: value, station: station.slug },
-                { preserveState: true, replace: true },
-            );
-        }, 300);
-    };
+    const handleSearch = useDebouncedSearch('/songs', {
+        params: { station: station.slug },
+    });
 
     return (
         <PublicLayout>
@@ -204,34 +196,7 @@ export default function Songs({ songs, search, station }: Props) {
                     ))}
                 </div>
 
-                {songs.last_page > 1 && (
-                    <div className="flex flex-wrap justify-center gap-1">
-                        {songs.links.map((link, i) =>
-                            link.url ? (
-                                <Link
-                                    key={i}
-                                    href={link.url}
-                                    className={`px-3 py-1.5 font-display text-xs font-bold tracking-wider uppercase transition-colors ${
-                                        link.active
-                                            ? 'bg-red-600 text-white'
-                                            : 'border border-border text-muted-foreground hover:border-red-500 hover:text-red-500'
-                                    }`}
-                                    dangerouslySetInnerHTML={{
-                                        __html: link.label,
-                                    }}
-                                />
-                            ) : (
-                                <span
-                                    key={i}
-                                    className="px-3 py-1.5 text-xs text-muted-foreground/30"
-                                    dangerouslySetInnerHTML={{
-                                        __html: link.label,
-                                    }}
-                                />
-                            ),
-                        )}
-                    </div>
-                )}
+                <Pagination page={songs} variant="listener" />
             </div>
 
             {requesting && (
