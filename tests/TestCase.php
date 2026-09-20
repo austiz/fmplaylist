@@ -4,6 +4,7 @@ namespace Tests;
 
 use App\Support\CurrentStation;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Fortify\Features;
 
 abstract class TestCase extends BaseTestCase
@@ -18,6 +19,24 @@ abstract class TestCase extends BaseTestCase
         parent::setUp();
 
         CurrentStation::forget();
+    }
+
+    /**
+     * The logged queries, with identifier quoting removed.
+     *
+     * A query-log assertion that spells a table `"settings"` only matches on
+     * sqlite: MySQL quotes with backticks, so the filter finds nothing. That
+     * fails an assertCount outright and -- worse -- makes an assertEmpty pass
+     * for the wrong reason, guarding nothing on the driver production runs.
+     *
+     * @return array<int, string>
+     */
+    protected function loggedQueries(): array
+    {
+        return array_map(
+            fn (array $q) => str_replace(['`', '"'], '', (string) $q['query']),
+            DB::getQueryLog()
+        );
     }
 
     protected function skipUnlessFortifyHas(string $feature, ?string $message = null): void

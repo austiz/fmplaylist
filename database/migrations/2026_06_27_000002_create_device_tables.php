@@ -47,7 +47,12 @@ return new class extends Migration
             // a station never sees it.
             $table->foreignId('pi_token_id')->constrained()->cascadeOnDelete();
             $table->string('command');
-            $table->json('payload')->nullable();
+            // A string, not json: every payload is a bare filename -- the
+            // emergency announcement to play. MySQL rejects `evac.wav` as
+            // invalid json, so this column type only ever worked on sqlite.
+            // Length is explicit to match the request's max:255 rather than
+            // inherit the app's 191 default and truncate what validation let by.
+            $table->string('payload', 255)->nullable();
             $table->string('status')->default('queued');
             $table->timestamp('sent_at')->nullable();
             $table->timestamp('completed_at')->nullable();

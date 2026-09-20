@@ -41,8 +41,8 @@ class PiControllerTest extends TestCase
         $this->getJson('/api/pi/config', $this->piHeaders())->assertOk();
 
         $settingsQueries = array_filter(
-            DB::getQueryLog(),
-            fn (array $q) => str_contains($q['query'], '"settings"')
+            $this->loggedQueries(),
+            fn (string $q) => str_contains($q, 'from settings')
         );
 
         $this->assertCount(1, $settingsQueries);

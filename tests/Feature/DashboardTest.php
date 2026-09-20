@@ -49,12 +49,12 @@ class DashboardTest extends TestCase
             'X-Inertia-Partial-Data' => 'stats',
         ])->assertOk();
 
-        $queries = array_column(DB::getQueryLog(), 'query');
+        $queries = $this->loggedQueries();
 
         // The station list behind the switcher, and the frequency string in the header.
         // EnsureActiveStation still resolves the active station itself -- that is the
         // route's own work, not a shared prop.
-        $this->assertEmpty(array_filter($queries, fn (string $q) => str_contains($q, 'from "stations" order by "name"')));
-        $this->assertEmpty(array_filter($queries, fn (string $q) => str_contains($q, 'from "settings"')));
+        $this->assertEmpty(array_filter($queries, fn (string $q) => str_contains($q, 'from stations order by name')));
+        $this->assertEmpty(array_filter($queries, fn (string $q) => str_contains($q, 'from settings')));
     }
 }
