@@ -115,7 +115,6 @@ LOCAL_CONFIG_KEYS: dict = {
     'commercial_dir':        os.path.join(SCRIPT_DIR, 'commercials'),
     'sound_byte_dir':        os.path.join(SCRIPT_DIR, 'sound-bytes'),
     'fallback_song':         'FTPA.wav',
-    'poll_interval_seconds': 5,
     'verify_ssl':            True,
 }
 

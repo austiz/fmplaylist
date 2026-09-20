@@ -33,9 +33,6 @@ class PiSetupControllerTest extends TestCase
         $this->assertStringContainsString("'commercial_dir': os.path.join(install_dir, 'commercials')", $script);
         $this->assertStringContainsString("'sound_byte_dir': os.path.join(install_dir, 'sound-bytes')", $script);
         $this->assertStringContainsString("'fallback_song': 'FTPA.wav'", $script);
-        $this->assertStringContainsString("'local_station_id_path': os.path.join(install_dir, 'station_id.wav')", $script);
-        $this->assertStringContainsString("'local_station_id_hash': keep('local_station_id_hash', '')", $script);
-        $this->assertStringContainsString("'poll_interval_seconds': keep('poll_interval_seconds', 5)", $script);
         $this->assertStringContainsString("'verify_ssl': keep('verify_ssl', False)", $script);
     }
 
@@ -97,8 +94,6 @@ class PiSetupControllerTest extends TestCase
         $this->assertStringContainsString('old = json.load(f)', $script);
         $this->assertStringContainsString("'pi_code': keep('pi_code', 'C0DE')", $script);
         $this->assertStringContainsString("'callsign': keep('callsign', '96.9 FM ')", $script);
-        $this->assertStringContainsString("'local_station_id_hash': keep('local_station_id_hash', '')", $script);
-        $this->assertStringContainsString("'poll_interval_seconds': keep('poll_interval_seconds', 5)", $script);
         $this->assertStringContainsString("'verify_ssl': keep('verify_ssl', False)", $script);
     }
 

@@ -183,7 +183,7 @@ rollback_install() {
   [ -f "$LAST_GOOD_DIR/source-files.txt" ] && cp -f "$LAST_GOOD_DIR/source-files.txt" "$SOURCE_MANIFEST_FILE" || true
   [ -f "$LAST_GOOD_DIR/native.sha256" ] && cp -f "$LAST_GOOD_DIR/native.sha256" "$NATIVE_SHA_FILE" || true
   chmod +x "$DIR/pi_fm_rds" 2>/dev/null || true
-  chmod +x "$DIR/run.sh" "$DIR/wifi_apply.sh" "$DIR/whisper.sh" 2>/dev/null || true
+  chmod +x "$DIR/wifi_apply.sh" 2>/dev/null || true
 
   systemctl start fmplaylist >/dev/null 2>&1 || true
   echo "==> Rollback complete."
@@ -401,7 +401,7 @@ echo "==> Fetching source payload..."
 SRC="$WORK_DIR/src"
 fetch_source "$SRC"
 
-for required in pi_daemon.py Makefile pi_fm_rds.c run.sh wifi_apply.sh FTPA.wav; do
+for required in pi_daemon.py Makefile pi_fm_rds.c wifi_apply.sh FTPA.wav; do
   if [ ! -f "$SRC/$required" ]; then
     echo "ERROR: payload is missing $required"
     exit 1
@@ -486,7 +486,7 @@ find "$SRC" -maxdepth 1 -type f -exec cp -f {} "$DIR/" \;
 cp "$NEW_SOURCE_MANIFEST" "$SOURCE_MANIFEST_FILE"
 echo "$NEW_NATIVE_SHA" > "$NATIVE_SHA_FILE"
 chmod +x "$DIR/pi_fm_rds" 2>/dev/null || true
-chmod +x "$DIR/run.sh" "$DIR/wifi_apply.sh" "$DIR/whisper.sh" 2>/dev/null || true
+chmod +x "$DIR/wifi_apply.sh" 2>/dev/null || true
 
 # Saved wifi networks live outside $DIR so the stale-source sweep above can't
 # delete them. Root-only: the file holds PSKs in the clear.
@@ -525,9 +525,6 @@ cfg = {
     'commercial_dir': os.path.join(install_dir, 'commercials'),
     'sound_byte_dir': os.path.join(install_dir, 'sound-bytes'),
     'fallback_song': 'FTPA.wav',
-    'local_station_id_path': os.path.join(install_dir, 'station_id.wav'),
-    'local_station_id_hash': keep('local_station_id_hash', ''),
-    'poll_interval_seconds': keep('poll_interval_seconds', 5),
     'verify_ssl': keep('verify_ssl', False),
 }
 
