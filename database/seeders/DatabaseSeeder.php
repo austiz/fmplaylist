@@ -5,8 +5,17 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 
+/**
+ * A fresh install needs exactly one thing the migrations cannot provide: someone to
+ * log in as.
+ *
+ * Station defaults are not seeded here. The default station is created by the
+ * `stations` migration, because everything else has to belong to one, and every
+ * setting's default lives on `SettingKey` -- writing rows for them here would have
+ * meant two places to change a default and a seeded install behaving differently
+ * from a migrated one.
+ */
 class DatabaseSeeder extends Seeder
 {
     use WithoutModelEvents;
@@ -17,21 +26,5 @@ class DatabaseSeeder extends Seeder
             'name' => 'Admin',
             'email' => 'admin@fmplaylist.com',
         ]);
-
-        $defaults = [
-            'station_id_interval' => '3',
-            'songs_played_since_last_station_id' => '0',
-            'callsign' => '96.9 FM',
-            'fallback_song' => 'FTPA.wav',
-        ];
-
-        foreach ($defaults as $key => $value) {
-            DB::table('settings')->insertOrIgnore([
-                'key' => $key,
-                'value' => $value,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
     }
 }
