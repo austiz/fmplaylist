@@ -6,16 +6,14 @@ on:
       - develop
       - main
       - master
-      - workos
   pull_request:
     branches:
       - develop
       - main
       - master
-      - workos
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   quality:
@@ -35,17 +33,13 @@ jobs:
           composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
           npm install
 
-      - name: Run Pint
-        run: composer lint
+      # Check, never fix: the fixing variants (`composer lint`, `npm run format`)
+      # rewrite files in place, so style drift passes CI silently.
+      - name: Check PHP formatting
+        run: composer lint:check
 
-      - name: Format Frontend
-        run: npm run format
+      - name: Check frontend formatting
+        run: npm run format:check
 
-      - name: Lint Frontend
-        run: npm run lint
-
-      # - name: Commit Changes
-      #   uses: stefanzweifel/git-auto-commit-action@v7
-      #   with:
-      #     commit_message: fix code style
-      #     commit_options: '--no-verify'
+      - name: Lint frontend
+        run: npm run lint:check
