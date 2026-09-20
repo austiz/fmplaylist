@@ -16,11 +16,9 @@ use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 /**
- * Characterization tests: these pin QueueService's behaviour *as it is today*,
- * including the two known faults Phase 4 will fix (getNextForPi() handing the
- * same item to two devices, and markNowPlaying() retiring every playing row).
- * Those cases are marked below — when the fix lands the test must change, and
- * it should change deliberately rather than quietly.
+ * The queue's behaviour, pinned. Written first as characterization tests so the
+ * Phase 4 concurrency work had something to land against; the two cases that
+ * pinned known faults have since been replaced by the behaviour that fixed them.
  */
 class QueueServiceTest extends TestCase
 {
@@ -180,11 +178,12 @@ class QueueServiceTest extends TestCase
     }
 
     /**
-     * KNOWN FAULT (Phase 4). `$next` is read outside any lock and nothing claims
-     * it, so two devices polling the same station are handed the same item. This
-     * pins the current behaviour; the fix should make it fail loudly.
+     * Deliberate, not a race. A station is one programme on one frequency, and its
+     * devices are transmitters of that programme -- which is the whole premise of
+     * broadcasting an emergency to all of them. Claiming the item per device would
+     * put two transmitters on the same frequency playing different songs.
      */
-    public function test_get_next_for_pi_currently_hands_the_same_item_to_repeated_callers(): void
+    public function test_every_device_on_a_station_is_handed_the_same_next_item(): void
     {
         config(['fm.autofill_target' => 0]);
         QueueItem::factory()->for($this->station)->atPosition(1)->create();
@@ -334,20 +333,71 @@ class QueueServiceTest extends TestCase
         $this->assertNull($np->media_asset_id);
     }
 
-    /**
-     * KNOWN FAULT (Phase 4). The update is keyed on status alone, so a report
-     * about one item retires every playing row on the station — including a
-     * replayed POST retiring the song that just started. Pinned deliberately.
-     */
-    public function test_mark_now_playing_currently_retires_every_playing_row(): void
+    public function test_mark_now_playing_retires_what_was_on_air(): void
     {
-        $unrelated = QueueItem::factory()->for($this->station)->playing()->create();
+        $outgoing = QueueItem::factory()->for($this->station)->playing()->create();
         $item = QueueItem::factory()->for($this->station)->atPosition(1)->create();
 
         $this->service->markNowPlaying($this->station->id, 'song', $item->id, null);
 
-        $this->assertSame('played', $unrelated->fresh()->status);
-        $this->assertNotNull($unrelated->fresh()->played_at);
+        $this->assertSame('played', $outgoing->fresh()->status);
+        $this->assertNotNull($outgoing->fresh()->played_at);
+    }
+
+    /**
+     * The update used to be keyed on status alone, so the report about an item
+     * retired that item too -- it was set to `playing` a line later, but a replay
+     * arriving after the next song had started retired the *new* song.
+     */
+    public function test_mark_now_playing_does_not_retire_the_item_it_is_reporting(): void
+    {
+        $item = QueueItem::factory()->for($this->station)->playing()->create();
+
+        $this->service->markNowPlaying($this->station->id, 'song', $item->id, null);
+
+        $this->assertSame('playing', $item->fresh()->status);
+        $this->assertNull($item->fresh()->played_at);
+    }
+
+    /**
+     * The daemon fires these from a detached thread and retries, and a second
+     * transmitter on the station reports the same song. Either way the rotation
+     * counters must advance once.
+     */
+    public function test_a_repeated_report_for_the_same_song_is_ignored(): void
+    {
+        $song = MediaAsset::factory()->create();
+        $item = QueueItem::factory()->for($this->station)->atPosition(1)->create(['media_asset_id' => $song->id]);
+        Setting::set(SettingKey::SongsSinceLastCommercial, 0, $this->station->id);
+
+        $this->service->markNowPlaying($this->station->id, 'song', $item->id, $song->filename);
+        $this->service->markNowPlaying($this->station->id, 'song', $item->id, $song->filename);
+        $this->service->markNowPlaying($this->station->id, 'song', $item->id, $song->filename);
+
+        $this->assertSame(1, (int) Setting::get(SettingKey::SongsSinceLastCommercial, $this->station->id));
+        $this->assertSame('playing', $item->fresh()->status);
+    }
+
+    public function test_a_repeated_commercial_report_does_not_double_count_the_play(): void
+    {
+        $commercial = MediaAsset::factory()->commercial()->create(['play_count' => 0]);
+
+        $this->service->markNowPlaying($this->station->id, 'commercial', null, null, $commercial->id);
+        $this->service->markNowPlaying($this->station->id, 'commercial', null, null, $commercial->id);
+
+        $this->assertSame(1, $commercial->fresh()->play_count);
+    }
+
+    public function test_a_different_commercial_is_still_recorded_as_a_new_segment(): void
+    {
+        $first = MediaAsset::factory()->commercial()->create(['play_count' => 0]);
+        $second = MediaAsset::factory()->commercial()->create(['play_count' => 0]);
+
+        $this->service->markNowPlaying($this->station->id, 'commercial', null, null, $first->id);
+        $this->service->markNowPlaying($this->station->id, 'commercial', null, null, $second->id);
+
+        $this->assertSame(1, $first->fresh()->play_count);
+        $this->assertSame(1, $second->fresh()->play_count);
     }
 
     public function test_mark_now_playing_does_not_touch_another_stations_queue(): void

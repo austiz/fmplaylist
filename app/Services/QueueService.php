@@ -17,16 +17,16 @@ use App\Support\StationSettings;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Every public method here takes the station it acts on, and runs its body through
+ * `CurrentStation::as()` so the station-scoped models filter themselves to it --
+ * including relation loads, which a `where('station_id', …)` on the outer query
+ * never reached. Writes still name `station_id` explicitly: a read that loses its
+ * scope returns nothing, which is loud, while a write that loses it misfiles a row
+ * onto the default station, which is silent.
+ */
 class QueueService
 {
-    /**
-     * Every public method here takes the station it acts on, and runs its body through
-     * `CurrentStation::as()` so the station-scoped models filter themselves to it --
-     * including relation loads, which a `where('station_id', …)` on the outer query
-     * never reached. Writes still name `station_id` explicitly: a read that loses its
-     * scope returns nothing, which is loud, while a write that loses it misfiles a row
-     * onto the default station, which is silent.
-     */
     /**
      * Locks the station row for the duration of the enclosing transaction, serializing
      * concurrent position-assignment (two listeners requesting at once, or a request
@@ -142,23 +142,53 @@ class QueueService
         ];
     }
 
+    /**
+     * Record what a device just put on air.
+     *
+     * Reports arrive more than once for the same segment: the daemon fires them from a
+     * detached thread and retries, and a station can carry more than one transmitter,
+     * each reporting the same song. So this is idempotent on the segment's identity --
+     * a repeat is acknowledged and dropped. Without that, the second report retired the
+     * song that had *just* started and advanced the commercial and sound-byte counters
+     * a second time, so the rotation drifted a little on every retry.
+     */
     public function markNowPlaying(int $stationId, string $type, ?int $queueItemId, ?string $filename, ?int $itemId = null): void
     {
         CurrentStation::as($stationId, fn () => DB::transaction(function () use ($stationId, $type, $queueItemId, $filename, $itemId) {
-            QueueItem::where('status', 'playing')->update([
-                'status' => 'played',
-                'played_at' => now(),
-            ]);
+            $this->lockStation($stationId);
 
             $song = null;
             if ($filename && $type === 'song') {
                 $song = MediaAsset::query()->songs()->where('filename', $filename)->first();
             }
 
+            // Commercials and sound bytes are rows in `media_assets` too now, so the
+            // column can name them and the segment has an identity to compare.
+            $mediaId = $type === 'song' ? $song?->id : $itemId;
+
+            $current = NowPlaying::query()->forStation($stationId)->first();
+
+            if ($current
+                && $current->type === $type
+                && $current->queue_item_id === $queueItemId
+                && $current->media_asset_id === $mediaId) {
+                return;
+            }
+
+            // By id, not by status: a blanket `where('status', 'playing')` also retired
+            // the item this report is about, which is what made a replay move the queue
+            // backwards.
+            QueueItem::where('status', 'playing')
+                ->when($queueItemId !== null, fn ($q) => $q->where('id', '!=', $queueItemId))
+                ->update([
+                    'status' => 'played',
+                    'played_at' => now(),
+                ]);
+
             $nowPlaying = NowPlaying::updateOrCreate(
                 ['station_id' => $stationId],
                 [
-                    'media_asset_id' => $song?->id,
+                    'media_asset_id' => $mediaId,
                     'queue_item_id' => $queueItemId,
                     'type' => $type,
                     'started_at' => now(),

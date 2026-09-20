@@ -27,20 +27,34 @@ class Setting extends Model
         return $row ? $key->cast((string) $row->value) : $key->default();
     }
 
+    /**
+     * One statement, so two devices reporting at the same moment cannot both decide
+     * the row is missing and race the `unique(station_id, key)` constraint into a 500.
+     * `updateOrCreate()` is a select followed by an insert and does exactly that.
+     */
     public static function set(SettingKey $key, mixed $value, ?int $stationId = null): void
     {
-        static::updateOrCreate(
-            ['station_id' => $stationId ?? Station::defaultId(), 'key' => $key->value],
-            ['value' => $key->toStorage($value)]
+        static::query()->upsert(
+            [[
+                'station_id' => $stationId ?? Station::defaultId(),
+                'key' => $key->value,
+                'value' => $key->toStorage($value),
+            ]],
+            ['station_id', 'key'],
+            ['value'],
         );
     }
 
+    /** Same race, same fix: `createOrFirst()` lets the unique index arbitrate. */
     public static function inc(SettingKey $key, int $by = 1, ?int $stationId = null): void
     {
         $stationId ??= Station::defaultId();
 
-        // firstOrCreate only inserts when the row is missing — does not overwrite existing values
-        static::firstOrCreate(['station_id' => $stationId, 'key' => $key->value], ['value' => '0']);
+        static::createOrFirst(
+            ['station_id' => $stationId, 'key' => $key->value],
+            ['value' => '0'],
+        );
+
         static::where('station_id', $stationId)->where('key', $key->value)->increment('value', $by);
     }
 }
