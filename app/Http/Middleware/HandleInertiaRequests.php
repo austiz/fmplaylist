@@ -39,23 +39,43 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        // Closures, not values: a partial reload -- which is how the queue page and the
+        // devices page refresh themselves -- drops the props it did not ask for *before*
+        // resolving them, so these four cost nothing on the polls. As plain values they
+        // were four queries on every one.
+        //
         // Resolved independently of EnsureActiveStation's request attribute: this global
         // middleware group runs before route-specific middleware, so that attribute isn't
         // set yet when share() executes. Mirrors EnsureActiveStation's own fallback logic.
-        $activeStation = $request->user() ? $this->resolveActiveStation() : null;
-        $publicStation = $request->user() ? null : PublicStation::resolve($request);
-        $frequencyStationId = $activeStation->id ?? $publicStation?->id;
+        $memo = [];
+        $station = function (string $which) use ($request, &$memo): ?Station {
+            $memo = $memo ?: ($request->user()
+                ? ['active' => $this->resolveActiveStation(), 'public' => null]
+                : ['active' => null, 'public' => PublicStation::resolve($request)]);
+
+            return $memo[$which];
+        };
+
+        $summarize = fn (?Station $s) => $s
+            ? ['id' => $s->id, 'name' => $s->name, 'slug' => $s->slug]
+            : null;
 
         return [
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => ['user' => $request->user()],
-            // Rendered, not computed with — the shared prop is a display string.
-            'frequency' => (string) Setting::get(SettingKey::Frequency, $frequencyStationId),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
-            'activeStation' => $activeStation ? ['id' => $activeStation->id, 'name' => $activeStation->name, 'slug' => $activeStation->slug] : null,
-            'publicStation' => $publicStation ? ['id' => $publicStation->id, 'name' => $publicStation->name, 'slug' => $publicStation->slug] : null,
-            'stations' => $activeStation ? Station::orderBy('name')->get(['id', 'name', 'slug']) : null,
+            // Rendered, not computed with — the shared prop is a display string.
+            'frequency' => function () use ($station) {
+                $current = $station('active') ?? $station('public');
+
+                return (string) Setting::get(SettingKey::Frequency, $current?->id);
+            },
+            'activeStation' => fn () => $summarize($station('active')),
+            'publicStation' => fn () => $summarize($station('public')),
+            'stations' => fn () => $station('active')
+                ? Station::orderBy('name')->get(['id', 'name', 'slug'])
+                : null,
         ];
     }
 
