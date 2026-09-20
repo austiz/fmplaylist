@@ -162,6 +162,46 @@ class QueueServiceTest extends TestCase
         $this->assertSame(2, QueueItem::where('station_id', $this->station->id)->count());
     }
 
+    /**
+     * Autofill's whole job is rotation: the songs heard least recently come back
+     * first, and one never played yet comes before any of them. That order used to
+     * be a correlated MAX() over `queue_items` per candidate row; it is now the
+     * denormalized `last_played_at`, and this pins the behaviour, not the mechanism.
+     */
+    public function test_autofill_takes_the_least_recently_played_songs_first(): void
+    {
+        config(['fm.autofill_target' => 2]);
+
+        $fresh = MediaAsset::factory()->create(['last_played_at' => null]);
+        $stale = MediaAsset::factory()->create(['last_played_at' => now()->subDays(10)]);
+        MediaAsset::factory()->create(['last_played_at' => now()->subMinutes(5)]);
+
+        $this->service->getNextForPi($this->station->id);
+
+        $this->assertSame(
+            [$fresh->id, $stale->id],
+            QueueItem::pending()->pluck('media_asset_id')->all(),
+        );
+    }
+
+    public function test_playing_a_song_moves_it_to_the_back_of_the_rotation(): void
+    {
+        $song = MediaAsset::factory()->create(['last_played_at' => now()->subDays(10)]);
+
+        $this->service->markNowPlaying($this->station->id, 'song', null, $song->filename);
+
+        $this->assertTrue($song->fresh()->last_played_at->isToday());
+    }
+
+    public function test_a_commercial_reaching_the_air_is_stamped_too(): void
+    {
+        $commercial = MediaAsset::factory()->commercial()->create(['last_played_at' => null]);
+
+        $this->service->markNowPlaying($this->station->id, 'commercial', null, null, $commercial->id);
+
+        $this->assertNotNull($commercial->fresh()->last_played_at);
+    }
+
     // -- getNextForPi: selection -------------------------------------------
 
     public function test_get_next_for_pi_returns_the_lowest_positioned_pending_item(): void

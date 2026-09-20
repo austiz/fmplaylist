@@ -44,6 +44,7 @@ class MediaAsset extends Model
         'rds_ps',
         'rotation_order',
         'play_count',
+        'last_played_at',
         'needs_pi_download',
         'pi_delete_requested',
     ];
@@ -55,6 +56,7 @@ class MediaAsset extends Model
         'active' => 'boolean',
         'rotation_order' => 'integer',
         'play_count' => 'integer',
+        'last_played_at' => 'datetime',
         'needs_pi_download' => 'boolean',
         'pi_delete_requested' => 'boolean',
     ];

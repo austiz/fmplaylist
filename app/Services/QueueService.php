@@ -185,6 +185,22 @@ class QueueService
                     'played_at' => now(),
                 ]);
 
+            // One write for all three types, here rather than in the per-type handlers:
+            // this is the single place a segment is known to have reached the air, and
+            // the idempotency check above already ran, so a retried report cannot move
+            // a song's turn back down the autofill order.
+            if ($mediaId) {
+                MediaAsset::where('id', $mediaId)->update(['last_played_at' => now()]);
+            }
+
+            // One write for all three types, here rather than in the per-type handlers:
+            // this is the single place a segment is known to have reached the air, and
+            // the idempotency check above already ran, so a retried report cannot move
+            // a song's turn back down the autofill order.
+            if ($mediaId) {
+                MediaAsset::where('id', $mediaId)->update(['last_played_at' => now()]);
+            }
+
             $nowPlaying = NowPlaying::updateOrCreate(
                 ['station_id' => $stationId],
                 [
@@ -232,7 +248,10 @@ class QueueService
 
             $songs = MediaAsset::query()->songs()->active()
                 ->whereNotIn('id', $excludeIds)
-                ->orderByRaw("(SELECT MAX(played_at) FROM queue_items WHERE queue_items.media_asset_id = media_assets.id AND queue_items.status = 'played') ASC")
+                // Least recently played first, nulls -- never played -- ahead of them.
+                // This used to be a correlated MAX() over `queue_items` per candidate
+                // row; `last_played_at` is maintained in markNowPlaying() instead.
+                ->orderBy('last_played_at')
                 ->take($needed)
                 ->get();
 
