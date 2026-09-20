@@ -1,3 +1,5 @@
+import { cardSkin } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import type { BroadcastPiStatus } from '@/types/fm';
 
 export function PiStatusCard({
@@ -11,7 +13,11 @@ export function PiStatusCard({
 
     return (
         <div
-            className={`mb-5 border p-4 ${pi.online ? 'border-online/30 bg-online-soft' : 'border-border bg-card'}`}
+            className={cn(
+                cardSkin,
+                'mb-5 p-4',
+                pi.online && 'border-online/30 bg-online-soft',
+            )}
         >
             <div className="flex items-start justify-between gap-4">
                 <div>

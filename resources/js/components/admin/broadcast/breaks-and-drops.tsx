@@ -1,5 +1,7 @@
 import { useForm } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import type { MediaAsset } from '@/types/fm';
 import { SearchablePickList } from './searchable-pick-list';
 
@@ -27,7 +29,7 @@ export function BreaksAndDrops({
                             { onSuccess: () => commercialForm.reset() },
                         );
                     }}
-                    className="space-y-2 border border-border bg-card p-3"
+                    className={cn(cardSkin, 'block space-y-2 p-3')}
                 >
                     <div>
                         <p className="text-sm font-semibold text-foreground">
@@ -77,7 +79,7 @@ export function BreaksAndDrops({
                             { onSuccess: () => soundByteForm.reset() },
                         );
                     }}
-                    className="space-y-2 border border-border bg-card p-3"
+                    className={cn(cardSkin, 'block space-y-2 p-3')}
                 >
                     <div>
                         <p className="text-sm font-semibold text-foreground">

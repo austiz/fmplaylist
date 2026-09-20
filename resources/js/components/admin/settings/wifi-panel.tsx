@@ -2,8 +2,10 @@ import { useForm } from '@inertiajs/react';
 import { useState } from 'react';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import type { WifiInfo } from '@/types/fm';
 
 function SignalBars({ signal }: { signal: number }) {
@@ -50,7 +52,7 @@ export function WifiPanel({ wifi }: { wifi: WifiInfo }) {
     };
 
     return (
-        <div className="mt-8 max-w-2xl space-y-4 border border-border bg-card p-5">
+        <div className={cn(cardSkin, 'mt-8 max-w-2xl space-y-4 p-5')}>
             <div className="flex items-center justify-between">
                 <h2 className="font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
                     Pi WiFi

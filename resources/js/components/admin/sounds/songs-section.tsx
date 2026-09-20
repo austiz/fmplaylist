@@ -5,9 +5,11 @@ import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useDebouncedSearch } from '@/hooks/use-debounced-search';
+import { cn } from '@/lib/utils';
 import type { MediaAsset, PaginatedResponse } from '@/types/fm';
 import { PiBadge } from './pi-badge';
 
@@ -44,7 +46,7 @@ function SongUploadForm() {
                     onSuccess: () => form.reset(),
                 });
             }}
-            className="space-y-4 border border-border bg-card p-5"
+            className={cn(cardSkin, 'block space-y-4 p-5')}
         >
             <h3 className="font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
                 Upload Song
@@ -239,7 +241,12 @@ export function SongsSection({
                         </>
                     }
                 />
-                <div className="divide-y divide-border border border-border bg-card">
+                <div
+                    className={cn(
+                        cardSkin,
+                        'divide-y divide-border overflow-hidden',
+                    )}
+                >
                     {songs.data.map((s) => (
                         <SongRow key={s.id} song={s} />
                     ))}

@@ -1,7 +1,9 @@
 import { useForm } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
 export function RdsEditor({ settings }: { settings: Record<string, string> }) {
     const rdsForm = useForm({
@@ -20,7 +22,7 @@ export function RdsEditor({ settings }: { settings: Record<string, string> }) {
                     e.preventDefault();
                     rdsForm.post('/admin/broadcast/rds');
                 }}
-                className="space-y-4 border border-border bg-card p-4"
+                className={cn(cardSkin, 'block space-y-4 p-4')}
             >
                 {/* PS override */}
                 <div className="space-y-1">
@@ -119,7 +121,12 @@ export function RdsEditor({ settings }: { settings: Record<string, string> }) {
             </form>
 
             {/* Reference */}
-            <div className="mt-4 border border-border bg-card p-4 text-xs text-muted-foreground">
+            <div
+                className={cn(
+                    cardSkin,
+                    'mt-4 p-4 text-xs text-muted-foreground',
+                )}
+            >
                 <p className="mb-2 font-display font-bold tracking-widest text-foreground uppercase">
                     Radio Display Preview
                 </p>

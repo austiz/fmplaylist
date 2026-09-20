@@ -1,7 +1,9 @@
 import { AddDeviceForm } from '@/components/admin/tokens/add-device-form';
 import { DeviceRow } from '@/components/admin/tokens/device-row';
 import { NewTokenPanel } from '@/components/admin/tokens/new-token-panel';
+import { cardSkin } from '@/components/ui/card';
 import { AdminLayout } from '@/layouts/admin-layout';
+import { cn } from '@/lib/utils';
 import type { PiDevice, Station } from '@/types/fm';
 
 interface Props {
@@ -19,7 +21,7 @@ export default function Tokens({ tokens, stations, newToken, appUrl }: Props) {
                     <NewTokenPanel newToken={newToken} appUrl={appUrl} />
                 )}
 
-                <div className="border border-border bg-card p-5">
+                <div className={cn(cardSkin, 'p-5')}>
                     <h2 className="mb-4 font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
                         Devices
                     </h2>

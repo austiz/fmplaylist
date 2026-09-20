@@ -1,9 +1,11 @@
 import { useForm } from '@inertiajs/react';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AdminLayout } from '@/layouts/admin-layout';
+import { cn } from '@/lib/utils';
 import type { Station } from '@/types/fm';
 
 interface Props {
@@ -21,7 +23,7 @@ export default function Stations({ stations }: Props) {
     return (
         <AdminLayout title="Stations">
             <div className="max-w-xl space-y-6">
-                <div className="border border-border bg-card p-5">
+                <div className={cn(cardSkin, 'p-5')}>
                     <h2 className="mb-4 font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
                         Stations
                     </h2>
@@ -29,7 +31,7 @@ export default function Stations({ stations }: Props) {
                         {stations.map((s) => (
                             <div
                                 key={s.id}
-                                className="flex items-center justify-between border border-border bg-secondary/50 px-4 py-3"
+                                className="flex items-center justify-between rounded-lg border border-border bg-secondary/50 px-4 py-3"
                             >
                                 <div>
                                     <p className="text-sm font-medium text-foreground">
@@ -47,7 +49,7 @@ export default function Stations({ stations }: Props) {
 
                 <form
                     onSubmit={create}
-                    className="space-y-3 border border-border bg-card p-5"
+                    className={cn(cardSkin, 'block space-y-3 p-5')}
                 >
                     <h2 className="font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
                         Create a Station

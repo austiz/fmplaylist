@@ -1,8 +1,10 @@
 import { Link, useForm } from '@inertiajs/react';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
 /** Frequency, callsign, rotation intervals and fade -- everything the Pi reads as config. */
 export function StationForm({
@@ -28,7 +30,7 @@ export function StationForm({
         <>
             <form
                 onSubmit={submit}
-                className="max-w-2xl space-y-6 border border-border bg-card p-5"
+                className={cn(cardSkin, 'block max-w-2xl space-y-6 p-5')}
             >
                 <section className="space-y-4">
                     <h2 className="font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">

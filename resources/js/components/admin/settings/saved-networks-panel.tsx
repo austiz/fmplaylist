@@ -2,8 +2,10 @@ import { router, useForm } from '@inertiajs/react';
 import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import type { SavedNetwork, WifiInfo } from '@/types/fm';
 
 /** The ordered fallback chain the Pi keeps on disk so it reconnects without us. */
@@ -63,7 +65,7 @@ export function SavedNetworksPanel({ wifi }: { wifi: WifiInfo }) {
         wifi.pi_rev !== wifi.saved_rev;
 
     return (
-        <div className="mt-6 max-w-2xl space-y-4 border border-border bg-card p-5">
+        <div className={cn(cardSkin, 'mt-6 max-w-2xl space-y-4 p-5')}>
             <div className="flex items-center justify-between">
                 <h2 className="font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
                     Saved Networks

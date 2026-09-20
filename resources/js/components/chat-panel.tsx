@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { FieldError } from '@/components/field-error';
+import { cardSkin } from '@/components/ui/card';
 import { useFmLive } from '@/hooks/use-fm-live';
 import { withStation } from '@/lib/station';
+import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
     const { chatMessages, stationSlug } = useFmLive();
@@ -70,7 +72,7 @@ export function ChatPanel() {
     };
 
     return (
-        <div id="chat" className="border border-border bg-card">
+        <div id="chat" className={cn(cardSkin, 'overflow-hidden')}>
             <div className="border-b border-border px-4 py-2.5">
                 <p className="font-display text-xs font-bold tracking-[0.2em] text-muted-foreground uppercase">
                     Listener Chat

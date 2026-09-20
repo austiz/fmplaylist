@@ -1,5 +1,6 @@
 import { useForm } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -9,6 +10,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import type { Station } from '@/types/fm';
 
 export function AddDeviceForm({
@@ -35,7 +37,7 @@ export function AddDeviceForm({
     return (
         <form
             onSubmit={addDevice}
-            className="space-y-3 border border-border bg-card p-5"
+            className={cn(cardSkin, 'block space-y-3 p-5')}
         >
             <h2 className="font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
                 Add a Device

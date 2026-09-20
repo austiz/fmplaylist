@@ -1,8 +1,22 @@
 import { router } from '@inertiajs/react';
+import { History as HistoryIcon } from 'lucide-react';
+
+import { QueueStatusBadge } from '@/components/admin/queue-status-badge';
 import { LineSparkline } from '@/components/admin/sparkline';
+import { EmptyState } from '@/components/empty-state';
 import { Pagination } from '@/components/pagination';
+import { Card, CardContent, CardTitle } from '@/components/ui/card';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
 import { AdminLayout } from '@/layouts/admin-layout';
 import { shortDay } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import type { PaginatedResponse, QueueItem } from '@/types/fm';
 
 interface Props {
@@ -11,90 +25,130 @@ interface Props {
     playsLast7Days: { date: string; count: number }[];
 }
 
-const filters = ['all', 'pending', 'playing', 'played', 'skipped'];
+const FILTERS = ['all', 'pending', 'playing', 'played', 'skipped'];
 
 export default function History({ items, filter, playsLast7Days }: Props) {
     return (
-        <AdminLayout title="Request History">
-            <div className="mb-4 border border-border bg-card p-4">
-                <p className="mb-2 font-display text-xs font-bold tracking-wider text-muted-foreground uppercase">
-                    Plays — last 7 days
-                </p>
-                <LineSparkline
-                    points={playsLast7Days.map((d) => ({
-                        label: shortDay(d.date),
-                        value: d.count,
-                    }))}
-                />
-            </div>
+        <AdminLayout
+            title="Request History"
+            description="Everything that has been asked for, and what became of it"
+        >
+            <div className="space-y-4">
+                <Card className="animate-card-in">
+                    <CardContent className="space-y-3">
+                        <CardTitle>Plays — last 7 days</CardTitle>
+                        <LineSparkline
+                            points={playsLast7Days.map((d) => ({
+                                label: shortDay(d.date),
+                                value: d.count,
+                            }))}
+                        />
+                    </CardContent>
+                </Card>
 
-            <div className="mb-4 flex gap-2">
-                {filters.map((f) => (
-                    <button
-                        key={f}
-                        onClick={() =>
-                            router.get(
-                                '/admin/history',
-                                { filter: f },
-                                { preserveState: true },
-                            )
+                {/* A segmented filter rather than tabs: there is one list, and
+                    these choose which rows the server sends for it. */}
+                <div
+                    role="group"
+                    aria-label="Filter by status"
+                    className="flex w-fit gap-1 rounded-lg border border-border bg-surface-2 p-1"
+                >
+                    {FILTERS.map((option) => {
+                        const active = filter === option;
+
+                        return (
+                            <button
+                                key={option}
+                                type="button"
+                                aria-pressed={active}
+                                onClick={() =>
+                                    router.get(
+                                        '/admin/history',
+                                        { filter: option },
+                                        {
+                                            preserveState: true,
+                                            preserveScroll: true,
+                                            replace: true,
+                                        },
+                                    )
+                                }
+                                className={cn(
+                                    'rounded-md px-3 py-1 text-sm font-medium capitalize transition-colors',
+                                    'focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+                                    active
+                                        ? 'bg-primary text-primary-foreground shadow-card'
+                                        : 'text-muted-foreground hover:text-foreground',
+                                )}
+                            >
+                                {option}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {items.data.length === 0 ? (
+                    <EmptyState
+                        icon={<HistoryIcon />}
+                        title="Nothing here"
+                        description={
+                            filter === 'all'
+                                ? 'No song has been requested on this station yet.'
+                                : `No requests are ${filter}.`
                         }
-                        className={`px-3 py-1 text-sm font-medium capitalize transition-colors ${
-                            filter === f
-                                ? 'bg-primary text-primary-foreground'
-                                : 'border border-border text-muted-foreground hover:text-foreground'
-                        }`}
-                    >
-                        {f}
-                    </button>
-                ))}
-            </div>
-
-            <div className="divide-y divide-border border border-border bg-card">
-                {items.data.length === 0 && (
-                    <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No items.
-                    </p>
+                    />
+                ) : (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Song</TableHead>
+                                <TableHead className="hidden sm:table-cell">
+                                    Requested
+                                </TableHead>
+                                <TableHead className="hidden md:table-cell">
+                                    Played
+                                </TableHead>
+                                <TableHead className="w-0 text-right">
+                                    Status
+                                </TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {items.data.map((item) => (
+                                <TableRow key={item.id}>
+                                    <TableCell className="max-w-0">
+                                        <p className="truncate font-medium text-foreground">
+                                            {item.song.title}
+                                        </p>
+                                        {item.song.artist && (
+                                            <p className="truncate text-xs text-muted-foreground">
+                                                {item.song.artist}
+                                            </p>
+                                        )}
+                                    </TableCell>
+                                    <TableCell className="hidden text-xs whitespace-nowrap text-muted-foreground sm:table-cell">
+                                        {item.created_at}
+                                        {item.requested_by_name && (
+                                            <span className="block text-foreground/60">
+                                                by {item.requested_by_name}
+                                            </span>
+                                        )}
+                                    </TableCell>
+                                    <TableCell className="hidden text-xs whitespace-nowrap text-muted-foreground md:table-cell">
+                                        {item.played_at ?? '—'}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <QueueStatusBadge
+                                            status={item.status}
+                                        />
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
                 )}
-                {items.data.map((item) => (
-                    <div
-                        key={item.id}
-                        className="flex items-center gap-4 px-4 py-3"
-                    >
-                        <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-foreground">
-                                {item.song.title}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                                Requested {item.created_at}
-                                {item.requested_by_name
-                                    ? ` by ${item.requested_by_name}`
-                                    : ''}
-                            </p>
-                        </div>
-                        {item.played_at && (
-                            <span className="shrink-0 text-xs text-muted-foreground/50">
-                                Played {item.played_at}
-                            </span>
-                        )}
-                        <span
-                            className={`shrink-0 px-2 py-0.5 text-xs font-bold tracking-wide uppercase ${
-                                item.status === 'played'
-                                    ? 'bg-online-soft text-online'
-                                    : item.status === 'playing'
-                                      ? 'bg-playing-soft text-playing'
-                                      : item.status === 'pending'
-                                        ? 'bg-secondary text-muted-foreground'
-                                        : 'bg-secondary text-muted-foreground/50'
-                            }`}
-                        >
-                            {item.status}
-                        </span>
-                    </div>
-                ))}
-            </div>
 
-            <Pagination page={items} className="mt-4" />
+                <Pagination page={items} />
+            </div>
         </AdminLayout>
     );
 }

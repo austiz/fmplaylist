@@ -10,15 +10,20 @@ import { cn } from '@/lib/utils';
  * `shadow-card` pairs a drop shadow with a 1px inset top highlight -- on a dark
  * surface that highlight is what reads as an edge catching light, and without it
  * a raised card just looks like a lighter rectangle.
+ *
+ * Half the panels in the admin are forms with their own block flow, so they
+ * cannot be this component -- and that is exactly how the radius drifted in the
+ * first place: whatever could not adopt the card kept a copy of its skin, and
+ * the copies stopped matching. `cardSkin` is the skin on its own, for those.
  */
+export const cardSkin =
+    'rounded-xl border border-border bg-card text-card-foreground shadow-card';
+
 function Card({ className, ...props }: React.ComponentProps<'div'>) {
     return (
         <div
             data-slot="card"
-            className={cn(
-                'flex flex-col gap-5 rounded-xl border border-border bg-card py-5 text-card-foreground shadow-card',
-                className,
-            )}
+            className={cn(cardSkin, 'flex flex-col gap-5 py-5', className)}
             {...props}
         />
     );

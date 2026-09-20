@@ -6,10 +6,11 @@ import { NowPlayingBar } from '@/components/now-playing-bar';
 import { SectionHeader } from '@/components/page-header';
 import { PublicLayout } from '@/components/public-layout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, cardSkin } from '@/components/ui/card';
 import { useFmLive } from '@/hooks/use-fm-live';
 import { getRecents, pushRecent } from '@/lib/recents';
 import type { Recent } from '@/lib/recents';
+import { cn } from '@/lib/utils';
 import type { NowPlayingData, QueueItem, Station } from '@/types/fm';
 
 interface Props {
@@ -143,7 +144,11 @@ export default function Home({
                                     key={r.songId}
                                     onClick={() => reRequest(r)}
                                     disabled={busyId === r.songId}
-                                    className="flex w-44 shrink-0 flex-col justify-between gap-4 rounded-xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/50 hover:bg-surface-2 disabled:opacity-50"
+                                    className={cn(
+                                        cardSkin,
+                                        'flex w-44 shrink-0 flex-col justify-between gap-4 p-4 text-left transition-colors',
+                                        'hover:border-primary/50 hover:bg-surface-2 disabled:opacity-50',
+                                    )}
                                 >
                                     <div className="min-w-0">
                                         <p className="truncate text-sm font-medium text-foreground">

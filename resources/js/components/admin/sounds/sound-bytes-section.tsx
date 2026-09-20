@@ -4,6 +4,7 @@ import { LibrarySearch } from '@/components/admin/sounds/library-search';
 import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
+import { cardSkin } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -13,6 +14,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import type { MediaAsset } from '@/types/fm';
 import { PiBadge } from './pi-badge';
 
@@ -58,7 +60,7 @@ function SoundByteUploadForm() {
                     onSuccess: () => form.reset(),
                 });
             }}
-            className="space-y-4 border border-border bg-card p-5"
+            className={cn(cardSkin, 'block space-y-4 p-5')}
         >
             <h3 className="font-display text-xs font-bold tracking-widest text-muted-foreground uppercase">
                 Upload Sound Byte
@@ -306,7 +308,12 @@ export function SoundBytesSection({
                     onChange={(e) => setSearch(e.target.value)}
                     summary={`${soundBytes.length} sound bytes`}
                 />
-                <div className="divide-y divide-border border border-border bg-card">
+                <div
+                    className={cn(
+                        cardSkin,
+                        'divide-y divide-border overflow-hidden',
+                    )}
+                >
                     {filtered.map((sb) => (
                         <SoundByteRow key={sb.id} soundByte={sb} />
                     ))}
