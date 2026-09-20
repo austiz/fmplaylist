@@ -58,7 +58,13 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,
-            'engine' => null,
+            // Not null -- that takes the server's default, and the shared host
+            // this deploys to defaults to MyISAM. That engine has no
+            // transactions and no row locks, so QueueService's DB::transaction
+            // and lockStation() would silently do nothing in production while
+            // passing every test on a developer's InnoDB. Its 1000-byte index
+            // limit also refuses the media_assets (type, title) index outright.
+            'engine' => env('DB_ENGINE', 'InnoDB'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
@@ -78,7 +84,7 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,
-            'engine' => null,
+            'engine' => env('DB_ENGINE', 'InnoDB'), // see the mysql connection above
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
