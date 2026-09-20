@@ -1,7 +1,7 @@
 import { router } from '@inertiajs/react';
 import { LineSparkline } from '@/components/admin/sparkline';
-import { AdminLayout } from '@/components/admin-layout';
 import { Pagination } from '@/components/pagination';
+import { AdminLayout } from '@/layouts/admin-layout';
 import { shortDay } from '@/lib/format';
 import type { PaginatedResponse, QueueItem } from '@/types/fm';
 

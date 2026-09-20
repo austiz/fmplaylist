@@ -1,7 +1,7 @@
 import { AddDeviceForm } from '@/components/admin/tokens/add-device-form';
 import { DeviceRow } from '@/components/admin/tokens/device-row';
 import { NewTokenPanel } from '@/components/admin/tokens/new-token-panel';
-import { AdminLayout } from '@/components/admin-layout';
+import { AdminLayout } from '@/layouts/admin-layout';
 import type { PiDevice, Station } from '@/types/fm';
 
 interface Props {

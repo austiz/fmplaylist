@@ -4,7 +4,7 @@ import { EmergencyBanner } from '@/components/admin/broadcast/emergency-banner';
 import { PiStatusCard } from '@/components/admin/broadcast/pi-status-card';
 import { RdsEditor } from '@/components/admin/broadcast/rds-editor';
 import { SongControls } from '@/components/admin/broadcast/song-controls';
-import { AdminLayout } from '@/components/admin-layout';
+import { AdminLayout } from '@/layouts/admin-layout';
 import type { BroadcastPiStatus, MediaAsset, Song } from '@/types/fm';
 
 interface Props {

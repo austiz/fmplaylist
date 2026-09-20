@@ -1,7 +1,7 @@
 import { SavedNetworksPanel } from '@/components/admin/settings/saved-networks-panel';
 import { StationForm } from '@/components/admin/settings/station-form';
 import { WifiPanel } from '@/components/admin/settings/wifi-panel';
-import { AdminLayout } from '@/components/admin-layout';
+import { AdminLayout } from '@/layouts/admin-layout';
 import type { WifiInfo } from '@/types/fm';
 
 interface Props {

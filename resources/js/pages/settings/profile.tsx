@@ -3,11 +3,11 @@ import { Link } from '@inertiajs/react';
 import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
 import DeleteUser from '@/components/delete-user';
 import { FieldError } from '@/components/field-error';
-import Heading from '@/components/heading';
+import { SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { edit } from '@/routes/profile';
+import { SettingsLayout } from '@/layouts/settings-layout';
 import { send } from '@/routes/verification';
 import type { Auth } from '@/types';
 
@@ -25,14 +25,13 @@ export default function Profile({
     const { auth } = usePage<PageProps>().props;
 
     return (
-        <>
+        <SettingsLayout>
             <Head title="Profile settings" />
 
             <h1 className="sr-only">Profile settings</h1>
 
             <div className="space-y-6">
-                <Heading
-                    variant="small"
+                <SectionHeader
                     title="Profile"
                     description="Update your name and email address"
                 />
@@ -124,15 +123,6 @@ export default function Profile({
             </div>
 
             <DeleteUser />
-        </>
+        </SettingsLayout>
     );
 }
-
-Profile.layout = {
-    breadcrumbs: [
-        {
-            title: 'Profile settings',
-            href: edit(),
-        },
-    ],
-};

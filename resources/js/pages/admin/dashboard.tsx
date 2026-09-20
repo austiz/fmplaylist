@@ -1,7 +1,7 @@
 import { router } from '@inertiajs/react';
 import { BarSparkline, LineSparkline } from '@/components/admin/sparkline';
-import { AdminLayout } from '@/components/admin-layout';
 import { useConfirm } from '@/components/confirm-dialog';
+import { AdminLayout } from '@/layouts/admin-layout';
 import { formatRuntime, shortDay } from '@/lib/format';
 import type { NowPlayingData, QueueItem } from '@/types/fm';
 

@@ -2,7 +2,7 @@ import { Form } from '@inertiajs/react';
 import { useRef } from 'react';
 import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
 import { FieldError } from '@/components/field-error';
-import Heading from '@/components/heading';
+import { SectionHeader } from '@/components/page-header';
 import PasswordInput from '@/components/password-input';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,8 +21,7 @@ export default function DeleteUser() {
 
     return (
         <div className="space-y-6">
-            <Heading
-                variant="small"
+            <SectionHeader
                 title="Delete account"
                 description="Delete your account and all of its resources"
             />

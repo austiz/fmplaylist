@@ -34,10 +34,8 @@ function lazyLayout(
     };
 }
 
-const AppLayout = lazyLayout(() => import('@/layouts/app-layout'));
 const AuthLayout = lazyLayout(() => import('@/layouts/auth-layout'));
 const FmLiveLayout = lazyLayout(() => import('@/layouts/fm-live-layout'));
-const SettingsLayout = lazyLayout(() => import('@/layouts/settings/layout'));
 
 const FM_LIVE_PAGES = new Set(['home', 'songs', 'queue', 'drive']);
 
@@ -50,20 +48,13 @@ createInertiaApp({
             return FmLiveLayout;
         }
 
-        // Admin pages supply their own layout internally.
-        if (name.startsWith('admin/')) {
-            return null;
-        }
-
         if (name.startsWith('auth/')) {
             return AuthLayout;
         }
 
-        if (name.startsWith('settings/')) {
-            return [AppLayout, SettingsLayout];
-        }
-
-        return AppLayout;
+        // Admin and settings pages both render the operator shell themselves,
+        // so Inertia has no layout to supply.
+        return null;
     },
     strictMode: true,
     withApp(app) {

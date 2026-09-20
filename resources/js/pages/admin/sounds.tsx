@@ -3,7 +3,7 @@ import { CommercialsSection } from '@/components/admin/sounds/commercials-sectio
 import { DeviceCountContext } from '@/components/admin/sounds/pi-badge';
 import { SongsSection } from '@/components/admin/sounds/songs-section';
 import { SoundBytesSection } from '@/components/admin/sounds/sound-bytes-section';
-import { AdminLayout } from '@/components/admin-layout';
+import { AdminLayout } from '@/layouts/admin-layout';
 import type { MediaAsset, PaginatedResponse } from '@/types/fm';
 
 interface Props {

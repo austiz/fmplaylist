@@ -2,15 +2,15 @@ import { Form, Head } from '@inertiajs/react';
 import { useRef } from 'react';
 import SecurityController from '@/actions/App/Http/Controllers/Settings/SecurityController';
 import { FieldError } from '@/components/field-error';
-import Heading from '@/components/heading';
 import type { Props as ManagePasskeysProps } from '@/components/manage-passkeys';
 import ManagePasskeys from '@/components/manage-passkeys';
 import type { Props as ManageTwoFactorProps } from '@/components/manage-two-factor';
 import ManageTwoFactor from '@/components/manage-two-factor';
+import { SectionHeader } from '@/components/page-header';
 import PasswordInput from '@/components/password-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { edit } from '@/routes/security';
+import { SettingsLayout } from '@/layouts/settings-layout';
 
 type Props = {
     passwordRules: string;
@@ -22,14 +22,13 @@ export default function Security(props: Props) {
     const currentPasswordInput = useRef<HTMLInputElement>(null);
 
     return (
-        <>
+        <SettingsLayout>
             <Head title="Security settings" />
 
             <h1 className="sr-only">Security settings</h1>
 
             <div className="space-y-6">
-                <Heading
-                    variant="small"
+                <SectionHeader
                     title="Update password"
                     description="Ensure your account is using a long, random password to stay secure"
                 />
@@ -133,15 +132,6 @@ export default function Security(props: Props) {
                 canManagePasskeys={props.canManagePasskeys}
                 passkeys={props.passkeys}
             />
-        </>
+        </SettingsLayout>
     );
 }
-
-Security.layout = {
-    breadcrumbs: [
-        {
-            title: 'Security settings',
-            href: edit(),
-        },
-    ],
-};
