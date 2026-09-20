@@ -3,12 +3,14 @@
 namespace Tests\Feature\Admin;
 
 use App\Enums\MediaType;
+use App\Jobs\ExtractAudioDuration;
 use App\Models\DeviceDownload;
 use App\Models\MediaAsset;
 use App\Models\PiToken;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -190,6 +192,42 @@ class SoundsTest extends TestCase
 
         $commercial = MediaAsset::query()->ofType(MediaType::Commercial)->firstOrFail();
         $this->assertMatchesRegularExpression('/^wild-sale-50-off_\d+\.wav$/', $commercial->filename);
+    }
+
+    /**
+     * ffprobe used to run inside the upload request -- an unguarded shell_exec on a
+     * file that can be 40 MB. The row is now saved immediately and the runtime is
+     * filled in behind it.
+     */
+    public function test_upload_does_not_wait_on_ffprobe(): void
+    {
+        Storage::fake('public');
+        Queue::fake();
+
+        $this->actingAs($this->admin)
+            ->post('/admin/songs/upload', [
+                'title' => 'Deferred',
+                'artist' => 'Someone',
+                'file' => UploadedFile::fake()->create('song.wav', 100, 'audio/wav'),
+            ])
+            ->assertRedirect();
+
+        $song = MediaAsset::query()->ofType(MediaType::Song)->firstOrFail();
+        $this->assertNull($song->duration_seconds);
+
+        Queue::assertPushed(
+            ExtractAudioDuration::class,
+            fn (ExtractAudioDuration $job) => $job->mediaAssetId === $song->id,
+        );
+    }
+
+    public function test_the_duration_job_survives_an_asset_deleted_before_it_runs(): void
+    {
+        $job = new ExtractAudioDuration(9_999);
+
+        $job->handle();
+
+        $this->assertTrue(true, 'A missing asset is nothing to do, not a failed job.');
     }
 
     public function test_commercial_update_requires_a_rotation_order(): void

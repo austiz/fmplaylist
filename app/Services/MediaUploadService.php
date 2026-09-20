@@ -3,8 +3,8 @@
 namespace App\Services;
 
 use App\Enums\MediaType;
+use App\Jobs\ExtractAudioDuration;
 use App\Models\MediaAsset;
-use App\Support\AudioDuration;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -33,17 +33,23 @@ class MediaUploadService
             throw new RuntimeException("Failed to store {$type->value} upload as {$filename}.");
         }
 
-        return MediaAsset::create([
+        $asset = MediaAsset::create([
             'type' => $type,
             'title' => $title,
             'filename' => $filename,
             'storage_path' => $path,
             'file_size' => $file->getSize(),
-            'duration_seconds' => AudioDuration::extract(Storage::disk('public')->path($path)),
+            // Filled in by the job below. ffprobe on a 40 MB WAV is not something to
+            // make the admin wait through, and it is not installed everywhere.
+            'duration_seconds' => null,
             'active' => true,
             'needs_pi_download' => true,
             ...$attributes,
         ]);
+
+        ExtractAudioDuration::dispatch($asset->id);
+
+        return $asset;
     }
 
     /**
