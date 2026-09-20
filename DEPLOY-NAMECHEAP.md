@@ -197,10 +197,12 @@ Go to **GitHub repo → Settings → Secrets and variables → Actions → New r
 
 | Secret name | Value |
 |---|---|
-| `SSH_HOST` | Your Namecheap server hostname (e.g. `server123.web-hosting.com`) |
-| `SSH_USERNAME` | Your cPanel username |
-| `SSH_PRIVATE_KEY` | Private key for `github_deploy` — download it from **cPanel → SSH Access → Manage SSH Keys → View/Download** (the private key file, not the `.pub`) |
-| `DEPLOY_PATH` | Absolute path on server, e.g. `/home/yourusername/fmplaylist` |
+| `DEPLOY_HOST` | Your Namecheap server hostname (e.g. `server123.web-hosting.com`) |
+| `DEPLOY_USER` | Your cPanel username |
+| `DEPLOY_KEY` | Private key for `github_deploy` — download it from **cPanel → SSH Access → Manage SSH Keys → View/Download** (the private key file, not the `.pub`) |
+| `DEPLOY_PASSPHRASE` | Passphrase for that key. Leave empty if the key has none. |
+| `DEPLOY_PORT` | SSH port. Namecheap shared hosting uses `21098`, not `22`. |
+| `DEPLOY_PATH` | Absolute path on server, e.g. `/home/yourusername/fmplaylist`. The deploy refuses to run if this is empty or `/`. |
 
 > Use a **GitHub environment** named `production` for the deploy job (created automatically in the workflow). You can add environment protection rules (e.g. require approval) in **Settings → Environments**.
 
@@ -331,7 +333,7 @@ The Pi downloads source files from `/pi/*.` These are served directly from `PiFm
 - [ ] `php artisan storage:link` run
 - [ ] `public/.user.ini` upload limits set
 - [ ] Storage + cache directories writable (`chmod 755`)
-- [ ] All 4 GitHub Secrets added (`SSH_HOST`, `SSH_USERNAME`, `SSH_PRIVATE_KEY`, `DEPLOY_PATH`)
+- [ ] All 6 GitHub Secrets added (`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KEY`, `DEPLOY_PASSPHRASE`, `DEPLOY_PORT`, `DEPLOY_PATH`)
 - [ ] First push to `main` — Actions goes green
 - [ ] `/login` works, `/admin/tokens` accessible
 - [ ] Pi token generated and installed on Pi
