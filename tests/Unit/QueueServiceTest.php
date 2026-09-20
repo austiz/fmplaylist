@@ -202,6 +202,125 @@ class QueueServiceTest extends TestCase
         $this->assertNotNull($commercial->fresh()->last_played_at);
     }
 
+    // -- getNextForPi: claiming --------------------------------------------
+
+    public function test_two_devices_on_one_station_are_not_handed_the_same_item(): void
+    {
+        config(['fm.autofill_target' => 0]);
+        $items = $this->queueSongs(2);
+        ['token' => $a] = PiToken::generate('Pi A');
+        ['token' => $b] = PiToken::generate('Pi B');
+
+        $first = $this->service->getNextForPi($this->station->id, $a->id);
+        $second = $this->service->getNextForPi($this->station->id, $b->id);
+
+        $this->assertSame($items[0]->id, $first['next']['queue_item_id']);
+        $this->assertSame($items[1]->id, $second['next']['queue_item_id']);
+    }
+
+    public function test_a_device_keeps_its_claim_across_polls(): void
+    {
+        config(['fm.autofill_target' => 0]);
+        $items = $this->queueSongs(2);
+        ['token' => $a] = PiToken::generate('Pi A');
+
+        // The daemon polls every thirty seconds while the song it was given plays out.
+        $first = $this->service->getNextForPi($this->station->id, $a->id);
+        $again = $this->service->getNextForPi($this->station->id, $a->id);
+
+        $this->assertSame($items[0]->id, $first['next']['queue_item_id']);
+        $this->assertSame($items[0]->id, $again['next']['queue_item_id']);
+    }
+
+    public function test_a_stale_claim_is_released_to_another_device(): void
+    {
+        config(['fm.autofill_target' => 0, 'fm.queue_claim_seconds' => 300]);
+        $items = $this->queueSongs(1);
+        ['token' => $a] = PiToken::generate('Pi A');
+        ['token' => $b] = PiToken::generate('Pi B');
+
+        $this->service->getNextForPi($this->station->id, $a->id);
+
+        // Pi A was unplugged mid-song; it must not strand the item forever.
+        QueueItem::whereKey($items[0]->id)->update(['claimed_at' => now()->subMinutes(10)]);
+
+        $second = $this->service->getNextForPi($this->station->id, $b->id);
+
+        $this->assertSame($items[0]->id, $second['next']['queue_item_id']);
+    }
+
+    public function test_an_unattributed_read_does_not_claim_anything(): void
+    {
+        config(['fm.autofill_target' => 0]);
+        $items = $this->queueSongs(1);
+        ['token' => $a] = PiToken::generate('Pi A');
+
+        // The admin preview asks without a token, and must not take the item away
+        // from the device that is about to be given it.
+        $preview = $this->service->getNextForPi($this->station->id);
+
+        $this->assertSame($items[0]->id, $preview['next']['queue_item_id']);
+        $this->assertNull(QueueItem::whereKey($items[0]->id)->value('claimed_at'));
+
+        $forDevice = $this->service->getNextForPi($this->station->id, $a->id);
+
+        $this->assertSame($items[0]->id, $forDevice['next']['queue_item_id']);
+    }
+
+    public function test_lookahead_starts_after_the_item_this_device_was_given(): void
+    {
+        config(['fm.autofill_target' => 0]);
+        $items = $this->queueSongs(4);
+        ['token' => $a] = PiToken::generate('Pi A');
+        ['token' => $b] = PiToken::generate('Pi B');
+
+        $this->service->getNextForPi($this->station->id, $a->id);
+        $second = $this->service->getNextForPi($this->station->id, $b->id);
+
+        $peeked = $this->service->peekUpcoming($this->station->id, 2, $second['next']['queue_item_id']);
+
+        // Pi B holds item 2, so it should be pre-decoding 3 and 4 -- not 2 again.
+        $this->assertSame([$items[2]->id, $items[3]->id], array_column($peeked, 'queue_item_id'));
+    }
+
+    public function test_one_devices_report_does_not_retire_the_others_song(): void
+    {
+        config(['fm.autofill_target' => 0]);
+        $items = $this->queueSongs(2);
+        ['token' => $a] = PiToken::generate('Pi A');
+        ['token' => $b] = PiToken::generate('Pi B');
+
+        $this->service->getNextForPi($this->station->id, $a->id);
+        $this->service->getNextForPi($this->station->id, $b->id);
+        QueueItem::whereKey($items[0]->id)->update(['status' => 'playing']);
+        QueueItem::whereKey($items[1]->id)->update(['status' => 'playing']);
+
+        $this->service->markNowPlaying(
+            $this->station->id, 'song', $items[0]->id, $items[0]->mediaAsset->filename
+        );
+
+        $this->assertSame('playing', QueueItem::whereKey($items[1]->id)->value('status'));
+    }
+
+    /**
+     * @return array<int, QueueItem>
+     */
+    private function queueSongs(int $count): array
+    {
+        $items = [];
+
+        foreach (range(1, $count) as $position) {
+            $items[] = QueueItem::create([
+                'station_id' => $this->station->id,
+                'media_asset_id' => MediaAsset::factory()->create()->id,
+                'position' => $position,
+                'status' => 'pending',
+            ]);
+        }
+
+        return $items;
+    }
+
     // -- getNextForPi: selection -------------------------------------------
 
     public function test_get_next_for_pi_returns_the_lowest_positioned_pending_item(): void

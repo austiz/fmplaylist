@@ -39,11 +39,20 @@ class PiController extends Controller
     {
         $stationId = $this->stationIdFor($request);
 
-        $data = $this->queueService->getNextForPi($stationId);
+        /** @var PiToken|null $token */
+        $token = $request->attributes->get('pi_token');
+
+        // Who is asking decides which item they are handed: the queue leases its head
+        // out, so a second transmitter on this station gets the one after it.
+        $data = $this->queueService->getNextForPi($stationId, $token?->id);
 
         $lookahead = min((int) $request->query('lookahead', 0), 5);
         if ($lookahead > 1 && isset($data['next'])) {
-            $data['upcoming'] = $this->queueService->peekUpcoming($stationId, $lookahead);
+            $data['upcoming'] = $this->queueService->peekUpcoming(
+                $stationId,
+                $lookahead,
+                $data['next']['queue_item_id'] ?? null,
+            );
         }
 
         return response()->json($data);

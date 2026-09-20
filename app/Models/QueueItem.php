@@ -27,11 +27,14 @@ class QueueItem extends Model
         'position',
         'status',
         'played_at',
+        'claimed_by_pi_token_id',
+        'claimed_at',
     ];
 
     protected $casts = [
         'position' => 'integer',
         'played_at' => 'datetime',
+        'claimed_at' => 'datetime',
     ];
 
     /** @return BelongsTo<MediaAsset, $this> */
@@ -47,6 +50,22 @@ class QueueItem extends Model
     public function scopePending(Builder $query): Builder
     {
         return $query->where('status', 'pending')->orderBy('position');
+    }
+
+    /**
+     * Pending items this device may take: unclaimed, its own, or claimed so long ago
+     * that the device holding them has evidently stopped asking.
+     *
+     * @param  Builder<QueueItem>  $query
+     * @return Builder<QueueItem>
+     */
+    public function scopeClaimableBy(Builder $query, int $piTokenId): Builder
+    {
+        return $query->pending()->where(fn (Builder $q) => $q
+            ->whereNull('claimed_at')
+            ->orWhere('claimed_by_pi_token_id', $piTokenId)
+            ->orWhere('claimed_at', '<', now()->subSeconds((int) config('fm.queue_claim_seconds')))
+        );
     }
 
     /**

@@ -43,13 +43,22 @@ class QueueService
      * Read-only peek at the next $limit pending songs — no state changes.
      * Used by the Pi to pre-decode upcoming songs before they're needed.
      *
+     * `$afterId` is the item the caller was already handed. It is passed rather than
+     * assumed to be the head of the queue, because with two devices on one station the
+     * second is claimed the item *after* the head, and skipping a fixed one would have
+     * it pre-decoding a song it is never going to be given.
+     *
      * @return array<int, array<string, mixed>>
      */
-    public function peekUpcoming(int $stationId, int $limit = 3): array
+    public function peekUpcoming(int $stationId, int $limit = 3, ?int $afterId = null): array
     {
         return CurrentStation::as($stationId, fn () => QueueItem::with('mediaAsset')
             ->pending()
-            ->skip(1)           // skip 'next' (already returned by getNextForPi)
+            ->when(
+                $afterId !== null,
+                fn ($q) => $q->where('position', '>', QueueItem::whereKey($afterId)->value('position') ?? 0),
+                fn ($q) => $q->skip(1),
+            )
             ->take($limit)
             ->get()
             ->map(fn (QueueItem $item) => [
@@ -60,13 +69,23 @@ class QueueService
     }
 
     /** @return array<string, mixed> */
-    public function getNextForPi(int $stationId): array
+    /**
+     * What a device should play next.
+     *
+     * `$piTokenId` is who is asking. Passing it takes a lease on the item returned, so
+     * a second transmitter on the same station is handed the one after it instead of
+     * the same one; omitting it reads without claiming, which is what the admin preview
+     * wants. See `QueueItem::scopeClaimableBy()`.
+     *
+     * @return array<string, mixed>
+     */
+    public function getNextForPi(int $stationId, ?int $piTokenId = null): array
     {
-        return CurrentStation::as($stationId, fn () => $this->nextForPi($stationId));
+        return CurrentStation::as($stationId, fn () => $this->nextForPi($stationId, $piTokenId));
     }
 
     /** @return array<string, mixed> */
-    private function nextForPi(int $stationId): array
+    private function nextForPi(int $stationId, ?int $piTokenId): array
     {
         $this->autoFillQueue($stationId);
 
@@ -102,7 +121,7 @@ class QueueService
         }
 
         // ── Next queued song ──────────────────────────────────────────────
-        $next = QueueItem::with('mediaAsset')->pending()->first();
+        $next = $this->claimNext($stationId, $piTokenId);
 
         return [
             'commercial' => $commercial ? [
@@ -178,20 +197,21 @@ class QueueService
             // By id, not by status: a blanket `where('status', 'playing')` also retired
             // the item this report is about, which is what made a replay move the queue
             // backwards.
+            //
+            // And only this device's items. Now that the queue leases its head out, two
+            // transmitters on one station are legitimately playing different songs, so
+            // retiring every `playing` row would have each one's report end the other's.
+            $reporter = $queueItemId !== null
+                ? QueueItem::whereKey($queueItemId)->value('claimed_by_pi_token_id')
+                : null;
+
             QueueItem::where('status', 'playing')
                 ->when($queueItemId !== null, fn ($q) => $q->where('id', '!=', $queueItemId))
+                ->when($reporter !== null, fn ($q) => $q->where('claimed_by_pi_token_id', $reporter))
                 ->update([
                     'status' => 'played',
                     'played_at' => now(),
                 ]);
-
-            // One write for all three types, here rather than in the per-type handlers:
-            // this is the single place a segment is known to have reached the air, and
-            // the idempotency check above already ran, so a retried report cannot move
-            // a song's turn back down the autofill order.
-            if ($mediaId) {
-                MediaAsset::where('id', $mediaId)->update(['last_played_at' => now()]);
-            }
 
             // One write for all three types, here rather than in the per-type handlers:
             // this is the single place a segment is known to have reached the air, and
@@ -399,6 +419,38 @@ class QueueService
             'ftpa.wav',
             'station_id.wav',
         ], true);
+    }
+
+    /**
+     * Take the head of the queue, under the station lock, so only one device gets it.
+     *
+     * The read used to sit outside any lock while the item stayed `pending` until it
+     * was reported as played -- a window of minutes in which a second Pi on the station
+     * polling for its own next song was handed the same `queue_item_id`, and the
+     * listener who requested it heard it twice while the queue advanced once.
+     *
+     * The claim is a lease, renewed on every poll, not a permanent assignment: a device
+     * that is unplugged mid-song releases its hold once `fm.queue_claim_seconds` passes
+     * rather than stranding the item forever.
+     */
+    private function claimNext(int $stationId, ?int $piTokenId): ?QueueItem
+    {
+        if ($piTokenId === null) {
+            return QueueItem::with('mediaAsset')->pending()->first();
+        }
+
+        return DB::transaction(function () use ($stationId, $piTokenId) {
+            $this->lockStation($stationId);
+
+            $next = QueueItem::with('mediaAsset')->claimableBy($piTokenId)->first();
+
+            $next?->forceFill([
+                'claimed_by_pi_token_id' => $piTokenId,
+                'claimed_at' => now(),
+            ])->save();
+
+            return $next;
+        });
     }
 
     /**

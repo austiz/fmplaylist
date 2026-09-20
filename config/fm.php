@@ -30,6 +30,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Queue claims
+    |--------------------------------------------------------------------------
+    |
+    | How long a device holds the next item after being handed it, before another
+    | device on the same station may take it instead. A device renews the lease on
+    | every poll, so this only has to outlast a few missed polls -- it is the delay
+    | before a device that died mid-song stops blocking its stand-in.
+    |
+    */
+
+    'queue_claim_seconds' => (int) env('FM_QUEUE_CLAIM_SECONDS', 300),
+
+    /*
+    |--------------------------------------------------------------------------
     | Uploads
     |--------------------------------------------------------------------------
     |
