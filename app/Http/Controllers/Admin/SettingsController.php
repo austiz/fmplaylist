@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\SettingKey;
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\ConnectWifiRequest;
+use App\Http\Requests\Admin\StoreWifiNetworkRequest;
+use App\Http\Requests\Admin\UpdateStationSettingsRequest;
 use App\Models\Setting;
 use App\Models\WifiNetwork;
 use App\Support\StationSettings;
@@ -64,18 +67,10 @@ class SettingsController extends Controller
         ]);
     }
 
-    public function update(Request $request): RedirectResponse
+    public function update(UpdateStationSettingsRequest $request): RedirectResponse
     {
         $station = $this->activeStation($request);
-
-        $data = $request->validate([
-            'frequency' => ['required', 'numeric', 'min:87.5', 'max:108.0'],
-            'callsign' => ['required', 'string', 'max:64'],
-            'fallback_song' => ['required', 'string', 'max:255'],
-            'commercial_interval' => ['required', 'integer', 'min:0', 'max:50'],
-            'sound_byte_interval' => ['required', 'integer', 'min:0', 'max:20'],
-            'fade_in_duration' => ['required', 'numeric', 'min:0', 'max:3'],
-        ]);
+        $data = $request->validated();
 
         $settings = StationSettings::for($station->id);
 
@@ -86,14 +81,10 @@ class SettingsController extends Controller
         return back()->with('success', 'Settings saved.');
     }
 
-    public function connectWifi(Request $request): RedirectResponse
+    public function connectWifi(ConnectWifiRequest $request): RedirectResponse
     {
         $station = $this->activeStation($request);
-
-        $data = $request->validate([
-            'ssid' => ['required', 'string', 'max:100'],
-            'password' => ['nullable', 'string', 'max:128'],
-        ]);
+        $data = $request->validated();
 
         Setting::set(SettingKey::PendingWifiSsid, $data['ssid'], $station->id);
         Setting::set(SettingKey::PendingWifiPassword, $data['password'] ?? '', $station->id);
@@ -107,16 +98,10 @@ class SettingsController extends Controller
      * network is by definition out of range when you configure it, so it can
      * never appear in the Pi's scan list.
      */
-    public function storeWifiNetwork(Request $request): RedirectResponse
+    public function storeWifiNetwork(StoreWifiNetworkRequest $request): RedirectResponse
     {
         $station = $this->activeStation($request);
-
-        $data = $request->validate([
-            'ssid' => ['required', 'string', 'max:100'],
-            'password' => ['nullable', 'string', 'min:8', 'max:128'],
-        ], [
-            'password.min' => 'WPA passwords must be at least 8 characters. Leave blank for an open network.',
-        ]);
+        $data = $request->validated();
 
         $existing = WifiNetwork::where('station_id', $station->id)
             ->where('ssid', $data['ssid'])

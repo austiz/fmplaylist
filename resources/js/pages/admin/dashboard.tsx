@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/react';
 import { BarSparkline, LineSparkline } from '@/components/admin/sparkline';
 import { AdminLayout } from '@/components/admin-layout';
+import { formatRuntime, shortDay } from '@/lib/format';
 import type { NowPlayingData } from '@/types/fm';
 
 interface Props {
@@ -18,23 +19,6 @@ interface Props {
     stats: { requestsToday: number; songsPlayedToday: number };
     requestsPerHour: number[];
     playsLast7Days: { date: string; count: number }[];
-}
-
-function shortDay(iso: string): string {
-    return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, {
-        weekday: 'short',
-    });
-}
-
-function formatRuntime(seconds: number): string {
-    if (seconds <= 0) {
-        return '—';
-    }
-
-    const h = Math.floor(seconds / 3600);
-    const m = Math.ceil((seconds % 3600) / 60);
-
-    return h > 0 ? `${h}h ${m}m` : `${m} min`;
 }
 
 export default function Dashboard({

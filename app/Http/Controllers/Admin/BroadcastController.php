@@ -6,6 +6,8 @@ use App\Enums\MediaType;
 use App\Enums\SettingKey;
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\SetBroadcastModeRequest;
+use App\Http\Requests\Admin\UpdateRdsRequest;
 use App\Models\MediaAsset;
 use App\Models\NowPlaying;
 use App\Models\PiToken;
@@ -60,32 +62,24 @@ class BroadcastController extends Controller
         ]);
     }
 
-    public function setMode(Request $request): RedirectResponse
+    public function setMode(SetBroadcastModeRequest $request): RedirectResponse
     {
         $station = $this->activeStation($request);
+        $data = $request->validated();
 
-        $data = $request->validate([
-            'broadcast_mode' => ['required', 'in:normal,phone_stream,usb_input,custom_stream'],
-            'live_stream_url' => ['nullable', 'string', 'max:255'],
-            'live_alsa_device' => ['nullable', 'string', 'max:50'],
-        ]);
-
+        // Omitted or blank means "whatever the key declares", not "store an empty
+        // string" -- an empty ALSA device would leave the Pi with no input at all.
         Setting::set(SettingKey::BroadcastMode, $data['broadcast_mode'], $station->id);
-        Setting::set(SettingKey::LiveStreamUrl, $data['live_stream_url'] ?? '', $station->id);
-        Setting::set(SettingKey::LiveAlsaDevice, $data['live_alsa_device'] ?? 'hw:1,0', $station->id);
+        Setting::set(SettingKey::LiveStreamUrl, $data['live_stream_url'] ?? SettingKey::LiveStreamUrl->default(), $station->id);
+        Setting::set(SettingKey::LiveAlsaDevice, ($data['live_alsa_device'] ?? '') ?: SettingKey::LiveAlsaDevice->default(), $station->id);
 
         return back()->with('success', 'Broadcast mode updated. Pi will switch within 30 seconds.');
     }
 
-    public function updateRds(Request $request): RedirectResponse
+    public function updateRds(UpdateRdsRequest $request): RedirectResponse
     {
         $station = $this->activeStation($request);
-
-        $data = $request->validate([
-            'rds_rt_mode' => ['required', 'in:auto,custom'],
-            'rds_rt' => ['nullable', 'string', 'max:64'],
-            'rds_ps' => ['nullable', 'string', 'max:8'],
-        ]);
+        $data = $request->validated();
 
         Setting::set(SettingKey::RdsRtMode, $data['rds_rt_mode'], $station->id);
         Setting::set(SettingKey::RdsRt, $data['rds_rt'] ?? '', $station->id);

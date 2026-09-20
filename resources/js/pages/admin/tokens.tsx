@@ -11,6 +11,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { formatBytes } from '@/lib/format';
 import type { PiDevice, Station } from '@/types/fm';
 
 interface Props {
@@ -18,18 +19,6 @@ interface Props {
     stations: Pick<Station, 'id' | 'name'>[];
     newToken: string | null;
     appUrl: string;
-}
-
-function formatBytes(bytes: number | null): string {
-    if (bytes === null) {
-        return '—';
-    }
-
-    const gb = bytes / 1024 ** 3;
-
-    return gb >= 1
-        ? `${gb.toFixed(1)} GB`
-        : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
 }
 
 /** Actions that interrupt the broadcast get a confirm; the rest fire directly. */

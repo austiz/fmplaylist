@@ -274,6 +274,28 @@ class PiControllerTest extends TestCase
         $this->assertNotContains($song->id, $pendingIdsA);
     }
 
+    /**
+     * Daemons in the field predate the type discriminator and still post a bare
+     * `song_id`. Both confirm endpoints share one request class now, so this
+     * fallback exists once rather than twice.
+     */
+    public function test_a_legacy_confirm_without_a_type_is_read_as_a_song(): void
+    {
+        $song = MediaAsset::factory()->create([
+            'active' => true,
+            'needs_pi_download' => true,
+            'storage_path' => 'songs/example.wav',
+        ]);
+
+        $this->postJson('/api/pi/confirm-download', ['song_id' => $song->id], $this->piHeaders())
+            ->assertOk();
+
+        $this->assertDatabaseHas('device_downloads', [
+            'media_type' => 'song',
+            'media_id' => $song->id,
+        ]);
+    }
+
     public function test_confirm_delete_only_purges_after_all_devices_confirm(): void
     {
         $song = MediaAsset::factory()->create(['active' => true, 'pi_delete_requested' => true]);

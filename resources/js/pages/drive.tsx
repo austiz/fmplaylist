@@ -3,6 +3,7 @@ import { Music, RotateCw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useElapsed } from '@/hooks/use-elapsed';
 import { useFmLive } from '@/hooks/use-fm-live';
+import { fmtTime } from '@/lib/format';
 import { getRecents } from '@/lib/recents';
 import type { Recent } from '@/lib/recents';
 import type { NowPlayingData, Station } from '@/types/fm';
@@ -19,12 +20,6 @@ interface WakeLockSentinelLike {
 }
 interface WakeLockNavigator {
     wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinelLike> };
-}
-
-function fmtTime(sec: number): string {
-    const s = Math.max(0, Math.floor(sec));
-
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 export default function Drive({ nowPlaying, station }: Props) {

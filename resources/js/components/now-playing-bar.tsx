@@ -1,6 +1,7 @@
 import { SplitFlapText } from '@/components/split-flap-text';
 import { useElapsed } from '@/hooks/use-elapsed';
 import { useFmLive } from '@/hooks/use-fm-live';
+import { fmtTime } from '@/lib/format';
 import type { NowPlayingData, PiStatus } from '@/types/fm';
 
 const BARS = [
@@ -11,12 +12,6 @@ const BARS = [
     'animate-bar-e',
 ] as const;
 const IDLE_HEIGHTS = [40, 65, 30, 80, 50];
-
-function fmtTime(sec: number): string {
-    const s = Math.max(0, Math.floor(sec));
-
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
 
 function PiDot({ status }: { status: PiStatus }) {
     if (!status.online) {

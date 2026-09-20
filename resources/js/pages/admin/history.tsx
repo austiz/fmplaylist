@@ -1,6 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import { LineSparkline } from '@/components/admin/sparkline';
 import { AdminLayout } from '@/components/admin-layout';
+import { shortDay } from '@/lib/format';
 import type { PaginatedResponse } from '@/types/fm';
 
 interface HistoryItem {
@@ -19,12 +20,6 @@ interface Props {
 }
 
 const filters = ['all', 'pending', 'playing', 'played', 'skipped'];
-
-function shortDay(iso: string): string {
-    return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, {
-        weekday: 'short',
-    });
-}
 
 export default function History({ items, filter, playsLast7Days }: Props) {
     return (

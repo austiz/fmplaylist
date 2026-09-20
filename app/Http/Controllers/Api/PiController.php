@@ -4,6 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\SettingKey;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\AckCommandRequest;
+use App\Http\Requests\Api\ConfirmTransferRequest;
+use App\Http\Requests\Api\HeartbeatRequest;
+use App\Http\Requests\Api\NowPlayingReportRequest;
+use App\Http\Requests\Api\SyncLibraryRequest;
 use App\Http\Resources\NowPlayingResource;
 use App\Models\NowPlaying;
 use App\Models\PiCommand;
@@ -43,14 +48,9 @@ class PiController extends Controller
         return response()->json($data);
     }
 
-    public function nowPlaying(Request $request): JsonResponse
+    public function nowPlaying(NowPlayingReportRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'type' => ['required', 'in:song,station_id,commercial,sound_byte'],
-            'queue_item_id' => ['nullable', 'integer'],
-            'song_filename' => ['nullable', 'string'],
-            'item_id' => ['nullable', 'integer'],
-        ]);
+        $data = $request->validated();
 
         $this->queueService->markNowPlaying(
             $this->stationIdFor($request),
@@ -63,13 +63,9 @@ class PiController extends Controller
         return response()->json(['ok' => true, 'timestamp' => now()->toIso8601String()]);
     }
 
-    public function syncLibrary(Request $request): JsonResponse
+    public function syncLibrary(SyncLibraryRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'songs' => ['present', 'array'],
-            'songs.*.filename' => ['required', 'string'],
-            'songs.*.file_size' => ['nullable', 'integer'],
-        ]);
+        $data = $request->validated();
 
         /** @var PiToken $token */
         $token = $request->attributes->get('pi_token');
@@ -86,29 +82,9 @@ class PiController extends Controller
         return response()->json($this->buildConfig($station, $token));
     }
 
-    public function heartbeat(Request $request): JsonResponse
+    public function heartbeat(HeartbeatRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'status' => ['required', 'in:idle,playing,live'],
-            'mode' => ['required', 'string', 'max:30'],
-            'ip' => ['nullable', 'string', 'max:45'],
-            'wifi_ssid' => ['nullable', 'string', 'max:100'],
-            'wifi_networks' => ['nullable', 'array'],
-            'wifi_applied' => ['nullable', 'string', 'max:100'],
-            'wifi_failed' => ['nullable', 'string', 'max:100'],
-            'daemon_hash' => ['nullable', 'string', 'max:16'],
-            'disk_free_bytes' => ['nullable', 'integer'],
-            'disk_total_bytes' => ['nullable', 'integer'],
-            'wifi_profiles_rev' => ['nullable', 'string', 'max:32'],
-            'last_error_kind' => ['nullable', 'string', 'max:20'],
-            'last_error_message' => ['nullable', 'string', 'max:255'],
-            'last_error_at' => ['nullable', 'string', 'max:32'],
-            // Sent by the daemon since forever, silently dropped until now.
-            'fm_running' => ['nullable', 'boolean'],
-            'schedule_queue_depth' => ['nullable', 'integer'],
-            'ready_queue_depth' => ['nullable', 'integer'],
-            'last_update_result' => ['nullable', 'string', 'max:20'],
-        ]);
+        $data = $request->validated();
 
         /** @var PiToken|null $token */
         $token = $request->attributes->get('pi_token');
@@ -240,13 +216,9 @@ class PiController extends Controller
     }
 
     /** Device reports the outcome of a command it was handed. */
-    public function ackCommand(Request $request): JsonResponse
+    public function ackCommand(AckCommandRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'id' => ['required', 'integer'],
-            'ok' => ['required', 'boolean'],
-            'result' => ['nullable', 'string', 'max:20000'],
-        ]);
+        $data = $request->validated();
 
         $token = $request->attributes->get('pi_token');
 
@@ -269,39 +241,25 @@ class PiController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function confirmDownload(Request $request): JsonResponse
+    public function confirmDownload(ConfirmTransferRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'type' => ['nullable', 'in:song,commercial,sound_byte'],
-            'item_id' => ['nullable', 'integer'],
-            'song_id' => ['nullable', 'integer'], // legacy field
-        ]);
-
         $token = $request->attributes->get('pi_token');
-        $type = $data['type'] ?? 'song';
-        $itemId = $data['item_id'] ?? $data['song_id'] ?? null;
+        $itemId = $request->itemId();
 
         if ($itemId && $token) {
-            $this->deviceSyncService->recordDownload($token, $type, $itemId);
+            $this->deviceSyncService->recordDownload($token, $request->mediaType(), $itemId);
         }
 
         return response()->json(['ok' => true]);
     }
 
-    public function confirmDelete(Request $request): JsonResponse
+    public function confirmDelete(ConfirmTransferRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'type' => ['nullable', 'in:song,commercial,sound_byte'],
-            'item_id' => ['nullable', 'integer'],
-            'song_id' => ['nullable', 'integer'], // legacy field
-        ]);
-
         $token = $request->attributes->get('pi_token');
-        $type = $data['type'] ?? 'song';
-        $itemId = $data['item_id'] ?? $data['song_id'] ?? null;
+        $itemId = $request->itemId();
 
         if ($itemId && $token) {
-            $this->deviceSyncService->recordDelete($token, $type, $itemId);
+            $this->deviceSyncService->recordDelete($token, $request->mediaType(), $itemId);
         }
 
         return response()->json(['ok' => true]);

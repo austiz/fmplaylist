@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\DispatchPiCommandRequest;
 use App\Models\PiCommand;
 use App\Models\PiToken;
 use App\Models\Station;
@@ -12,7 +13,6 @@ use App\Support\PiSource;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -95,12 +95,9 @@ class TokenController extends Controller
      * consumed by whichever Pi heartbeated first, so on a multi-Pi station the
      * others silently never got the command.
      */
-    public function dispatchCommand(Request $request, PiToken $token): RedirectResponse
+    public function dispatchCommand(DispatchPiCommandRequest $request, PiToken $token): RedirectResponse
     {
-        $data = $request->validate([
-            'command' => ['required', 'string', Rule::in(PiCommand::COMMANDS)],
-            'payload' => ['nullable', 'string', 'max:255'],
-        ]);
+        $data = $request->validated();
 
         // Re-queuing while one is still in flight just stacks duplicate reboots.
         $inFlight = PiCommand::query()
