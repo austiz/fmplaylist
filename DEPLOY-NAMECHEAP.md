@@ -169,7 +169,33 @@ php artisan route:cache
 php artisan view:cache
 ```
 
-### 10 — Set upload limits
+### 10 — Place the fallback song
+
+`FTPA.wav` is the audio a transmitter falls back to when its queue is empty. It is
+**not in the repository** — 48 MB that never changes and that git cannot
+delta-compress, so tracking it made it 92% of the repo, paid on every clone and
+every CI run. Nothing in the deploy pipeline carries it either, so put it there once:
+
+```bash
+mkdir -p ~/fmplaylist/storage/app/pi
+# from your machine:
+scp -P 21098 storage/app/pi/FTPA.wav yourusername@server123.web-hosting.com:~/fmplaylist/storage/app/pi/
+```
+
+It survives every later deploy, because `storage/` is gitignored and `git pull`
+never touches it.
+
+To check the server agrees, fetch the manifest:
+
+```bash
+curl -s https://yourdomain.com/pi/manifest.json | head -c 400
+```
+
+A healthy payload has `hash` and `files` and nothing else. If a **`missing`** key
+appears, the server does not have the file it names and every Pi install will abort
+at the payload check.
+
+### 11 — Set upload limits
 
 Create `~/fmplaylist/public/.user.ini` for PHP file upload settings:
 
@@ -182,14 +208,14 @@ max_execution_time = 120
 
 Or set these in **cPanel → Software → PHP Configuration → Options**.
 
-### 11 — Set directory permissions
+### 12 — Set directory permissions
 
 ```bash
 chmod -R 755 ~/fmplaylist/storage
 chmod -R 755 ~/fmplaylist/bootstrap/cache
 ```
 
-### 12 — Verify
+### 13 — Verify
 
 Visit `https://yourdomain.com` — you should see the FM Playlist home page.
 
@@ -374,7 +400,25 @@ php artisan media:backfill-durations
 
 ### Update Pi source files
 
-The Pi downloads source files from `/pi/*.` These are served directly from `PiFmRds/src/` and update automatically when you deploy — no extra step needed.
+The Pi downloads its payload from `/pi/*`. Those files are served from two places:
+`PiFmRds/src/`, which deploys with the code and needs no extra step, and
+`storage/app/pi/`, which is untracked and was placed by hand in Step 10. Only the
+second one can go missing; `/pi/manifest.json` reports it when it has.
+
+### After a force-push
+
+`git pull origin main --ff-only` — what the deploy workflow runs — refuses to run
+across rewritten history, so the deploy fails loudly rather than silently resetting
+the server. Fix the clone once over SSH:
+
+```bash
+cd ~/fmplaylist
+git fetch origin
+git reset --hard origin/main
+```
+
+`reset --hard` only touches tracked files, so `.env`, `storage/` and the fallback
+song are left alone. Then re-run the deploy workflow.
 
 ---
 
@@ -387,6 +431,7 @@ The Pi downloads source files from `/pi/*.` These are served directly from `PiFm
 - [ ] Document root decided — either `fmplaylist/public`, or left at `public_html` and synced by CI
 - [ ] `.env` configured (`APP_KEY`, DB, `SESSION_SECURE_COOKIE=true`)
 - [ ] `php artisan storage:link` run
+- [ ] `storage/app/pi/FTPA.wav` uploaded (`/pi/manifest.json` shows no `missing` key)
 - [ ] `public/.user.ini` upload limits set
 - [ ] Storage + cache directories writable (`chmod 755`)
 - [ ] All 6 GitHub Secrets added (`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KEY`, `DEPLOY_PASSPHRASE`, `DEPLOY_PORT`, `DEPLOY_PATH`)

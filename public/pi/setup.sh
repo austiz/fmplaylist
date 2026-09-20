@@ -401,9 +401,14 @@ echo "==> Fetching source payload..."
 SRC="$WORK_DIR/src"
 fetch_source "$SRC"
 
+# Mirrors App\Support\PiSource::REQUIRED. A miss here is a server-side problem,
+# not a download failure: FTPA.wav in particular is not in the repository, so a
+# server deployed without placing it serves a payload that looks fine until now.
 for required in pi_daemon.py Makefile pi_fm_rds.c wifi_apply.sh FTPA.wav; do
   if [ ! -f "$SRC/$required" ]; then
-    echo "ERROR: payload is missing $required"
+    echo "ERROR: the server did not offer $required." >&2
+    echo "       Check $BASE_URL/pi/manifest.json - if it lists a \"missing\" key," >&2
+    echo "       the server is missing that file, not this Pi." >&2
     exit 1
   fi
 done

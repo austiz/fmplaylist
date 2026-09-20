@@ -141,4 +141,67 @@ class PiSourceTest extends TestCase
         // config.json holds this device's API token.
         $this->get('/pi/config.json')->assertNotFound();
     }
+
+    public function test_the_untracked_asset_dir_is_part_of_one_flat_payload(): void
+    {
+        // FTPA.wav is 48 MB and is not in the repository, so it cannot live beside
+        // the sources. The device still sees a single flat file list, so the two
+        // directories have to merge into one manifest -- and the allowlist has to
+        // apply to the asset dir too, or it becomes a new way to auto-deploy a
+        // stray file to every transmitter.
+        $this->scratch = base_path(PiSource::ASSET_DIR.'/zz_asset_probe.wav');
+        file_put_contents($this->scratch, 'RIFF');
+
+        $manifest = PiSource::manifest();
+        $this->assertArrayHasKey('zz_asset_probe.wav', $manifest);
+        $this->assertSame(realpath($this->scratch), realpath((string) PiSource::path('zz_asset_probe.wav')));
+        $this->get('/pi/zz_asset_probe.wav')->assertOk();
+
+        $stray = base_path(PiSource::ASSET_DIR.'/zz_asset_probe.sql');
+        file_put_contents($stray, '-- secrets');
+        try {
+            $this->assertArrayNotHasKey('zz_asset_probe.sql', PiSource::manifest());
+            $this->get('/pi/zz_asset_probe.sql')->assertNotFound();
+        } finally {
+            unlink($stray);
+        }
+    }
+
+    public function test_the_source_dir_wins_a_name_collision(): void
+    {
+        // The asset dir is untracked and, on a server, writable. A file dropped
+        // there must not be able to shadow shipped code.
+        $this->scratch = base_path(PiSource::ASSET_DIR.'/pi_daemon.py');
+        file_put_contents($this->scratch, '# impostor');
+
+        $this->assertSame(
+            realpath(base_path(PiSource::DIR.'/pi_daemon.py')),
+            realpath((string) PiSource::path('pi_daemon.py'))
+        );
+    }
+
+    public function test_a_server_missing_a_required_file_says_so_in_the_manifest(): void
+    {
+        // The alternative is a payload that looks healthy here and aborts on the
+        // device, mid-install, for reasons the operator cannot see from the Pi.
+        $this->assertContains('FTPA.wav', PiSource::REQUIRED);
+
+        $real = base_path(PiSource::DIR.'/wifi_apply.sh');
+        $aside = $real.'.moved-by-test';
+        rename($real, $aside);
+
+        try {
+            $this->assertSame(['wifi_apply.sh'], array_values(array_diff(
+                PiSource::missing(), ['FTPA.wav']
+            )));
+
+            $this->getJson('/pi/manifest.json')
+                ->assertOk()
+                ->assertJsonFragment(['missing' => PiSource::missing()]);
+        } finally {
+            rename($aside, $real);
+        }
+
+        $this->assertNotContains('wifi_apply.sh', PiSource::missing());
+    }
 }

@@ -1,0 +1,51 @@
+MIT License
+
+Copyright (c) 2026 austiz
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Scope
+
+The MIT license above covers this repository EXCEPT for the vendored third-party
+code listed below.
+
+### PiFmRds — GPLv3
+
+`PiFmRds/` is vendored from https://github.com/ChristopheJacquet/PiFmRds and is
+licensed under the GNU General Public License v3. Its own terms are in
+`PiFmRds/LICENSE` and they govern that directory. Nothing here relicenses it.
+
+This matters in practice, not just on paper: the C sources in `PiFmRds/src/` are
+served to devices over HTTP by `App\Http\Controllers\PiSetupController` and compiled
+there, so running this application distributes GPLv3 code. Anyone who receives it is
+entitled to the source under GPLv3 terms, which this repository provides verbatim.
+
+### Two MIT files inside that directory
+
+`PiFmRds/src/pi_daemon.py` and `PiFmRds/src/wifi_apply.sh` are original work of this
+project and are MIT, like the rest of the application. They sit in that directory
+because the installer places the whole payload in one place on the device, not
+because they derive from PiFmRds. The daemon launches the `pi_fm_rds` binary as a
+separate process and talks to it over its control pipe; it links no GPL code and
+includes no GPL source.
+
+If you would rather not rely on that distinction, moving those two files to a
+directory of their own removes the question entirely.

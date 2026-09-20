@@ -13,18 +13,27 @@ class PiSetupController extends Controller
     /** The host baked into the checked-in setup.sh, rewritten per-request below. */
     private const DEFAULT_BASE_URL = 'https://fmplaylist.com';
 
-    /** The host hardcoded in public/pi/setup.sh, rewritten per request in setup(). */
-
     /**
      * The payload the Pi installs, with per-file hashes so it can download only
      * what changed. Also the authority for "is this Pi up to date" — see PiSource.
      */
     public function manifest(): JsonResponse
     {
-        return response()->json([
+        $payload = [
             'hash' => PiSource::hash(),
             'files' => PiSource::manifest(),
-        ]);
+        ];
+
+        // Say so rather than serving a payload that is quietly incomplete. The
+        // large assets are untracked, so a server that was deployed without them
+        // otherwise looks healthy here and fails on the device, mid-install.
+        $missing = PiSource::missing();
+
+        if ($missing !== []) {
+            $payload['missing'] = $missing;
+        }
+
+        return response()->json($payload);
     }
 
     public function file(string $filename): BinaryFileResponse

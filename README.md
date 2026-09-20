@@ -57,6 +57,7 @@ This project is intended for authorized, licensed, and venue-approved operation 
 |   |-- migrations/         8 files -- the schema as it is, not as it grew
 |   `-- seeders/
 |-- public/pi/setup.sh      the installer, served with the host rewritten per request
+|-- storage/app/pi/         untracked large payload assets (FTPA.wav); served, not committed
 |-- PiFmRds/                vendored GPLv3 upstream
 |   `-- src/                the device payload: pi_daemon.py, wifi_apply.sh, the C
 |                           sources and Makefile that setup.sh compiles on the device
@@ -548,8 +549,22 @@ https://fmplaylist.com/pi/FTPA.wav
 ```
 
 Only files on the manifest can be downloaded — it is an allowlist by name and
-extension, so a stray file left in the source directory is not served and does not
+extension, so a stray file left in a source directory is not served and does not
 auto-deploy to every transmitter on the next update.
+
+The payload is assembled from two directories and presented as one flat list:
+
+| Directory | Holds | Tracked |
+|---|---|---|
+| `PiFmRds/src/` | `pi_daemon.py`, `wifi_apply.sh`, the C sources and `Makefile` | yes |
+| `storage/app/pi/` | `FTPA.wav`, the 48 MB fallback song | **no** |
+
+`FTPA.wav` is not in git: it never changes and git cannot delta-compress it, so
+tracking it made it 92% of the repository, paid on every clone and every CI run. It
+is placed on a server once by hand — see `DEPLOY-NAMECHEAP.md`. If it is not there,
+`/pi/manifest.json` grows a `missing` key naming what is absent, and `setup.sh`
+aborts the install pointing at it. On a name collision `PiFmRds/src/` wins, so a
+file dropped in the writable asset directory cannot shadow shipped code.
 
 ## Pi Daemon Flow
 
@@ -907,6 +922,6 @@ A compromised admin account **cannot**:
 is **GPLv3** — see `PiFmRds/LICENSE`. Its C sources are served to devices over HTTP and
 compiled there, so any distribution of this project distributes GPLv3 code.
 
-The application code around it currently declares no license. Until a root `LICENSE`
-exists, treat this repository as all rights reserved.
+The application around it is **MIT** — see `LICENSE`, which also explains why
+`pi_daemon.py` and `wifi_apply.sh` are MIT despite living inside that directory.
  _

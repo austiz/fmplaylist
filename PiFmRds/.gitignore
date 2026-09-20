@@ -9,7 +9,9 @@ __pycache__/
 # Contains API key — never commit
 src/config.json
 
-# Generated test WAV files (FTPA.wav is intentionally kept)
+# No WAV in this directory is tracked. The fallback song lives untracked in
+# storage/app/pi/ and is served from there -- see App\Support\PiSource.
+src/*.wav
 src/noise_*.wav
 src/pulses.wav
 src/sound.wav

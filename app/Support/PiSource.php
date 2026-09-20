@@ -19,6 +19,28 @@ class PiSource
     public const DIR = 'PiFmRds/src';
 
     /**
+     * Payload files that are served but deliberately not in git.
+     *
+     * FTPA.wav is 48 MB of fallback audio that never changes. Tracking it made it
+     * 92% of the repository, paid on every clone and every CI run, for a file git
+     * cannot even delta-compress. It lives here instead, untracked, and is placed
+     * on a server once -- see DEPLOY-NAMECHEAP.md. Anything dropped in this
+     * directory is subject to the same allowlist as the source dir below.
+     */
+    public const ASSET_DIR = 'storage/app/pi';
+
+    /**
+     * What an install cannot proceed without.
+     *
+     * Kept in step with the required-file loop in public/pi/setup.sh. Its purpose
+     * is to turn "the server is missing an untracked asset" into a statement the
+     * operator can read, rather than an install that aborts on the device.
+     *
+     * @var list<string>
+     */
+    public const REQUIRED = ['pi_daemon.py', 'Makefile', 'pi_fm_rds.c', 'wifi_apply.sh', 'FTPA.wav'];
+
+    /**
      * What may be sent to a device, by extension.
      *
      * An allowlist, not a denylist. This used to ship everything in the source dir,
@@ -49,13 +71,32 @@ class PiSource
      * Files the Pi installs, name => absolute path, sorted by name.
      *
      * Directories and dotfiles are skipped: the Pi's own manifest is a flat list
-     * of plain filenames.
+     * of plain filenames. The device sees one flat payload, so the two source
+     * directories are merged here -- DIR wins a name collision, because a file
+     * dropped in the untracked asset dir must never shadow shipped code.
      *
      * @return array<string, string>
      */
     public static function files(): array
     {
-        $dir = base_path(self::DIR);
+        $found = self::scan(base_path(self::DIR)) + self::scan(base_path(self::ASSET_DIR));
+
+        ksort($found);
+
+        return $found;
+    }
+
+    /**
+     * Allowlisted plain files directly inside $dir, name => absolute path.
+     *
+     * @return array<string, string>
+     */
+    private static function scan(string $dir): array
+    {
+        if (! is_dir($dir)) {
+            return [];
+        }
+
         $found = [];
 
         foreach ((array) scandir($dir) as $name) {
@@ -77,9 +118,24 @@ class PiSource
             }
         }
 
-        ksort($found);
-
         return $found;
+    }
+
+    /**
+     * Required payload files that are not on this server, sorted by name.
+     *
+     * Empty on a healthy install. Non-empty means someone deployed without
+     * placing the untracked assets, and every device install will abort.
+     *
+     * @return list<string>
+     */
+    public static function missing(): array
+    {
+        $missing = array_values(array_diff(self::REQUIRED, array_keys(self::files())));
+
+        sort($missing);
+
+        return $missing;
     }
 
     /** True when a filename is part of the payload — use before serving it. */
