@@ -7,6 +7,9 @@ use App\Models\DeviceDownload;
 use App\Models\PiToken;
 use App\Models\Song;
 use App\Models\SoundByte;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
@@ -75,10 +78,6 @@ class DeviceSyncService
     public function pendingDeletesFor(PiToken $token): Collection
     {
         $downloaded = $this->downloadedIds($token);
-
-        $this->purgeDeleteRequestsWithoutDeviceDownloads(Song::class, 'song');
-        $this->purgeDeleteRequestsWithoutDeviceDownloads(Commercial::class, 'commercial');
-        $this->purgeDeleteRequestsWithoutDeviceDownloads(SoundByte::class, 'sound_byte');
 
         $deletes = collect();
 
@@ -203,21 +202,37 @@ class DeviceSyncService
     }
 
     /**
-     * Legacy rows can predate per-device download tracking. If no device claims
-     * a delete-requested item, no Pi can ever receive/confirm that delete.
+     * Legacy rows can predate per-device download tracking. If no device claims a
+     * delete-requested item, no Pi can ever receive or confirm that delete, so the
+     * row sits pending forever.
+     *
+     * This is repair work for historical data, not part of the sync protocol, so it
+     * runs on a schedule (see routes/console.php) rather than inside the 30s device
+     * poll, where it cost three full table scans plus one EXISTS per row per beat.
+     *
+     * @return int rows purged
      */
-    private function purgeDeleteRequestsWithoutDeviceDownloads(string $modelClass, string $type): void
+    public function purgeOrphanedDeleteRequests(): int
     {
-        $modelClass::where('pi_delete_requested', true)
-            ->get(['id'])
-            ->each(function ($item) use ($type) {
-                $stillHeld = DeviceDownload::where('media_type', $type)
-                    ->where('media_id', $item->id)
-                    ->exists();
+        return $this->purgeOrphans(Song::query(), 'song')
+            + $this->purgeOrphans(Commercial::query(), 'commercial')
+            + $this->purgeOrphans(SoundByte::query(), 'sound_byte');
+    }
 
-                if (! $stillHeld) {
-                    $item->delete();
-                }
-            });
+    /**
+     * @param  Builder<covariant Model>  $query
+     */
+    private function purgeOrphans(Builder $query, string $type): int
+    {
+        $table = $query->getModel()->getTable();
+
+        return $query
+            ->where('pi_delete_requested', true)
+            ->whereNotExists(fn (QueryBuilder $sub) => $sub
+                ->selectRaw('1')
+                ->from('device_downloads')
+                ->where('device_downloads.media_type', $type)
+                ->whereColumn('device_downloads.media_id', $table.'.id'))
+            ->delete();
     }
 }

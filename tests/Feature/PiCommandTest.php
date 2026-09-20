@@ -135,7 +135,7 @@ class PiCommandTest extends TestCase
             'sent_at' => now()->subHour(),
         ]);
 
-        $this->heartbeat($raw)->assertOk();
+        PiCommand::expireStale();
 
         $cmd->refresh();
         $this->assertSame('failed', $cmd->status);
