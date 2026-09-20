@@ -76,7 +76,30 @@ class HandleInertiaRequests extends Middleware
             'stations' => fn () => $station('active')
                 ? Station::orderBy('name')->get(['id', 'name', 'slug'])
                 : null,
+            'toast' => fn () => $this->resolveToast($request),
         ];
+    }
+
+    /**
+     * Redirects flash feedback the idiomatic Laravel way -- ->with('success', ...) --
+     * which lands in the session and nowhere else. Inertia's own `flash` prop only
+     * carries what Inertia::flash() put there, so every one of those messages was
+     * being dropped before it reached the page. Translate the session keys into the
+     * single toast shape the frontend renders.
+     *
+     * @return array{type: string, message: string}|null
+     */
+    private function resolveToast(Request $request): ?array
+    {
+        foreach (['success' => 'success', 'error' => 'error'] as $key => $type) {
+            $message = $request->session()->get($key);
+
+            if (is_string($message) && $message !== '') {
+                return ['type' => $type, 'message' => $message];
+            }
+        }
+
+        return null;
     }
 
     private function resolveActiveStation(): ?Station
