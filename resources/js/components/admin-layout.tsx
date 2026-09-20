@@ -75,49 +75,47 @@ function PiStatusBar({ stationSlug }: { stationSlug?: string }) {
     return (
         <div className="flex items-center gap-4 border-b border-border bg-background px-4 py-1 font-display text-[10px] font-bold tracking-widest uppercase">
             <span
-                className={`flex items-center gap-1 ${connected ? 'text-green-500' : 'text-muted-foreground/40'}`}
+                className={`flex items-center gap-1 ${connected ? 'text-online' : 'text-muted-foreground/40'}`}
             >
                 <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? 'bg-green-500' : 'bg-muted-foreground/30'}`}
+                    className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? 'bg-online' : 'bg-muted-foreground/30'}`}
                 />
                 {connected ? 'Connected' : 'Offline'}
             </span>
 
             <span
-                className={`flex items-center gap-1 ${playing ? 'text-red-500' : 'text-muted-foreground/30'}`}
+                className={`flex items-center gap-1 ${playing ? 'text-playing' : 'text-muted-foreground/30'}`}
             >
                 <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full ${playing ? 'animate-pulse bg-red-500' : 'bg-muted-foreground/20'}`}
+                    className={`inline-block h-1.5 w-1.5 rounded-full ${playing ? 'animate-pulse bg-playing' : 'bg-muted-foreground/20'}`}
                 />
                 Playing
             </span>
 
             <span
-                className={`flex items-center gap-1 ${live ? 'text-violet-400' : 'text-muted-foreground/30'}`}
+                className={`flex items-center gap-1 ${live ? 'text-live' : 'text-muted-foreground/30'}`}
             >
                 <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full ${live ? 'animate-pulse bg-violet-400' : 'bg-muted-foreground/20'}`}
+                    className={`inline-block h-1.5 w-1.5 rounded-full ${live ? 'animate-pulse bg-live' : 'bg-muted-foreground/20'}`}
                 />
                 Live
             </span>
 
             {live && pi.ip && (
-                <span className="ml-auto text-violet-400/70">
-                    stream → {pi.ip}
-                </span>
+                <span className="ml-auto text-live/70">stream → {pi.ip}</span>
             )}
 
             {pi.update_available && (
                 <span
-                    className={`flex items-center gap-2 text-amber-500 ${live && pi.ip ? '' : 'ml-auto'}`}
+                    className={`flex items-center gap-2 text-warning ${live && pi.ip ? '' : 'ml-auto'}`}
                 >
-                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
                     Pi update available
                     <button
                         type="button"
                         onClick={pushUpdate}
                         disabled={updating}
-                        className="rounded-sm border border-amber-500/40 px-1.5 py-0.5 tracking-normal text-amber-500 normal-case transition-colors hover:bg-amber-500/10 disabled:opacity-50"
+                        className="rounded-sm border border-warning/30 px-1.5 py-0.5 tracking-normal text-warning normal-case transition-colors hover:bg-warning-soft disabled:opacity-50"
                     >
                         {updating ? 'Queuing…' : 'Update'}
                     </button>
@@ -147,7 +145,7 @@ export function AdminLayout({
                     {/* Top row: logo + station switcher + logout */}
                     <div className="flex items-center justify-between py-3">
                         <Link href="/" className="flex items-center gap-1">
-                            <span className="font-display font-bold text-red-500">
+                            <span className="font-display font-bold text-primary">
                                 FM
                             </span>
                             <span className="font-display font-bold text-foreground">
@@ -195,7 +193,7 @@ export function AdminLayout({
                                 href={item.href}
                                 className={`shrink-0 border-b-2 px-3 pt-1 pb-2 text-sm font-medium transition-colors ${
                                     active(item.href)
-                                        ? 'border-red-500 text-foreground'
+                                        ? 'border-primary text-foreground'
                                         : 'border-transparent text-muted-foreground hover:text-foreground'
                                 }`}
                             >

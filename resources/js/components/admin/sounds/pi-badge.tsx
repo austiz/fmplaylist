@@ -25,7 +25,7 @@ export function PiBadge({
 
     if (deleteRequested) {
         return (
-            <span className={`${BADGE} bg-red-500/15 text-red-400`}>
+            <span className={`${BADGE} bg-destructive/12 text-destructive`}>
                 Deleting
             </span>
         );
@@ -34,7 +34,7 @@ export function PiBadge({
     // No file on the web side and no device holding it — nothing can ever play this.
     if (devicesHave === 0 && !hasFile) {
         return (
-            <span className={`${BADGE} bg-red-500/15 text-red-400`}>
+            <span className={`${BADGE} bg-destructive/12 text-destructive`}>
                 No File
             </span>
         );
@@ -42,7 +42,7 @@ export function PiBadge({
 
     if (devicesHave === 0) {
         return (
-            <span className={`${BADGE} bg-yellow-500/15 text-yellow-400`}>
+            <span className={`${BADGE} bg-warning-soft text-warning`}>
                 Pending ↓
             </span>
         );
@@ -51,7 +51,7 @@ export function PiBadge({
     if (devicesHave < deviceCount) {
         return (
             <span
-                className={`${BADGE} bg-yellow-500/15 text-yellow-400`}
+                className={`${BADGE} bg-warning-soft text-warning`}
                 title={`${devicesHave} of ${deviceCount} Pis have this file`}
             >
                 {devicesHave}/{deviceCount} Pis
@@ -67,7 +67,5 @@ export function PiBadge({
         );
     }
 
-    return (
-        <span className={`${BADGE} bg-green-500/15 text-green-400`}>On Pi</span>
-    );
+    return <span className={`${BADGE} bg-online-soft text-online`}>On Pi</span>;
 }

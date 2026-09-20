@@ -39,13 +39,13 @@ export function PublicLayout({ children }: PropsWithChildren) {
                         href={tagged('/')}
                         className="group flex items-center gap-2"
                     >
-                        <span className="font-display text-xl font-bold tracking-tight text-red-500 transition-colors group-hover:text-red-400">
+                        <span className="font-display text-xl font-bold tracking-tight text-primary transition-colors group-hover:text-primary/80">
                             FM
                         </span>
                         <span className="font-display text-xl font-bold tracking-tight text-foreground transition-colors group-hover:text-foreground/70">
                             PLAYLIST
                         </span>
-                        <span className="ml-1 border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 font-sans text-[10px] font-bold tracking-widest text-red-500 uppercase">
+                        <span className="ml-1 border border-primary/40 bg-primary/12 px-1.5 py-0.5 font-sans text-[10px] font-bold tracking-widest text-primary uppercase">
                             {freq}
                         </span>
                     </Link>
@@ -88,7 +88,7 @@ export function PublicLayout({ children }: PropsWithChildren) {
                         href={tagged(href)}
                         className={`flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-bold tracking-wider uppercase transition-colors ${
                             active(href)
-                                ? 'text-red-500'
+                                ? 'text-primary'
                                 : 'text-muted-foreground hover:text-foreground'
                         }`}
                     >

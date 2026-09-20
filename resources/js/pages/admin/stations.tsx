@@ -67,7 +67,6 @@ export default function Stations({ stations }: Props) {
                     <Button
                         type="submit"
                         disabled={form.processing || !form.data.name}
-                        className="bg-red-600 text-white hover:bg-red-700"
                     >
                         Create Station
                     </Button>

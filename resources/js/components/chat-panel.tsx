@@ -89,7 +89,7 @@ export function ChatPanel() {
                 ) : (
                     chatMessages.map((msg) => (
                         <div key={msg.id} className="flex gap-2 text-sm">
-                            <span className="shrink-0 font-bold text-red-500">
+                            <span className="shrink-0 font-bold text-primary">
                                 {msg.name}
                             </span>
                             <span className="min-w-0 break-words text-foreground/80">
@@ -112,7 +112,7 @@ export function ChatPanel() {
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Name"
                         maxLength={30}
-                        className="w-24 shrink-0 border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-red-500 focus:outline-none"
+                        className="w-24 shrink-0 border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-primary focus:outline-none"
                     />
                     <input
                         type="text"
@@ -120,12 +120,12 @@ export function ChatPanel() {
                         onChange={(e) => setText(e.target.value)}
                         placeholder="Say something..."
                         maxLength={200}
-                        className="flex-1 border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-red-500 focus:outline-none"
+                        className="flex-1 border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-primary focus:outline-none"
                     />
                     <button
                         type="submit"
                         disabled={sending || !text.trim() || !name.trim()}
-                        className="shrink-0 border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-bold tracking-wider text-red-500 uppercase transition-colors hover:bg-red-500 hover:text-foreground disabled:opacity-40"
+                        className="shrink-0 border border-primary/40 bg-primary/12 px-3 py-1.5 text-xs font-bold tracking-wider text-primary uppercase transition-colors hover:bg-primary/90 hover:text-foreground disabled:opacity-40"
                     >
                         Send
                     </button>

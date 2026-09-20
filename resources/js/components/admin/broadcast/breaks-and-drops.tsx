@@ -63,7 +63,7 @@ export function BreaksAndDrops({
                             commercialForm.processing ||
                             !commercialForm.data.commercial_id
                         }
-                        className="h-10 w-full bg-red-600 text-white hover:bg-red-700 disabled:opacity-40"
+                        className="h-10 w-full disabled:opacity-40"
                     >
                         Play Commercial
                     </Button>
@@ -115,7 +115,7 @@ export function BreaksAndDrops({
                             soundByteForm.processing ||
                             !soundByteForm.data.sound_byte_id
                         }
-                        className="h-10 w-full bg-red-600 text-white hover:bg-red-700 disabled:opacity-40"
+                        className="h-10 w-full disabled:opacity-40"
                     >
                         Play Sound Byte
                     </Button>

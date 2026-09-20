@@ -11,12 +11,12 @@ import type { PaginatedResponse } from '@/types/fm';
  */
 type Variant = 'admin' | 'listener';
 
-const ACTIVE = 'bg-red-600 text-white';
+const ACTIVE = 'bg-primary text-primary-foreground';
 
 const INACTIVE: Record<Variant, string> = {
     admin: 'border border-border text-muted-foreground hover:text-foreground',
     listener:
-        'border border-border text-muted-foreground transition-colors hover:border-red-500 hover:text-red-500',
+        'border border-border text-muted-foreground transition-colors hover:border-primary hover:text-primary',
 };
 
 const BASE: Record<Variant, string> = {

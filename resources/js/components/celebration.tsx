@@ -121,18 +121,18 @@ export function Celebration() {
                 aria-hidden
                 className="pointer-events-none fixed inset-0 z-[60]"
             />
-            <div className="fixed right-4 bottom-4 left-4 z-[61] border border-green-500/40 bg-background/95 px-4 py-3 shadow-2xl backdrop-blur-sm sm:right-6 sm:left-auto sm:w-80">
+            <div className="fixed right-4 bottom-4 left-4 z-[61] border border-online/30 bg-background/95 px-4 py-3 shadow-2xl backdrop-blur-sm sm:right-6 sm:left-auto sm:w-80">
                 <div className="flex items-start gap-3">
                     <div className="flex h-5 shrink-0 items-end gap-0.75 pt-0.5">
                         {BARS.map((cls, i) => (
                             <span
                                 key={i}
-                                className={`inline-block h-full w-0.75 origin-bottom rounded-full bg-green-400 ${cls}`}
+                                className={`inline-block h-full w-0.75 origin-bottom rounded-full bg-online ${cls}`}
                             />
                         ))}
                     </div>
                     <div className="min-w-0 flex-1">
-                        <p className="font-display text-xs font-bold tracking-wider text-green-400 uppercase">
+                        <p className="font-display text-xs font-bold tracking-wider text-online uppercase">
                             Your song is ON AIR!
                         </p>
                         <p className="mt-0.5 truncate text-sm font-medium text-foreground">

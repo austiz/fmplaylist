@@ -68,7 +68,7 @@ export function RdsEditor({ settings }: { settings: Record<string, string> }) {
                                 }
                                 className={`flex-1 border py-2 text-xs font-bold tracking-widest uppercase transition-colors ${
                                     rdsForm.data.rds_rt_mode === m
-                                        ? 'border-red-500 bg-red-500/10 text-red-400'
+                                        ? 'border-primary bg-primary/12 text-primary'
                                         : 'border-border text-muted-foreground hover:text-foreground'
                                 }`}
                             >
@@ -108,7 +108,7 @@ export function RdsEditor({ settings }: { settings: Record<string, string> }) {
                 <Button
                     type="submit"
                     disabled={rdsForm.processing}
-                    className="h-12 w-full bg-red-600 font-display font-bold tracking-wide text-white uppercase hover:bg-red-700"
+                    className="h-12 w-full font-display font-bold tracking-wide uppercase"
                 >
                     Save RDS Settings
                 </Button>
@@ -127,7 +127,7 @@ export function RdsEditor({ settings }: { settings: Record<string, string> }) {
                     <p className="text-foreground">┌──────────────────────┐</p>
                     <p>
                         <span className="text-foreground">│ </span>
-                        <span className="text-yellow-400">
+                        <span className="text-warning">
                             {(
                                 rdsForm.data.rds_ps ||
                                 settings.rds_ps ||
@@ -140,7 +140,7 @@ export function RdsEditor({ settings }: { settings: Record<string, string> }) {
                     </p>
                     <p>
                         <span className="text-foreground">│ </span>
-                        <span className="truncate text-green-400">
+                        <span className="truncate text-online">
                             {rdsForm.data.rds_rt_mode === 'custom'
                                 ? (
                                       rdsForm.data.rds_rt ||

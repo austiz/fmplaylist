@@ -1,5 +1,6 @@
 import { router } from '@inertiajs/react';
 import { useState } from 'react';
+import { useConfirm } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import type { PiDevice } from '@/types/fm';
 
@@ -24,16 +25,22 @@ const ACTIONS: { command: string; label: string; danger?: boolean }[] = [
 
 /** The command buttons and last-result strip under one device. */
 export function DeviceControls({ device }: { device: PiDevice }) {
+    const confirm = useConfirm();
     const [showLogs, setShowLogs] = useState<string | null>(null);
 
-    const send = (command: string, label: string) => {
-        if (
-            DISRUPTIVE.has(command) &&
-            !confirm(
-                `${label} "${device.label}"? This interrupts the broadcast.`,
-            )
-        ) {
-            return;
+    const send = async (command: string, label: string) => {
+        if (DISRUPTIVE.has(command)) {
+            const ok = await confirm({
+                title: `${label} "${device.label}"?`,
+                description:
+                    'This interrupts the broadcast while the device carries out the command.',
+                confirmLabel: label,
+                variant: 'destructive',
+            });
+
+            if (!ok) {
+                return;
+            }
         }
 
         router.post(
@@ -58,9 +65,9 @@ export function DeviceControls({ device }: { device: PiDevice }) {
                     {device.fm_running === null ? (
                         '—'
                     ) : device.fm_running ? (
-                        <span className="text-green-400">on air</span>
+                        <span className="text-online">on air</span>
                     ) : (
-                        <span className="text-red-400">off air</span>
+                        <span className="text-offline">off air</span>
                     )}
                 </span>
                 {device.ip && <span>IP {device.ip}</span>}
@@ -73,8 +80,8 @@ export function DeviceControls({ device }: { device: PiDevice }) {
                         <span
                             className={
                                 device.up_to_date
-                                    ? 'text-green-400'
-                                    : 'text-amber-400'
+                                    ? 'text-online'
+                                    : 'text-warning'
                             }
                         >
                             {device.daemon_hash.slice(0, 8)}
@@ -89,7 +96,7 @@ export function DeviceControls({ device }: { device: PiDevice }) {
                         className={
                             device.last_update_status === 'ok'
                                 ? ''
-                                : 'text-amber-400'
+                                : 'text-warning'
                         }
                     >
                         Last update: {device.last_update_status}
@@ -101,7 +108,7 @@ export function DeviceControls({ device }: { device: PiDevice }) {
             </div>
 
             {device.last_error && (
-                <p className="border-l-2 border-red-500 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
+                <p className="border-l-2 border-destructive bg-destructive/12 px-3 py-1.5 text-xs text-destructive">
                     {device.last_error}
                 </p>
             )}
@@ -112,7 +119,7 @@ export function DeviceControls({ device }: { device: PiDevice }) {
                         key={a.command}
                         size="sm"
                         variant="outline"
-                        className={a.danger ? 'text-red-500' : ''}
+                        className={a.danger ? 'text-destructive' : ''}
                         disabled={!!pending}
                         onClick={() => send(a.command, a.label)}
                     >
@@ -138,7 +145,7 @@ export function DeviceControls({ device }: { device: PiDevice }) {
                 </Button>
 
                 {pending && (
-                    <span className="text-xs text-amber-400">
+                    <span className="text-xs text-warning">
                         {pending.command} {pending.status}…
                     </span>
                 )}
@@ -163,7 +170,7 @@ export function DeviceControls({ device }: { device: PiDevice }) {
             )}
 
             {(device.commands ?? []).some((c) => c.status === 'failed') && (
-                <p className="text-xs text-red-400">
+                <p className="text-xs text-destructive">
                     Last failure:{' '}
                     {
                         (device.commands ?? []).find(

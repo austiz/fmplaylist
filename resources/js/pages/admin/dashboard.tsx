@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/react';
 import { BarSparkline, LineSparkline } from '@/components/admin/sparkline';
 import { AdminLayout } from '@/components/admin-layout';
+import { useConfirm } from '@/components/confirm-dialog';
 import { formatRuntime, shortDay } from '@/lib/format';
 import type { NowPlayingData, QueueItem } from '@/types/fm';
 
@@ -23,8 +24,17 @@ export default function Dashboard({
     requestsPerHour,
     playsLast7Days,
 }: Props) {
-    const deleteRequest = (id: number) => {
-        if (!confirm('Remove this request from the queue?')) {
+    const confirm = useConfirm();
+
+    const deleteRequest = async (id: number) => {
+        const ok = await confirm({
+            title: 'Remove this request from the queue?',
+            description: 'The listener is not notified.',
+            confirmLabel: 'Remove',
+            variant: 'destructive',
+        });
+
+        if (!ok) {
             return;
         }
 
@@ -113,8 +123,8 @@ export default function Dashboard({
             </div>
 
             {nowPlaying && (
-                <div className="mt-4 border border-red-900/40 bg-red-950/20 p-4">
-                    <p className="font-display text-xs font-bold tracking-wider text-red-500 uppercase">
+                <div className="mt-4 border border-playing/30 bg-playing-soft p-4">
+                    <p className="font-display text-xs font-bold tracking-wider text-playing uppercase">
                         Now Broadcasting
                     </p>
                     <p className="mt-1 text-lg font-bold text-foreground">
@@ -154,9 +164,9 @@ export default function Dashboard({
                             <span
                                 className={`shrink-0 px-2 py-0.5 text-xs font-bold tracking-wide uppercase ${
                                     item.status === 'played'
-                                        ? 'bg-green-500/15 text-green-400'
+                                        ? 'bg-online-soft text-online'
                                         : item.status === 'playing'
-                                          ? 'bg-red-500/15 text-red-400'
+                                          ? 'bg-playing-soft text-playing'
                                           : item.status === 'pending'
                                             ? 'bg-secondary text-muted-foreground'
                                             : 'bg-secondary text-muted-foreground/50'
@@ -167,7 +177,7 @@ export default function Dashboard({
                             {item.status === 'pending' && (
                                 <button
                                     onClick={() => deleteRequest(item.id)}
-                                    className="shrink-0 px-2 py-0.5 text-xs text-muted-foreground/40 transition-colors hover:text-red-400"
+                                    className="shrink-0 px-2 py-0.5 text-xs text-muted-foreground/40 transition-colors hover:text-playing"
                                     title="Remove from queue"
                                 >
                                     ✕

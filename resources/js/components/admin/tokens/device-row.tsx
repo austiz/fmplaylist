@@ -1,5 +1,6 @@
 import { router } from '@inertiajs/react';
 import { DeviceControls } from '@/components/admin/tokens/device-controls';
+import { useConfirm } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import {
     Select,
@@ -19,22 +20,32 @@ export function DeviceRow({
     t: PiDevice;
     stations: Pick<Station, 'id' | 'name'>[];
 }) {
-    const regenerate = (token: PiDevice) => {
-        if (
-            confirm(
-                `This will invalidate "${token.label}"'s current credential. It will stop working until updated. Continue?`,
-            )
-        ) {
+    const confirm = useConfirm();
+
+    const regenerate = async (token: PiDevice) => {
+        const ok = await confirm({
+            title: `Regenerate the token for "${token.label}"?`,
+            description:
+                'The current credential stops working immediately, and the device stays offline until you put the new one on it.',
+            confirmLabel: 'Regenerate',
+            variant: 'destructive',
+        });
+
+        if (ok) {
             router.post(`/admin/tokens/${token.id}/regenerate`);
         }
     };
 
-    const revoke = (token: PiDevice) => {
-        if (
-            confirm(
-                `Revoke "${token.label}"? It will stop broadcasting for the connected station.`,
-            )
-        ) {
+    const revoke = async (token: PiDevice) => {
+        const ok = await confirm({
+            title: `Revoke "${token.label}"?`,
+            description:
+                'The device stops broadcasting for its station and cannot reconnect.',
+            confirmLabel: 'Revoke',
+            variant: 'destructive',
+        });
+
+        if (ok) {
             router.delete(`/admin/tokens/${token.id}`);
         }
     };
@@ -53,7 +64,7 @@ export function DeviceRow({
                 <div className="min-w-0">
                     <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                         <span
-                            className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${t.online ? 'bg-green-500' : 'bg-muted-foreground/30'}`}
+                            className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${t.online ? 'bg-online' : 'bg-muted-foreground/30'}`}
                         />
                         {t.label}
                     </p>
@@ -90,7 +101,7 @@ export function DeviceRow({
                     <Button
                         size="sm"
                         variant="outline"
-                        className="text-red-500"
+                        className="text-destructive"
                         onClick={() => revoke(t)}
                     >
                         Revoke

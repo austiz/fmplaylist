@@ -1,5 +1,6 @@
 import { router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
+import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -69,7 +70,7 @@ function CommercialUploadForm() {
                 disabled={
                     form.processing || !form.data.file || !form.data.title
                 }
-                className="h-10 w-full bg-red-600 font-display font-bold tracking-wide text-white uppercase hover:bg-red-700 disabled:opacity-40"
+                className="h-10 w-full font-display font-bold tracking-wide uppercase disabled:opacity-40"
             >
                 {form.processing ? 'Uploading...' : 'Upload Commercial'}
             </Button>
@@ -78,6 +79,7 @@ function CommercialUploadForm() {
 }
 
 function CommercialRow({ commercial }: { commercial: MediaAsset }) {
+    const confirm = useConfirm();
     const [editing, setEditing] = useState(false);
     const editForm = useForm({
         title: commercial.title,
@@ -106,7 +108,6 @@ function CommercialRow({ commercial }: { commercial: MediaAsset }) {
                 <Button
                     size="sm"
                     disabled={editForm.processing}
-                    className="bg-red-600 text-white hover:bg-red-700"
                     onClick={() =>
                         editForm.patch(`/admin/commercials/${commercial.id}`, {
                             onSuccess: () => setEditing(false),
@@ -162,7 +163,7 @@ function CommercialRow({ commercial }: { commercial: MediaAsset }) {
                     commercial.pi_delete_requested ||
                     playForm.processing
                 }
-                className="text-xs text-red-500 hover:text-red-400 disabled:text-muted-foreground/30"
+                className="text-xs text-destructive hover:text-destructive disabled:text-muted-foreground/30"
             >
                 Play Now
             </button>
@@ -182,14 +183,22 @@ function CommercialRow({ commercial }: { commercial: MediaAsset }) {
             </button>
             {!commercial.pi_delete_requested && (
                 <button
-                    onClick={() => {
-                        if (confirm(`Delete "${commercial.title}"?`)) {
+                    onClick={async () => {
+                        const ok = await confirm({
+                            title: `Delete "${commercial.title}"?`,
+                            description:
+                                'The file is removed from the library and from every Pi holding a copy. This cannot be undone.',
+                            confirmLabel: 'Delete',
+                            variant: 'destructive',
+                        });
+
+                        if (ok) {
                             router.delete(
                                 `/admin/commercials/${commercial.id}`,
                             );
                         }
                     }}
-                    className="text-xs text-red-500/70 hover:text-red-400"
+                    className="text-xs text-destructive/70 hover:text-destructive"
                 >
                     Delete
                 </button>

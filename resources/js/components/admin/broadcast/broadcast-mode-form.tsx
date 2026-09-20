@@ -10,28 +10,28 @@ const MODES = [
         label: 'Normal',
         sub: 'Queue & fallback playback',
         color: 'border-border',
-        activeColor: 'border-green-500 bg-green-500/5',
+        activeColor: 'border-online bg-online-soft',
     },
     {
         id: 'phone_stream',
         label: 'Phone Stream',
         sub: 'Go live from Larix Broadcaster',
         color: 'border-border',
-        activeColor: 'border-violet-500 bg-violet-500/5',
+        activeColor: 'border-live bg-live-soft',
     },
     {
         id: 'usb_input',
         label: 'USB Input',
         sub: 'Broadcast from USB mic / mixer',
         color: 'border-border',
-        activeColor: 'border-violet-500 bg-violet-500/5',
+        activeColor: 'border-live bg-live-soft',
     },
     {
         id: 'custom_stream',
         label: 'Custom Stream',
         sub: 'Any RTMP, HLS, or HTTP audio URL',
         color: 'border-border',
-        activeColor: 'border-blue-500 bg-blue-500/5',
+        activeColor: 'border-info bg-info-soft',
     },
 ] as const;
 
@@ -85,19 +85,17 @@ export function BroadcastModeForm({
 
                 {/* Extra fields per mode */}
                 {currentMode === 'phone_stream' && (
-                    <div className="border border-violet-500/20 bg-violet-500/5 p-4 text-sm">
-                        <p className="font-semibold text-violet-300">
+                    <div className="border border-live/30 bg-live-soft p-4 text-sm">
+                        <p className="font-semibold text-live">
                             Stream URL for Larix Broadcaster (iOS/Android):
                         </p>
-                        <p className="mt-1 font-mono text-violet-400">
-                            {rtmpUrl}
-                        </p>
+                        <p className="mt-1 font-mono text-live">{rtmpUrl}</p>
                         <p className="mt-2 text-xs text-muted-foreground">
                             Larix → Settings → Connections → Add → RTMP → paste
                             URL above → Stream Name: <code>live</code>
                         </p>
                         {!pi.ip && (
-                            <p className="mt-2 text-xs text-yellow-500">
+                            <p className="mt-2 text-xs text-warning">
                                 ⚠ Pi IP unknown — Pi must connect first
                             </p>
                         )}
@@ -150,8 +148,8 @@ export function BroadcastModeForm({
                     disabled={modeForm.processing}
                     className={`h-12 w-full font-display font-bold tracking-wide uppercase ${
                         currentMode === 'normal'
-                            ? 'bg-green-600 text-white hover:bg-green-700'
-                            : 'bg-violet-600 text-white hover:bg-violet-700'
+                            ? 'bg-online text-online-foreground hover:bg-online/90'
+                            : 'bg-live text-live-foreground hover:bg-live/90'
                     }`}
                 >
                     {currentMode === 'normal' ? 'Set to Normal' : 'Go Live'}

@@ -24,7 +24,7 @@ export default function AuthSimpleLayout({
                             href={home()}
                             className="group flex items-center gap-2"
                         >
-                            <span className="font-display text-xl font-bold tracking-tight text-red-500 transition-colors group-hover:text-red-400">
+                            <span className="font-display text-xl font-bold tracking-tight text-primary transition-colors group-hover:text-primary">
                                 FM
                             </span>
                             <span className="font-display text-xl font-bold tracking-tight text-foreground transition-colors group-hover:text-foreground/70">

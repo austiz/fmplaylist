@@ -6,8 +6,10 @@ import { cn } from '@/lib/utils';
 
 /**
  * Status pills. Every variant maps to a semantic token rather than a palette
- * literal, so "on air" is `variant="live"` and not `bg-red-500/10 text-red-400`
- * spelled slightly differently in each of the files that needed it.
+ * literal, so a transmitting station is `variant="playing"` and not
+ * `bg-red-500/10 text-red-400` spelled slightly differently in each of the
+ * files that needed it. `playing` and `live` are distinct states, not synonyms:
+ * a station is `playing` a track, or `live` over the top of one.
  */
 const badgeVariants = cva(
     'inline-flex w-fit shrink-0 items-center justify-center gap-1.5 rounded-md border px-2 py-0.5 font-display text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase transition-colors [&>svg]:size-3 [&>svg]:pointer-events-none',
@@ -17,6 +19,7 @@ const badgeVariants = cva(
                 neutral:
                     'border-border bg-surface-2 text-muted-foreground',
                 brand: 'border-primary/30 bg-primary/12 text-primary',
+                playing: 'border-playing/30 bg-playing-soft text-playing',
                 live: 'border-live/30 bg-live-soft text-live',
                 online: 'border-online/30 bg-online-soft text-online',
                 offline: 'border-border bg-offline-soft text-offline',

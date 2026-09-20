@@ -15,7 +15,7 @@ export function CopyField({
 
     return (
         <div>
-            <p className="mb-1.5 font-display text-xs font-semibold tracking-wide text-red-400/80 uppercase">
+            <p className="mb-1.5 font-display text-xs font-semibold tracking-wide text-primary/80 uppercase">
                 {heading}
             </p>
             <div className="flex gap-2">

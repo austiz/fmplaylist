@@ -1,4 +1,5 @@
 import { router, useForm } from '@inertiajs/react';
+import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import type { SavedNetwork, WifiInfo } from '@/types/fm';
 
 /** The ordered fallback chain the Pi keeps on disk so it reconnects without us. */
 export function SavedNetworksPanel({ wifi }: { wifi: WifiInfo }) {
+    const confirm = useConfirm();
     const savedForm = useForm({ ssid: '', password: '' });
 
     const submitSaved = (e: React.FormEvent) => {
@@ -35,8 +37,16 @@ export function SavedNetworksPanel({ wifi }: { wifi: WifiInfo }) {
         );
     };
 
-    const removeSaved = (net: SavedNetwork) => {
-        if (!confirm(`Remove "${net.ssid}" from the fallback list?`)) {
+    const removeSaved = async (net: SavedNetwork) => {
+        const ok = await confirm({
+            title: `Remove "${net.ssid}"?`,
+            description:
+                'The Pi will no longer fall back to this network if its current one drops.',
+            confirmLabel: 'Remove',
+            variant: 'destructive',
+        });
+
+        if (!ok) {
             return;
         }
 
@@ -59,7 +69,7 @@ export function SavedNetworksPanel({ wifi }: { wifi: WifiInfo }) {
                     Saved Networks
                 </h2>
                 {pendingSync && (
-                    <span className="text-xs text-yellow-400">
+                    <span className="text-xs text-warning">
                         Pi hasn&rsquo;t synced yet
                     </span>
                 )}
@@ -84,7 +94,7 @@ export function SavedNetworksPanel({ wifi }: { wifi: WifiInfo }) {
                             <span className="flex-1 font-medium">
                                 {net.ssid}
                                 {net.ssid === wifi.current_ssid && (
-                                    <span className="ml-2 text-xs font-bold tracking-wider text-green-400 uppercase">
+                                    <span className="ml-2 text-xs font-bold tracking-wider text-online uppercase">
                                         Connected
                                     </span>
                                 )}
@@ -115,7 +125,7 @@ export function SavedNetworksPanel({ wifi }: { wifi: WifiInfo }) {
                                     type="button"
                                     onClick={() => removeSaved(net)}
                                     aria-label={`Remove ${net.ssid}`}
-                                    className="px-1.5 py-0.5 text-muted-foreground hover:text-red-400"
+                                    className="px-1.5 py-0.5 text-muted-foreground hover:text-destructive"
                                 >
                                     ✕
                                 </button>
@@ -169,7 +179,6 @@ export function SavedNetworksPanel({ wifi }: { wifi: WifiInfo }) {
                 <Button
                     type="submit"
                     disabled={savedForm.processing || !savedForm.data.ssid}
-                    className="bg-red-600 text-white hover:bg-red-700"
                 >
                     {savedForm.processing ? 'Saving…' : 'Add network'}
                 </Button>

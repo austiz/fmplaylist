@@ -56,8 +56,8 @@ export function WifiPanel({ wifi }: { wifi: WifiInfo }) {
                     Pi WiFi
                 </h2>
                 {wifi.current_ssid && (
-                    <span className="flex items-center gap-1.5 text-xs text-green-400">
-                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-400" />
+                    <span className="flex items-center gap-1.5 text-xs text-online">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-online" />
                         {wifi.current_ssid}
                     </span>
                 )}
@@ -70,18 +70,18 @@ export function WifiPanel({ wifi }: { wifi: WifiInfo }) {
 
             {/* Last WiFi switch result */}
             {wifi.last_status === 'connected' && (
-                <p className="border-l-2 border-green-500 bg-green-500/10 px-3 py-2 text-xs text-green-400">
+                <p className="border-l-2 border-online bg-online-soft px-3 py-2 text-xs text-online">
                     Connected to &ldquo;{wifi.last_ssid}&rdquo; successfully.
                 </p>
             )}
             {wifi.last_status === 'failed' && (
-                <p className="border-l-2 border-red-500 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                <p className="border-l-2 border-destructive bg-destructive/12 px-3 py-2 text-xs text-destructive">
                     Failed to connect to &ldquo;{wifi.last_ssid}&rdquo; — rolled
                     back to previous network.
                 </p>
             )}
             {wifi.pending_ssid && wifi.last_status === '' && (
-                <p className="border-l-2 border-yellow-500 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
+                <p className="border-l-2 border-warning bg-warning-soft px-3 py-2 text-xs text-warning">
                     Switching to &ldquo;{wifi.pending_ssid}&rdquo;&hellip; Pi
                     will confirm within 30&ndash;60 seconds.
                 </p>
@@ -106,7 +106,7 @@ export function WifiPanel({ wifi }: { wifi: WifiInfo }) {
                             <span
                                 className={
                                     net.active
-                                        ? 'text-green-400'
+                                        ? 'text-online'
                                         : 'text-muted-foreground'
                                 }
                             >
@@ -116,7 +116,7 @@ export function WifiPanel({ wifi }: { wifi: WifiInfo }) {
                                 {net.ssid}
                             </span>
                             {net.active && (
-                                <span className="text-xs font-bold tracking-wider text-green-400 uppercase">
+                                <span className="text-xs font-bold tracking-wider text-online uppercase">
                                     Connected
                                 </span>
                             )}
@@ -184,11 +184,7 @@ export function WifiPanel({ wifi }: { wifi: WifiInfo }) {
                         );
                     })()}
                     <div className="flex gap-2">
-                        <Button
-                            type="submit"
-                            disabled={wifiForm.processing}
-                            className="bg-red-600 text-white hover:bg-red-700"
-                        >
+                        <Button type="submit" disabled={wifiForm.processing}>
                             {wifiForm.processing ? 'Queuing…' : 'Connect'}
                         </Button>
                         <Button

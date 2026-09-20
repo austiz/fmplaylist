@@ -73,7 +73,7 @@ export function AddDeviceForm({
                 <Button
                     type="submit"
                     disabled={addForm.processing || !addForm.data.label}
-                    className="self-end bg-red-600 text-white hover:bg-red-700"
+                    className="self-end"
                 >
                     {hasDevices ? 'Add Device' : 'Generate Token'}
                 </Button>

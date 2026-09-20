@@ -136,7 +136,7 @@ export default function Drive({ nowPlaying, station }: Props) {
                         {palette.label}
                     </span>
                     {wakeLockOk === false && (
-                        <p className="mt-0.5 font-display text-[10px] font-bold tracking-wider text-yellow-500 uppercase">
+                        <p className="mt-0.5 font-display text-[10px] font-bold tracking-wider text-warning uppercase">
                             Screen may lock — tap occasionally
                         </p>
                     )}
@@ -175,7 +175,7 @@ export default function Drive({ nowPlaying, station }: Props) {
                             strokeWidth={6}
                             strokeLinecap="round"
                             className={
-                                isLive ? 'stroke-violet-400' : 'stroke-red-500'
+                                isLive ? 'stroke-live' : 'stroke-playing'
                             }
                             strokeDasharray={C}
                             strokeDashoffset={
@@ -188,7 +188,7 @@ export default function Drive({ nowPlaying, station }: Props) {
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center px-8">
                         <span
-                            className={`font-display text-xs font-bold tracking-[0.3em] uppercase ${isLive ? 'text-violet-400' : 'text-red-500'}`}
+                            className={`font-display text-xs font-bold tracking-[0.3em] uppercase ${isLive ? 'text-live' : 'text-playing'}`}
                         >
                             {isLive
                                 ? 'Live'
@@ -222,7 +222,7 @@ export default function Drive({ nowPlaying, station }: Props) {
                     <button
                         onClick={again}
                         disabled={busy}
-                        className="flex h-20 items-center justify-center gap-3 border border-red-500/50 bg-red-600/90 font-display text-lg font-bold tracking-wide text-white uppercase backdrop-blur-sm active:scale-[0.98] disabled:opacity-60"
+                        className="flex h-20 items-center justify-center gap-3 border border-primary/50 bg-primary/90 font-display text-lg font-bold tracking-wide text-primary-foreground uppercase backdrop-blur-sm active:scale-[0.98] disabled:opacity-60"
                     >
                         <RotateCw
                             size={24}

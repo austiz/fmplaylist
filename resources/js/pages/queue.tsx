@@ -37,8 +37,8 @@ function ReactionButton({ queueItemId }: { queueItemId: number }) {
             title="React — just for you, not a shared count"
             className={`flex shrink-0 items-center gap-1 px-1.5 py-1 text-xs font-bold transition-colors active:scale-90 ${
                 count > 0
-                    ? 'text-orange-400'
-                    : 'text-muted-foreground/30 hover:text-orange-400'
+                    ? 'text-warning'
+                    : 'text-muted-foreground/30 hover:text-warning'
             }`}
         >
             <Flame size={14} fill={count > 0 ? 'currentColor' : 'none'} />
@@ -97,7 +97,7 @@ export default function Queue({
                             onClick={() => setTab(t)}
                             className={`px-4 py-2 text-xs font-bold tracking-wider uppercase transition-colors ${
                                 tab === t
-                                    ? 'border-b-2 border-red-500 text-red-500'
+                                    ? 'border-b-2 border-primary text-primary'
                                     : 'text-muted-foreground hover:text-foreground'
                             }`}
                         >
@@ -118,7 +118,7 @@ export default function Queue({
                                 Queue is empty.{' '}
                                 <Link
                                     href={`/songs?station=${encodeURIComponent(station.slug)}`}
-                                    className="text-red-500 hover:underline"
+                                    className="text-primary hover:underline"
                                 >
                                     Request a song.
                                 </Link>
@@ -134,7 +134,7 @@ export default function Queue({
                                         viewTransitionName: `queue-item-${item.id}`,
                                     }}
                                 >
-                                    <span className="w-8 shrink-0 text-center font-display text-xl font-bold text-red-600 tabular-nums">
+                                    <span className="w-8 shrink-0 text-center font-display text-xl font-bold text-primary tabular-nums">
                                         {item.position}
                                     </span>
                                     <div className="min-w-0 flex-1">

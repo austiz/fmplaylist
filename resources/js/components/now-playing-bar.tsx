@@ -25,16 +25,16 @@ function PiDot({ status }: { status: PiStatus }) {
 
     if (status.status === 'live') {
         return (
-            <span className="flex items-center gap-1 font-display text-[10px] font-bold tracking-widest text-violet-400 uppercase">
-                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-violet-400" />
+            <span className="flex items-center gap-1 font-display text-[10px] font-bold tracking-widest text-live uppercase">
+                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-live" />
                 LIVE
             </span>
         );
     }
 
     return (
-        <span className="flex items-center gap-1 font-display text-[10px] font-bold tracking-widest text-green-500/70 uppercase">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+        <span className="flex items-center gap-1 font-display text-[10px] font-bold tracking-widest text-online/70 uppercase">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-online" />
             ON AIR
         </span>
     );
@@ -56,8 +56,8 @@ export function NowPlayingBar({ initial }: { initial: NowPlayingData | null }) {
         data?.song?.duration_seconds,
     );
     const showProgress = data?.type === 'song' && duration > 0;
-    const accent = isLive ? 'text-violet-400' : 'text-red-500';
-    const barColor = isLive ? 'bg-violet-400' : 'bg-red-500';
+    const accent = isLive ? 'text-live' : 'text-playing';
+    const barColor = isLive ? 'bg-live' : 'bg-playing';
 
     return (
         <div className="space-y-2">

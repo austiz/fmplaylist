@@ -55,8 +55,13 @@
     --color-destructive: var(--destructive);
     --color-destructive-foreground: var(--destructive-foreground);
 
-    /* Station states. These are the things the app is actually about, so they
-       get names: `bg-live-soft text-live` instead of `bg-red-500/10 text-red-400`. */
+    /* Transmitter states. These mirror the four values PiStatus['status'] can
+       actually take (offline | idle | playing | live), so a component never has
+       to decide what colour "on air" is: `bg-playing-soft text-playing`. */
+    --color-playing: var(--playing);
+    --color-playing-foreground: var(--playing-foreground);
+    --color-playing-soft: var(--playing-soft);
+
     --color-live: var(--live);
     --color-live-foreground: var(--live-foreground);
     --color-live-soft: var(--live-soft);
@@ -139,9 +144,16 @@
     --destructive-foreground: oklch(0.99 0 0);
     --ring: oklch(0.7 0.15 250);
 
-    --live: oklch(0.66 0.23 18);
+    /* "playing" is the transmitter pushing a track out; "live" is a live
+       broadcast over the top of it. The UI has always drawn them as red and
+       violet respectively — these are those two colours, named. */
+    --playing: oklch(0.66 0.23 18);
+    --playing-foreground: oklch(0.99 0 0);
+    --playing-soft: oklch(0.66 0.23 18 / 0.14);
+
+    --live: oklch(0.71 0.18 295);
     --live-foreground: oklch(0.99 0 0);
-    --live-soft: oklch(0.66 0.23 18 / 0.14);
+    --live-soft: oklch(0.71 0.18 295 / 0.14);
 
     --online: oklch(0.72 0.17 155);
     --online-foreground: oklch(0.16 0.03 155);
@@ -168,7 +180,7 @@
     --chart-2: oklch(0.72 0.17 155);
     --chart-3: oklch(0.79 0.15 75);
     --chart-4: oklch(0.7 0.15 250);
-    --chart-5: oklch(0.68 0.19 320);
+    --chart-5: var(--live);
 
     --radius: 0.625rem;
 

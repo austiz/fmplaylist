@@ -44,7 +44,7 @@ export default function Sounds(props: Props) {
                             onClick={() => setTab(key)}
                             className={`-mb-px border-b-2 px-4 pt-1 pb-3 text-sm font-medium transition-colors ${
                                 tab === key
-                                    ? 'border-red-500 text-foreground'
+                                    ? 'border-primary text-foreground'
                                     : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
                         >

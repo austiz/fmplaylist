@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/react';
 import { CornerDownLeft, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useConfirm } from '@/components/confirm-dialog';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 interface Action {
@@ -17,6 +18,7 @@ interface CommandPaletteProps {
 /** Cmd/Ctrl+K admin command palette — hand-rolled on Radix Dialog, no cmdk dependency
  *  needed for a small fixed action set. */
 export function CommandPalette({ nav }: CommandPaletteProps) {
+    const confirm = useConfirm();
     const [open, setOpen] = useState(false);
     const [prevOpen, setPrevOpen] = useState(open);
     const [query, setQuery] = useState('');
@@ -65,8 +67,15 @@ export function CommandPalette({ nav }: CommandPaletteProps) {
             {
                 id: 'skip',
                 label: 'Skip current song',
-                run: () => {
-                    if (confirm('Skip current song?')) {
+                run: async () => {
+                    if (
+                        await confirm({
+                            title: 'Skip the current song?',
+                            description:
+                                'The next item in the queue starts playing right away.',
+                            confirmLabel: 'Skip',
+                        })
+                    ) {
                         router.post('/admin/broadcast/skip');
                     }
                 },
@@ -74,11 +83,15 @@ export function CommandPalette({ nav }: CommandPaletteProps) {
             {
                 id: 'emergency',
                 label: 'Emergency broadcast',
-                run: () => {
+                run: async () => {
                     if (
-                        confirm(
-                            '⚠ This will cut the current song, clear the entire queue, and play the emergency announcement on air. Continue?',
-                        )
+                        await confirm({
+                            title: 'Start the emergency broadcast?',
+                            description:
+                                'This cuts the current song, clears the entire queue, and plays the emergency announcement on air immediately.',
+                            confirmLabel: 'Broadcast now',
+                            variant: 'destructive',
+                        })
                     ) {
                         router.post('/admin/broadcast/emergency');
                     }
@@ -93,7 +106,7 @@ export function CommandPalette({ nav }: CommandPaletteProps) {
         }));
 
         return [...quickActions, ...navActions];
-    }, [nav]);
+    }, [confirm, nav]);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();

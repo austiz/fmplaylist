@@ -1,5 +1,6 @@
 import { router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
+import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
@@ -81,7 +82,7 @@ function SongUploadForm() {
                 disabled={
                     form.processing || !form.data.file || !form.data.title
                 }
-                className="h-10 w-full bg-red-600 font-display font-bold tracking-wide text-white uppercase hover:bg-red-700 disabled:opacity-40"
+                className="h-10 w-full font-display font-bold tracking-wide uppercase disabled:opacity-40"
             >
                 {form.processing
                     ? 'Uploading...'
@@ -92,6 +93,7 @@ function SongUploadForm() {
 }
 
 function SongRow({ song }: { song: MediaAsset }) {
+    const confirm = useConfirm();
     const [editing, setEditing] = useState(false);
     const form = useForm({ title: song.title, artist: song.artist });
 
@@ -115,7 +117,7 @@ function SongRow({ song }: { song: MediaAsset }) {
                 </div>
                 <Button
                     size="sm"
-                    className="shrink-0 bg-red-600 text-white hover:bg-red-700"
+                    className="shrink-0"
                     disabled={form.processing}
                     onClick={() =>
                         form.patch(`/admin/songs/${song.id}`, {
@@ -178,12 +180,20 @@ function SongRow({ song }: { song: MediaAsset }) {
             </button>
             {!song.pi_delete_requested && (
                 <button
-                    onClick={() => {
-                        if (confirm(`Delete "${song.title}"?`)) {
+                    onClick={async () => {
+                        const ok = await confirm({
+                            title: `Delete "${song.title}"?`,
+                            description:
+                                'The file is removed from the library and from every Pi holding a copy. This cannot be undone.',
+                            confirmLabel: 'Delete',
+                            variant: 'destructive',
+                        });
+
+                        if (ok) {
                             router.delete(`/admin/songs/${song.id}`);
                         }
                     }}
-                    className="shrink-0 text-xs text-red-500/70 hover:text-red-400"
+                    className="shrink-0 text-xs text-destructive/70 hover:text-destructive"
                 >
                     Delete
                 </button>
@@ -220,7 +230,7 @@ export function SongsSection({
                     <span className="text-xs text-muted-foreground">
                         {songs.total} songs
                         {pending > 0 && (
-                            <span className="ml-2 text-yellow-400">
+                            <span className="ml-2 text-warning">
                                 {pending} pending
                             </span>
                         )}

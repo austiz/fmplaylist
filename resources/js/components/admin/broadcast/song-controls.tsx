@@ -1,9 +1,11 @@
 import { useForm } from '@inertiajs/react';
+import { useConfirm } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import type { Song } from '@/types/fm';
 import { SearchablePickList } from './searchable-pick-list';
 
 export function SongControls({ songs }: { songs: Song[] }) {
+    const confirm = useConfirm();
     const skipForm = useForm({});
     const playNowForm = useForm({ song_id: '' });
 
@@ -18,9 +20,16 @@ export function SongControls({ songs }: { songs: Song[] }) {
                     type="button"
                     variant="outline"
                     disabled={skipForm.processing}
-                    className="h-12 w-full border-red-500/30 text-red-400 hover:bg-red-500/10"
-                    onClick={() => {
-                        if (confirm('Skip current song?')) {
+                    className="h-12 w-full border-destructive/30 text-destructive hover:bg-destructive/12"
+                    onClick={async () => {
+                        if (
+                            await confirm({
+                                title: 'Skip the current song?',
+                                description:
+                                    'The next item in the queue starts playing right away.',
+                                confirmLabel: 'Skip',
+                            })
+                        ) {
                             skipForm.post('/admin/broadcast/skip');
                         }
                     }}
@@ -67,7 +76,7 @@ export function SongControls({ songs }: { songs: Song[] }) {
                         disabled={
                             playNowForm.processing || !playNowForm.data.song_id
                         }
-                        className="h-12 w-full bg-red-600 font-display font-bold tracking-wide text-white uppercase hover:bg-red-700 disabled:opacity-40"
+                        className="h-12 w-full font-display font-bold tracking-wide uppercase disabled:opacity-40"
                     >
                         Play Now
                     </Button>

@@ -159,11 +159,7 @@ export function StationForm({
                     </div>
                 </section>
 
-                <Button
-                    type="submit"
-                    disabled={processing}
-                    className="bg-red-600 text-white hover:bg-red-700"
-                >
+                <Button type="submit" disabled={processing}>
                     Save Settings
                 </Button>
             </form>
@@ -172,7 +168,7 @@ export function StationForm({
                 RDS messages and live broadcast control are in{' '}
                 <Link
                     href="/admin/broadcast"
-                    className="text-red-500 hover:underline"
+                    className="text-destructive hover:underline"
                 >
                     Admin &gt; Broadcast
                 </Link>

@@ -41,7 +41,7 @@ export default function History({ items, filter, playsLast7Days }: Props) {
                         }
                         className={`px-3 py-1 text-sm font-medium capitalize transition-colors ${
                             filter === f
-                                ? 'bg-red-600 text-white'
+                                ? 'bg-primary text-primary-foreground'
                                 : 'border border-border text-muted-foreground hover:text-foreground'
                         }`}
                     >
@@ -80,9 +80,9 @@ export default function History({ items, filter, playsLast7Days }: Props) {
                         <span
                             className={`shrink-0 px-2 py-0.5 text-xs font-bold tracking-wide uppercase ${
                                 item.status === 'played'
-                                    ? 'bg-green-500/15 text-green-400'
+                                    ? 'bg-online-soft text-online'
                                     : item.status === 'playing'
-                                      ? 'bg-red-500/15 text-red-400'
+                                      ? 'bg-playing-soft text-playing'
                                       : item.status === 'pending'
                                         ? 'bg-secondary text-muted-foreground'
                                         : 'bg-secondary text-muted-foreground/50'

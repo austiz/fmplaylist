@@ -94,7 +94,7 @@ export default function Home({
                         }}
                     />
                     <div className="relative flex items-center gap-2">
-                        <p className="font-display text-xs font-bold tracking-[0.25em] text-red-500 uppercase">
+                        <p className="font-display text-xs font-bold tracking-[0.25em] text-primary uppercase">
                             On Air · {freq} FM
                         </p>
                         <span
@@ -125,7 +125,7 @@ export default function Home({
                 <NowPlayingBar initial={nowPlaying} />
 
                 {flash?.success && (
-                    <div className="border-l-2 border-green-500 bg-green-500/10 px-4 py-3 text-sm text-green-400 backdrop-blur-sm">
+                    <div className="border-l-2 border-online bg-online-soft px-4 py-3 text-sm text-online backdrop-blur-sm">
                         {flash.success}
                     </div>
                 )}
@@ -140,7 +140,7 @@ export default function Home({
                             Browse the full library and put anything on the air.
                         </p>
                         <Link href="/songs">
-                            <Button className="h-12 w-full bg-red-600 font-display font-bold tracking-wide text-white uppercase hover:bg-red-700 active:scale-[0.98]">
+                            <Button className="h-12 w-full font-display font-bold tracking-wide uppercase active:scale-[0.98]">
                                 Browse Songs →
                             </Button>
                         </Link>
@@ -175,7 +175,7 @@ export default function Home({
                                     key={r.songId}
                                     onClick={() => reRequest(r)}
                                     disabled={busyId === r.songId}
-                                    className="group flex w-40 shrink-0 flex-col justify-between border border-border bg-card/70 p-3 text-left backdrop-blur-sm transition-colors hover:border-red-500/50 active:scale-[0.98] disabled:opacity-50"
+                                    className="group flex w-40 shrink-0 flex-col justify-between border border-border bg-card/70 p-3 text-left backdrop-blur-sm transition-colors hover:border-primary/50 active:scale-[0.98] disabled:opacity-50"
                                 >
                                     <div className="min-w-0">
                                         <p className="truncate text-sm font-medium text-foreground">
@@ -187,7 +187,7 @@ export default function Home({
                                             </p>
                                         )}
                                     </div>
-                                    <span className="mt-3 flex items-center gap-1.5 font-display text-[10px] font-bold tracking-wider text-red-500 uppercase">
+                                    <span className="mt-3 flex items-center gap-1.5 font-display text-[10px] font-bold tracking-wider text-primary uppercase">
                                         <RotateCw
                                             size={12}
                                             className={
@@ -215,7 +215,7 @@ export default function Home({
                             </h2>
                             <Link
                                 href="/queue"
-                                className="text-xs font-medium text-red-500 hover:underline"
+                                className="text-xs font-medium text-primary hover:underline"
                             >
                                 Full queue →
                             </Link>
@@ -226,7 +226,7 @@ export default function Home({
                                     key={item.id}
                                     className="flex items-center gap-4 px-4 py-3"
                                 >
-                                    <span className="w-6 shrink-0 text-center font-display text-sm font-bold text-red-500/60 tabular-nums">
+                                    <span className="w-6 shrink-0 text-center font-display text-sm font-bold text-primary/60 tabular-nums">
                                         {item.position}
                                     </span>
                                     <div className="min-w-0 flex-1">

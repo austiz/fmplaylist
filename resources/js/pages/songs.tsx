@@ -1,5 +1,6 @@
 import { useForm, usePage } from '@inertiajs/react';
 import { useState } from 'react';
+import { FieldError } from '@/components/field-error';
 import { Pagination } from '@/components/pagination';
 import { PublicLayout } from '@/components/public-layout';
 import { Button } from '@/components/ui/button';
@@ -105,13 +106,11 @@ function RequestDialog({
                             className="h-14 text-base"
                         />
                     </div>
-                    {serverError && (
-                        <p className="text-sm text-red-400">{serverError}</p>
-                    )}
+                    <FieldError message={serverError} />
                     <Button
                         type="submit"
                         disabled={processing}
-                        className="h-14 w-full bg-red-600 font-display font-bold tracking-wide text-white uppercase hover:bg-red-700 disabled:opacity-60"
+                        className="h-14 w-full font-display font-bold tracking-wide uppercase disabled:opacity-60"
                     >
                         {processing ? 'Adding...' : 'Add to Queue'}
                     </Button>
@@ -150,7 +149,7 @@ export default function Songs({ songs, search, station }: Props) {
                 </div>
 
                 {flash?.success && (
-                    <div className="border-l-2 border-green-500 bg-green-500/10 px-4 py-3 text-sm text-green-400">
+                    <div className="border-l-2 border-online bg-online-soft px-4 py-3 text-sm text-online">
                         {flash.success}
                     </div>
                 )}
@@ -189,7 +188,7 @@ export default function Songs({ songs, search, station }: Props) {
                                     {song.duration_formatted}
                                 </span>
                             )}
-                            <span className="shrink-0 border border-red-500/40 px-2.5 py-1.5 text-xs font-bold tracking-wider text-red-500 uppercase transition-colors group-hover:bg-red-500 group-hover:text-foreground">
+                            <span className="shrink-0 border border-primary/40 px-2.5 py-1.5 text-xs font-bold tracking-wider text-primary uppercase transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
                                 Request
                             </span>
                         </div>

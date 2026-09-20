@@ -12,8 +12,8 @@ export function NewTokenPanel({
     appUrl: string;
 }) {
     return (
-        <div className="space-y-4 border border-red-500/40 bg-red-500/5 p-5">
-            <p className="text-sm font-bold text-red-400">
+        <div className="space-y-4 border border-warning/30 bg-warning-soft p-5">
+            <p className="text-sm font-bold text-warning">
                 New token generated — shown once only
             </p>
 
