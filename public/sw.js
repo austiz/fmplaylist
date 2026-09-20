@@ -9,9 +9,7 @@ self.addEventListener('install', (e) => {
             // single route that 503s -- a deploy running, the app in
             // maintenance mode -- would abort the whole install and leave the
             // site with no worker at all.
-            Promise.all(
-                SHELL.map((url) => c.add(url).catch(() => undefined)),
-            ),
+            Promise.all(SHELL.map((url) => c.add(url).catch(() => undefined))),
         ),
     );
     self.skipWaiting();
@@ -69,11 +67,31 @@ self.addEventListener('fetch', (e) => {
                     // "Response body is already used".
                     const copy = res.clone();
 
-                    caches.open(CACHE).then((c) => c.put(request, copy));
+                    // waitUntil so the worker is not terminated before the
+                    // write lands, and the catch is load-bearing: the page
+                    // asks for most assets twice -- once as a modulepreload,
+                    // once as the import itself -- so two puts of one key are
+                    // in flight together and Chrome rejects the second with
+                    // "Entry already exists". The entry is cached either way;
+                    // unhandled, the rejection was 40-odd console errors a
+                    // page load.
+                    e.waitUntil(
+                        caches
+                            .open(CACHE)
+                            .then((c) => c.put(request, copy))
+                            .catch(() => undefined),
+                    );
                 }
 
                 return res;
             })
-            .catch(() => caches.match(request)),
+            .catch(async () => {
+                // Same trap as the navigate branch above: a miss resolves to
+                // undefined, and respondWith(undefined) is a TypeError rather
+                // than the network error the caller should see.
+                const hit = await caches.match(request);
+
+                return hit ?? Response.error();
+            }),
     );
 });
