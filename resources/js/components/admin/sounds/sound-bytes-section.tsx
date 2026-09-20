@@ -1,5 +1,6 @@
 import { router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
+import { LibrarySearch } from '@/components/admin/sounds/library-search';
 import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
@@ -299,17 +300,12 @@ export function SoundBytesSection({
         <div className="space-y-6">
             <SoundByteUploadForm />
             <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                    <Input
-                        placeholder="Search sound bytes..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="max-w-xs"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                        {soundBytes.length} sound bytes
-                    </span>
-                </div>
+                <LibrarySearch
+                    placeholder="Search sound bytes..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    summary={`${soundBytes.length} sound bytes`}
+                />
                 <div className="divide-y divide-border border border-border bg-card">
                     {filtered.map((sb) => (
                         <SoundByteRow key={sb.id} soundByte={sb} />

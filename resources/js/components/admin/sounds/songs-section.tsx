@@ -1,5 +1,6 @@
 import { router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
+import { LibrarySearch } from '@/components/admin/sounds/library-search';
 import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Pagination } from '@/components/pagination';
@@ -212,7 +213,10 @@ export function SongsSection({
     const pending = songs.data.filter(
         (s) => s.devices_have === 0 && !s.pi_delete_requested,
     ).length;
+    // The tab rides along: search is a fresh visit, and without it the URL
+    // would come back pointing at the default tab mid-keystroke.
     const handleSearch = useDebouncedSearch('/admin/sounds', {
+        params: { tab: 'songs' },
         only: ['songs'],
     });
 
@@ -220,22 +224,21 @@ export function SongsSection({
         <div className="space-y-6">
             <SongUploadForm />
             <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                    <Input
-                        placeholder="Search songs..."
-                        defaultValue={search}
-                        onChange={handleSearch}
-                        className="max-w-xs"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                        {songs.total} songs
-                        {pending > 0 && (
-                            <span className="ml-2 text-warning">
-                                {pending} pending
-                            </span>
-                        )}
-                    </span>
-                </div>
+                <LibrarySearch
+                    placeholder="Search songs..."
+                    defaultValue={search}
+                    onChange={handleSearch}
+                    summary={
+                        <>
+                            {songs.total} songs
+                            {pending > 0 && (
+                                <span className="ml-2 text-warning">
+                                    {pending} pending
+                                </span>
+                            )}
+                        </>
+                    }
+                />
                 <div className="divide-y divide-border border border-border bg-card">
                     {songs.data.map((s) => (
                         <SongRow key={s.id} song={s} />

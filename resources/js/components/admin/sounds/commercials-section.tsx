@@ -1,5 +1,6 @@
 import { router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
+import { LibrarySearch } from '@/components/admin/sounds/library-search';
 import { useConfirm } from '@/components/confirm-dialog';
 import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
@@ -223,17 +224,12 @@ export function CommercialsSection({
         <div className="space-y-6">
             <CommercialUploadForm />
             <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                    <Input
-                        placeholder="Search commercials..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="max-w-xs"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                        {commercials.length} commercials
-                    </span>
-                </div>
+                <LibrarySearch
+                    placeholder="Search commercials..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    summary={`${commercials.length} commercials`}
+                />
                 <div className="divide-y divide-border border border-border bg-card">
                     {filtered.map((c) => (
                         <CommercialRow key={c.id} commercial={c} />
