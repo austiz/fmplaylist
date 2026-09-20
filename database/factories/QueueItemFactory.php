@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Models\MediaAsset;
 use App\Models\QueueItem;
-use App\Models\Song;
 use App\Models\Station;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -14,7 +14,7 @@ class QueueItemFactory extends Factory
     {
         return [
             'station_id' => Station::factory(),
-            'song_id' => Song::factory(),
+            'media_asset_id' => MediaAsset::factory(),
             'requested_by_name' => null,
             'position' => 1,
             'status' => 'pending',

@@ -19,7 +19,7 @@ class NowPlaying extends Model
 
     protected $fillable = [
         'station_id',
-        'song_id',
+        'media_asset_id',
         'queue_item_id',
         'type',
         'started_at',
@@ -29,10 +29,14 @@ class NowPlaying extends Model
         'started_at' => 'datetime',
     ];
 
-    /** @return BelongsTo<Song, $this> */
-    public function song(): BelongsTo
+    /**
+     * Null for commercials and sound bytes, which are announced rather than named.
+     *
+     * @return BelongsTo<MediaAsset, $this>
+     */
+    public function mediaAsset(): BelongsTo
     {
-        return $this->belongsTo(Song::class);
+        return $this->belongsTo(MediaAsset::class);
     }
 
     /** @return BelongsTo<QueueItem, $this> */
@@ -49,6 +53,6 @@ class NowPlaying extends Model
 
     public static function forStation(int $stationId): ?self
     {
-        return static::with('song')->where('station_id', $stationId)->first();
+        return static::with('mediaAsset')->where('station_id', $stationId)->first();
     }
 }

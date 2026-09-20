@@ -22,11 +22,11 @@ class DashboardController extends Controller
 
         $nowPlaying = NowPlaying::forStation($station->id);
 
-        $pendingItems = QueueItem::with('song')->where('station_id', $station->id)->pending()->get();
+        $pendingItems = QueueItem::with('mediaAsset')->where('station_id', $station->id)->pending()->get();
 
-        $queueRuntimeSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song->duration_seconds ?? 0);
+        $queueRuntimeSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->mediaAsset->duration_seconds ?? 0);
 
-        $recentRequests = QueueItem::with('song')
+        $recentRequests = QueueItem::with('mediaAsset')
             ->where('station_id', $station->id)
             ->orderByDesc('created_at')
             ->take(20)
@@ -37,13 +37,13 @@ class DashboardController extends Controller
                 'requested_by_name' => $item->requested_by_name,
                 'created_at' => $item->created_at->toDateTimeString(),
                 'played_at' => $item->played_at?->toDateTimeString(),
-                'song' => ['title' => $item->song->title ?? '(deleted)', 'artist' => $item->song->artist ?? ''],
+                'song' => ['title' => $item->mediaAsset->title ?? '(deleted)', 'artist' => $item->mediaAsset->artist ?? ''],
             ]);
 
         return Inertia::render('admin/dashboard', [
-            'nowPlaying' => $nowPlaying && $nowPlaying->song ? [
+            'nowPlaying' => $nowPlaying && $nowPlaying->mediaAsset ? [
                 'type' => $nowPlaying->type,
-                'song' => ['title' => $nowPlaying->song->title, 'artist' => $nowPlaying->song->artist],
+                'song' => ['title' => $nowPlaying->mediaAsset->title, 'artist' => $nowPlaying->mediaAsset->artist],
                 'started_at' => $nowPlaying->started_at?->toIso8601String(),
             ] : null,
             'queueDepth' => $pendingItems->count(),

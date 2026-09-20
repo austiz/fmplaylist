@@ -35,7 +35,7 @@ class HomeController extends Controller
         $stationId = $station->id;
         $nowPlaying = NowPlaying::forStation($stationId);
 
-        $queue = QueueItem::with('song')
+        $queue = QueueItem::with('mediaAsset')
             ->where('station_id', $stationId)
             ->pending()
             ->take(5)
@@ -45,8 +45,8 @@ class HomeController extends Controller
                 'position' => $item->position,
                 'requested_by_name' => $item->requested_by_name,
                 'song' => [
-                    'title' => $item->song->title ?? '(deleted)',
-                    'artist' => $item->song->artist ?? '',
+                    'title' => $item->mediaAsset->title ?? '(deleted)',
+                    'artist' => $item->mediaAsset->artist ?? '',
                 ],
             ]);
 
@@ -73,12 +73,12 @@ class HomeController extends Controller
                 'commercial' => ['title' => 'Commercial Break', 'artist' => null, 'duration_seconds' => null],
                 'sound_byte' => ['title' => 'Radio Drop',       'artist' => null, 'duration_seconds' => null],
                 'station_id' => ['title' => 'Station ID',       'artist' => null, 'duration_seconds' => null],
-                default => $nowPlaying->song
+                default => $nowPlaying->mediaAsset
                     ? [
-                        'id' => $nowPlaying->song->id,
-                        'title' => $nowPlaying->song->title,
-                        'artist' => $nowPlaying->song->artist,
-                        'duration_seconds' => $nowPlaying->song->duration_seconds,
+                        'id' => $nowPlaying->mediaAsset->id,
+                        'title' => $nowPlaying->mediaAsset->title,
+                        'artist' => $nowPlaying->mediaAsset->artist,
+                        'duration_seconds' => $nowPlaying->mediaAsset->duration_seconds,
                     ]
                     : null,
             },

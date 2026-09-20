@@ -24,7 +24,7 @@ class HistoryController extends Controller
             ? $request->query('filter')
             : 'all';
 
-        $items = QueueItem::with('song')
+        $items = QueueItem::with('mediaAsset')
             ->where('station_id', $station->id)
             ->when($filter !== 'all', fn ($q) => $q->where('status', $filter))
             ->orderByDesc('created_at')
@@ -37,8 +37,8 @@ class HistoryController extends Controller
                 'created_at' => $item->created_at->toDateTimeString(),
                 'played_at' => $item->played_at?->toDateTimeString(),
                 'song' => [
-                    'title' => $item->song->title ?? '(deleted)',
-                    'artist' => $item->song->artist ?? '',
+                    'title' => $item->mediaAsset->title ?? '(deleted)',
+                    'artist' => $item->mediaAsset->artist ?? '',
                 ],
             ]);
 

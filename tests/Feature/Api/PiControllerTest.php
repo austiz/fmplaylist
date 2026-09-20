@@ -2,9 +2,9 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\MediaAsset;
 use App\Models\PiToken;
 use App\Models\QueueItem;
-use App\Models\Song;
 use App\Models\Station;
 use App\Services\DeviceSyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -52,10 +52,10 @@ class PiControllerTest extends TestCase
     {
         // Auto-filled queue items (no requester) must send an explicit JSON null,
         // not omit the key — the Pi daemon relies on the key always being present.
-        $song = Song::factory()->create(['available' => true]);
+        $song = MediaAsset::factory()->create(['active' => true]);
         QueueItem::create([
             'station_id' => Station::defaultId(),
-            'song_id' => $song->id,
+            'media_asset_id' => $song->id,
             'requested_by_name' => null,
             'position' => 1,
             'status' => 'pending',
@@ -69,10 +69,10 @@ class PiControllerTest extends TestCase
 
     public function test_queue_next_requested_by_name_is_present_for_requested_song(): void
     {
-        $song = Song::factory()->create(['available' => true]);
+        $song = MediaAsset::factory()->create(['active' => true]);
         QueueItem::create([
             'station_id' => Station::defaultId(),
-            'song_id' => $song->id,
+            'media_asset_id' => $song->id,
             'requested_by_name' => 'Alex',
             'position' => 1,
             'status' => 'pending',
@@ -127,26 +127,26 @@ class PiControllerTest extends TestCase
 
     public function test_sync_library_does_not_mark_missing_songs_unavailable(): void
     {
-        $song = Song::factory()->create(['available' => true]);
+        $song = MediaAsset::factory()->create(['active' => true]);
 
         $this->postJson('/api/pi/sync-library', ['songs' => []], $this->piHeaders())->assertOk();
 
-        $this->assertTrue((bool) $song->fresh()->available);
+        $this->assertTrue((bool) $song->fresh()->active);
     }
 
     public function test_second_device_empty_sync_does_not_affect_global_song_availability(): void
     {
-        $song = Song::factory()->create(['available' => true]);
+        $song = MediaAsset::factory()->create(['active' => true]);
         ['raw' => $rawB] = PiToken::generate('Pi B');
 
         $this->postJson('/api/pi/sync-library', ['songs' => []], ['X-Pi-Token' => $rawB])->assertOk();
 
-        $this->assertTrue((bool) $song->fresh()->available);
+        $this->assertTrue((bool) $song->fresh()->active);
     }
 
     public function test_sync_library_ignores_runtime_files_without_creating_songs(): void
     {
-        $song = Song::factory()->create(['available' => true]);
+        $song = MediaAsset::factory()->create(['active' => true]);
 
         $this->postJson('/api/pi/sync-library', [
             'songs' => [
@@ -155,14 +155,14 @@ class PiControllerTest extends TestCase
             ],
         ], $this->piHeaders())->assertOk();
 
-        $this->assertTrue((bool) $song->fresh()->available);
-        $this->assertDatabaseMissing('songs', ['filename' => 'FTPA.wav']);
-        $this->assertDatabaseMissing('songs', ['filename' => 'station_id.wav']);
+        $this->assertTrue((bool) $song->fresh()->active);
+        $this->assertDatabaseMissing('media_assets', ['filename' => 'FTPA.wav']);
+        $this->assertDatabaseMissing('media_assets', ['filename' => 'station_id.wav']);
     }
 
     public function test_sync_library_records_known_song_for_this_device_only(): void
     {
-        $song = Song::factory()->create(['available' => true, 'filename' => 'known-song.wav']);
+        $song = MediaAsset::factory()->create(['active' => true, 'filename' => 'known-song.wav']);
 
         $this->postJson('/api/pi/sync-library', [
             'songs' => [
@@ -176,7 +176,7 @@ class PiControllerTest extends TestCase
             'media_type' => 'song',
             'media_id' => $song->id,
         ]);
-        $this->assertTrue((bool) $song->fresh()->available);
+        $this->assertTrue((bool) $song->fresh()->active);
     }
 
     public function test_config_endpoint_returns_expected_keys(): void
@@ -187,8 +187,8 @@ class PiControllerTest extends TestCase
 
     public function test_config_does_not_send_downloads_without_storage_path(): void
     {
-        Song::factory()->create([
-            'available' => true,
+        MediaAsset::factory()->create([
+            'active' => true,
             'storage_path' => null,
         ]);
 
@@ -208,18 +208,18 @@ class PiControllerTest extends TestCase
         $stationB = Station::create(['name' => 'Station B', 'slug' => 'station-b']);
         ['raw' => $rawB] = PiToken::generate('Pi B', $stationB->id);
 
-        $songA = Song::factory()->create(['available' => true]);
+        $songA = MediaAsset::factory()->create(['active' => true]);
         QueueItem::create([
             'station_id' => Station::defaultId(),
-            'song_id' => $songA->id,
+            'media_asset_id' => $songA->id,
             'position' => 1,
             'status' => 'pending',
         ]);
 
-        $songB = Song::factory()->create(['available' => true]);
+        $songB = MediaAsset::factory()->create(['active' => true]);
         QueueItem::create([
             'station_id' => $stationB->id,
-            'song_id' => $songB->id,
+            'media_asset_id' => $songB->id,
             'position' => 1,
             'status' => 'pending',
         ]);
@@ -233,8 +233,8 @@ class PiControllerTest extends TestCase
 
     public function test_confirm_download_is_per_device(): void
     {
-        $song = Song::factory()->create([
-            'available' => true,
+        $song = MediaAsset::factory()->create([
+            'active' => true,
             'needs_pi_download' => true,
             'storage_path' => 'songs/example.wav',
         ]);
@@ -256,7 +256,7 @@ class PiControllerTest extends TestCase
 
     public function test_confirm_delete_only_purges_after_all_devices_confirm(): void
     {
-        $song = Song::factory()->create(['available' => true, 'pi_delete_requested' => true]);
+        $song = MediaAsset::factory()->create(['active' => true, 'pi_delete_requested' => true]);
         ['raw' => $rawB] = PiToken::generate('Pi B');
 
         // Both devices have this song locally.
@@ -265,24 +265,24 @@ class PiControllerTest extends TestCase
 
         // Device A confirms the delete — the row must survive since device B still holds it.
         $this->postJson('/api/pi/confirm-delete', ['type' => 'song', 'item_id' => $song->id], $this->piHeaders())->assertOk();
-        $this->assertDatabaseHas('songs', ['id' => $song->id]);
+        $this->assertDatabaseHas('media_assets', ['id' => $song->id]);
 
         // Device B confirms too — now that no device holds it, the row is purged.
         $this->postJson('/api/pi/confirm-delete', ['type' => 'song', 'item_id' => $song->id], ['X-Pi-Token' => $rawB])->assertOk();
-        $this->assertDatabaseMissing('songs', ['id' => $song->id]);
+        $this->assertDatabaseMissing('media_assets', ['id' => $song->id]);
     }
 
     public function test_delete_requested_legacy_song_without_device_downloads_is_purged(): void
     {
-        $song = Song::factory()->create([
-            'available' => false,
+        $song = MediaAsset::factory()->create([
+            'active' => false,
             'pi_delete_requested' => true,
         ]);
 
-        // Scheduled housekeeping, not the device poll � see routes/console.php.
+        // Scheduled housekeeping, not the device poll — see routes/console.php.
         app(DeviceSyncService::class)->purgeOrphanedDeleteRequests();
 
-        $this->assertDatabaseMissing('songs', ['id' => $song->id]);
+        $this->assertDatabaseMissing('media_assets', ['id' => $song->id]);
     }
 
     public function test_pi_status_update_available_checks_all_online_devices(): void

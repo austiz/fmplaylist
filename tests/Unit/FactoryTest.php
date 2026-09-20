@@ -2,15 +2,14 @@
 
 namespace Tests\Unit;
 
+use App\Enums\MediaType;
 use App\Models\ChatMessage;
-use App\Models\Commercial;
 use App\Models\DeviceDownload;
+use App\Models\MediaAsset;
 use App\Models\NowPlaying;
 use App\Models\PiCommand;
 use App\Models\PiToken;
 use App\Models\QueueItem;
-use App\Models\Song;
-use App\Models\SoundByte;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\WifiNetwork;
@@ -34,14 +33,12 @@ class FactoryTest extends TestCase
     {
         return [
             'chat message' => [ChatMessage::class],
-            'commercial' => [Commercial::class],
             'device download' => [DeviceDownload::class],
+            'media asset' => [MediaAsset::class],
             'now playing' => [NowPlaying::class],
             'pi command' => [PiCommand::class],
             'pi token' => [PiToken::class],
             'queue item' => [QueueItem::class],
-            'song' => [Song::class],
-            'sound byte' => [SoundByte::class],
             'station' => [Station::class],
             'user' => [User::class],
             'wifi network' => [WifiNetwork::class],
@@ -86,12 +83,19 @@ class FactoryTest extends TestCase
 
     public function test_now_playing_non_song_types_carry_no_song(): void
     {
-        $this->assertNull(NowPlaying::factory()->ofType('commercial')->create()->song_id);
+        $this->assertNull(NowPlaying::factory()->ofType('commercial')->create()->media_asset_id);
+    }
+
+    public function test_media_asset_states_set_their_type(): void
+    {
+        $this->assertSame(MediaType::Song, MediaAsset::factory()->song()->create()->type);
+        $this->assertSame(MediaType::Commercial, MediaAsset::factory()->commercial()->create()->type);
+        $this->assertSame(MediaType::SoundByte, MediaAsset::factory()->soundByte()->create()->type);
     }
 
     public function test_device_download_can_point_at_any_media_type(): void
     {
-        $commercial = Commercial::factory()->create();
+        $commercial = MediaAsset::factory()->commercial()->create();
         $download = DeviceDownload::factory()->forMedia($commercial, 'commercial')->create();
 
         $this->assertSame('commercial', $download->media_type);

@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Song;
+use App\Models\MediaAsset;
 use App\Models\Station;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -18,7 +18,7 @@ class PublicTest extends TestCase
 
     public function test_songs_page_loads(): void
     {
-        Song::factory()->count(3)->create(['available' => true]);
+        MediaAsset::factory()->count(3)->create(['active' => true]);
 
         $this->get('/songs')
             ->assertOk()
@@ -32,7 +32,7 @@ class PublicTest extends TestCase
 
     public function test_song_request_throttles(): void
     {
-        $song = Song::factory()->create(['available' => true]);
+        $song = MediaAsset::factory()->create(['active' => true]);
 
         // 5 requests allowed per minute
         for ($i = 0; $i < 5; $i++) {
@@ -45,14 +45,14 @@ class PublicTest extends TestCase
     public function test_song_request_can_target_public_station_slug(): void
     {
         $stationB = Station::create(['name' => 'Station B', 'slug' => 'station-b']);
-        $song = Song::factory()->create(['available' => true]);
+        $song = MediaAsset::factory()->create(['active' => true]);
 
         $this->post("/songs/{$song->id}/request?station=station-b", ['name' => 'Tester'])
             ->assertRedirect();
 
         $this->assertDatabaseHas('queue_items', [
             'station_id' => $stationB->id,
-            'song_id' => $song->id,
+            'media_asset_id' => $song->id,
             'requested_by_name' => 'Tester',
         ]);
     }

@@ -2,8 +2,8 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Models\MediaAsset;
 use App\Models\QueueItem;
-use App\Models\Song;
 use App\Models\Station;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,7 +25,7 @@ class QueueAdminControllerTest extends TestCase
     {
         return QueueItem::create([
             'station_id' => $stationId,
-            'song_id' => Song::factory()->create()->id,
+            'media_asset_id' => MediaAsset::factory()->create()->id,
             'requested_by_name' => null,
             'position' => 1,
             'status' => $status,

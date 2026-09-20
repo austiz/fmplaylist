@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Song;
+use App\Enums\MediaType;
+use App\Models\MediaAsset;
 use App\Services\QueueService;
 use App\Support\PublicStation;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -20,12 +22,12 @@ class SongController extends Controller
 
         $station = PublicStation::resolve($request);
 
-        $songs = Song::available()
-            ->when($search, fn ($q) => $q->search($search))
+        $songs = MediaAsset::query()->songs()->active()
+            ->when($search, fn (Builder $q) => $q->search($search))
             ->orderBy('title')
             ->paginate(24)
             ->withQueryString()
-            ->through(fn ($song) => [
+            ->through(fn (MediaAsset $song) => [
                 'id' => $song->id,
                 'title' => $song->title,
                 'artist' => $song->artist,
@@ -39,9 +41,10 @@ class SongController extends Controller
         ]);
     }
 
-    public function request(Request $request, Song $song): RedirectResponse
+    public function request(Request $request, MediaAsset $song): RedirectResponse
     {
-        abort_unless($song->available, 404);
+        // Guards both "hidden from the library" and "that id is a commercial".
+        abort_unless($song->active && $song->type === MediaType::Song, 404);
 
         $data = $request->validate([
             'name' => ['nullable', 'string', 'max:50'],

@@ -9,7 +9,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * @property Song|null $song
+ * A listener request or an autofilled pick. `media_asset` is always a song today;
+ * commercials and sound bytes are scheduled directly rather than queued.
+ *
+ * @property MediaAsset|null $mediaAsset
  */
 class QueueItem extends Model
 {
@@ -18,7 +21,7 @@ class QueueItem extends Model
 
     protected $fillable = [
         'station_id',
-        'song_id',
+        'media_asset_id',
         'requested_by_name',
         'position',
         'status',
@@ -30,10 +33,10 @@ class QueueItem extends Model
         'played_at' => 'datetime',
     ];
 
-    /** @return BelongsTo<Song, $this> */
-    public function song(): BelongsTo
+    /** @return BelongsTo<MediaAsset, $this> */
+    public function mediaAsset(): BelongsTo
     {
-        return $this->belongsTo(Song::class);
+        return $this->belongsTo(MediaAsset::class);
     }
 
     /** @return BelongsTo<Station, $this> */

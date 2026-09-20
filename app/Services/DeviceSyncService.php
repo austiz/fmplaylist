@@ -2,13 +2,10 @@
 
 namespace App\Services;
 
-use App\Models\Commercial;
+use App\Enums\MediaType;
 use App\Models\DeviceDownload;
+use App\Models\MediaAsset;
 use App\Models\PiToken;
-use App\Models\Song;
-use App\Models\SoundByte;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
@@ -16,8 +13,8 @@ use Illuminate\Support\Facades\Storage;
 /**
  * Per-device (not per-station) download/delete tracking.
  *
- * Songs/commercials/sound bytes are a shared library, but each physical Pi has its own
- * SD card and must independently track what it has actually downloaded — a media row's
+ * Media is a shared library, but each physical Pi has its own SD card and must
+ * independently track what it has actually downloaded — a media row's
  * `needs_pi_download` flag being false only means SOME device downloaded it, not this one.
  *
  * `needs_pi_download` is a vestigial flag: it defaults to false, is global rather than
@@ -25,79 +22,66 @@ use Illuminate\Support\Facades\Storage;
  * must not be used to answer "is this on the Pi?" — the admin Sounds badge did exactly
  * that and reported "On Pi" for media no device had ever downloaded. `device_downloads`
  * is authoritative; use activeDeviceCount()/holderCounts()/isHeldByAnyDevice().
+ *
+ * `device_downloads.media_type` is now redundant with `media_assets.type`, but it stays:
+ * the Pi protocol is keyed on `(type, item_id)` pairs and daemons already in the field
+ * report them back that way.
  */
 class DeviceSyncService
 {
-    /** @return Collection<int, array<string, mixed>> */
+    /** @return Collection<int, array{type: string, item_id: int, filename: string, title: string, download_url: string}> */
     public function pendingDownloadsFor(PiToken $token): Collection
     {
         $downloaded = $this->downloadedIds($token);
 
-        $pending = collect();
+        $assets = MediaAsset::query()
+            ->active()
+            ->whereNotNull('storage_path')
+            ->get(['id', 'type', 'filename', 'title', 'storage_path']);
 
-        $pending = $pending->merge(
-            Song::available()->whereNotNull('storage_path')->get(['id', 'filename', 'title', 'artist', 'storage_path'])
-                ->reject(fn ($s) => in_array($s->id, $downloaded['song'], true))
-                ->map(fn ($s) => [
-                    'type' => 'song',
-                    'item_id' => $s->id,
-                    'filename' => $s->filename,
-                    'title' => $s->title,
-                    'download_url' => url(Storage::disk('public')->url($s->storage_path)),
-                ])
-        );
-
-        $pending = $pending->merge(
-            Commercial::active()->whereNotNull('storage_path')->get(['id', 'filename', 'title', 'storage_path'])
-                ->reject(fn ($c) => in_array($c->id, $downloaded['commercial'], true))
-                ->map(fn ($c) => [
-                    'type' => 'commercial',
-                    'item_id' => $c->id,
-                    'filename' => $c->filename,
-                    'title' => $c->title,
-                    'download_url' => url(Storage::disk('public')->url($c->storage_path)),
-                ])
-        );
-
-        $pending = $pending->merge(
-            SoundByte::active()->whereNotNull('storage_path')->get(['id', 'filename', 'title', 'storage_path'])
-                ->reject(fn ($sb) => in_array($sb->id, $downloaded['sound_byte'], true))
-                ->map(fn ($sb) => [
-                    'type' => 'sound_byte',
-                    'item_id' => $sb->id,
-                    'filename' => $sb->filename,
-                    'title' => $sb->title,
-                    'download_url' => url(Storage::disk('public')->url($sb->storage_path)),
-                ])
-        );
-
-        return $pending->values();
+        return $this->inTypeOrder($assets)
+            ->reject(fn (MediaAsset $a) => in_array($a->id, $downloaded[$a->type->value], true))
+            ->map(fn (MediaAsset $a) => [
+                'type' => $a->type->value,
+                'item_id' => $a->id,
+                'filename' => $a->filename,
+                'title' => $a->title,
+                'download_url' => url(Storage::disk('public')->url($a->storage_path)),
+            ])
+            ->values();
     }
 
-    /** @return Collection<int, array<string, mixed>> */
+    /** @return Collection<int, array{type: string, item_id: int, filename: string}> */
     public function pendingDeletesFor(PiToken $token): Collection
     {
         $downloaded = $this->downloadedIds($token);
 
-        $deletes = collect();
+        $assets = MediaAsset::query()
+            ->where('pi_delete_requested', true)
+            ->get(['id', 'type', 'filename']);
 
-        $deletes = $deletes->merge(
-            Song::where('pi_delete_requested', true)->get(['id', 'filename'])
-                ->filter(fn ($s) => in_array($s->id, $downloaded['song'], true))
-                ->map(fn ($s) => ['type' => 'song', 'item_id' => $s->id, 'filename' => $s->filename])
-        );
-        $deletes = $deletes->merge(
-            Commercial::where('pi_delete_requested', true)->get(['id', 'filename'])
-                ->filter(fn ($c) => in_array($c->id, $downloaded['commercial'], true))
-                ->map(fn ($c) => ['type' => 'commercial', 'item_id' => $c->id, 'filename' => $c->filename])
-        );
-        $deletes = $deletes->merge(
-            SoundByte::where('pi_delete_requested', true)->get(['id', 'filename'])
-                ->filter(fn ($sb) => in_array($sb->id, $downloaded['sound_byte'], true))
-                ->map(fn ($sb) => ['type' => 'sound_byte', 'item_id' => $sb->id, 'filename' => $sb->filename])
-        );
+        return $this->inTypeOrder($assets)
+            ->filter(fn (MediaAsset $a) => in_array($a->id, $downloaded[$a->type->value], true))
+            ->map(fn (MediaAsset $a) => [
+                'type' => $a->type->value,
+                'item_id' => $a->id,
+                'filename' => $a->filename,
+            ])
+            ->values();
+    }
 
-        return $deletes->values();
+    /**
+     * Songs first, then commercials, then sound bytes — the order the daemon has always
+     * received, back when these were three tables queried in turn.
+     *
+     * @param  Collection<int, MediaAsset>  $assets
+     * @return Collection<int, MediaAsset>
+     */
+    private function inTypeOrder(Collection $assets): Collection
+    {
+        $order = array_flip(array_column(MediaType::cases(), 'value'));
+
+        return $assets->sortBy(fn (MediaAsset $a) => $order[$a->type->value])->values();
     }
 
     public function recordDownload(PiToken $token, string $type, int $itemId): void
@@ -108,11 +92,7 @@ class DeviceSyncService
         );
 
         // Cosmetic only — see class docblock. Not read by pendingDownloadsFor().
-        match ($type) {
-            'commercial' => Commercial::where('id', $itemId)->update(['needs_pi_download' => false]),
-            'sound_byte' => SoundByte::where('id', $itemId)->update(['needs_pi_download' => false]),
-            default => Song::where('id', $itemId)->update(['needs_pi_download' => false]),
-        };
+        MediaAsset::where('id', $itemId)->where('type', $type)->update(['needs_pi_download' => false]);
     }
 
     public function recordDelete(PiToken $token, string $type, int $itemId): void
@@ -125,11 +105,7 @@ class DeviceSyncService
         $stillHeld = DeviceDownload::where('media_type', $type)->where('media_id', $itemId)->exists();
 
         if (! $stillHeld) {
-            match ($type) {
-                'commercial' => Commercial::where('id', $itemId)->delete(),
-                'sound_byte' => SoundByte::where('id', $itemId)->delete(),
-                default => Song::where('id', $itemId)->delete(),
-            };
+            MediaAsset::where('id', $itemId)->where('type', $type)->delete();
         }
     }
 
@@ -183,22 +159,23 @@ class DeviceSyncService
     {
         $downloaded = $this->downloadedIds($token);
 
-        $total = Song::available()->count() + Commercial::active()->count() + SoundByte::active()->count();
-        $done = count($downloaded['song']) + count($downloaded['commercial']) + count($downloaded['sound_byte']);
+        $total = MediaAsset::query()->active()->count();
+        $done = array_sum(array_map('count', $downloaded));
 
         return ['done' => min($done, $total), 'total' => $total];
     }
 
-    /** @return array{song: array<int, int>, commercial: array<int, int>, sound_byte: array<int, int>} */
+    /** @return array<string, array<int, int>> keyed by MediaType value */
     private function downloadedIds(PiToken $token): array
     {
         $rows = DeviceDownload::where('pi_token_id', $token->id)->get(['media_type', 'media_id']);
 
-        return [
-            'song' => $rows->where('media_type', 'song')->pluck('media_id')->all(),
-            'commercial' => $rows->where('media_type', 'commercial')->pluck('media_id')->all(),
-            'sound_byte' => $rows->where('media_type', 'sound_byte')->pluck('media_id')->all(),
-        ];
+        $ids = [];
+        foreach (MediaType::cases() as $type) {
+            $ids[$type->value] = $rows->where('media_type', $type->value)->pluck('media_id')->all();
+        }
+
+        return $ids;
     }
 
     /**
@@ -214,25 +191,13 @@ class DeviceSyncService
      */
     public function purgeOrphanedDeleteRequests(): int
     {
-        return $this->purgeOrphans(Song::query(), 'song')
-            + $this->purgeOrphans(Commercial::query(), 'commercial')
-            + $this->purgeOrphans(SoundByte::query(), 'sound_byte');
-    }
-
-    /**
-     * @param  Builder<covariant Model>  $query
-     */
-    private function purgeOrphans(Builder $query, string $type): int
-    {
-        $table = $query->getModel()->getTable();
-
-        return $query
+        return MediaAsset::query()
             ->where('pi_delete_requested', true)
             ->whereNotExists(fn (QueryBuilder $sub) => $sub
                 ->selectRaw('1')
                 ->from('device_downloads')
-                ->where('device_downloads.media_type', $type)
-                ->whereColumn('device_downloads.media_id', $table.'.id'))
+                ->whereColumn('device_downloads.media_type', 'media_assets.type')
+                ->whereColumn('device_downloads.media_id', 'media_assets.id'))
             ->delete();
     }
 }

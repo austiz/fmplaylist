@@ -3,8 +3,8 @@
 namespace Database\Factories;
 
 use App\Models\DeviceDownload;
+use App\Models\MediaAsset;
 use App\Models\PiToken;
-use App\Models\Song;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -16,7 +16,7 @@ class DeviceDownloadFactory extends Factory
         return [
             'pi_token_id' => PiToken::factory(),
             'media_type' => 'song',
-            'media_id' => Song::factory(),
+            'media_id' => MediaAsset::factory(),
             'downloaded_at' => now(),
         ];
     }

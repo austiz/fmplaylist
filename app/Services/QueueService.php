@@ -2,14 +2,13 @@
 
 namespace App\Services;
 
-use App\Models\Commercial;
+use App\Enums\MediaType;
 use App\Models\DeviceDownload;
+use App\Models\MediaAsset;
 use App\Models\NowPlaying;
 use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Setting;
-use App\Models\Song;
-use App\Models\SoundByte;
 use App\Models\Station;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -36,7 +35,7 @@ class QueueService
      */
     public function peekUpcoming(int $stationId, int $limit = 3): array
     {
-        return QueueItem::with('song')
+        return QueueItem::with('mediaAsset')
             ->where('station_id', $stationId)
             ->pending()
             ->skip(1)           // skip 'next' (already returned by getNextForPi)
@@ -44,13 +43,7 @@ class QueueService
             ->get()
             ->map(fn (QueueItem $item) => [
                 'queue_item_id' => $item->id,
-                'song' => [
-                    'id' => $item->song->id,
-                    'title' => $item->song->title,
-                    'artist' => $item->song->artist,
-                    'filename' => $item->song->filename,
-                    'duration_seconds' => $item->song->duration_seconds,
-                ],
+                'song' => $this->songPayload($item->mediaAsset),
             ])
             ->all();
     }
@@ -64,13 +57,13 @@ class QueueService
         $commercial = null;
         $forcedCommercialId = (int) Setting::get('force_commercial_id', 0, $stationId);
         if ($forcedCommercialId) {
-            $commercial = Commercial::active()->find($forcedCommercialId);
+            $commercial = MediaAsset::query()->ofType(MediaType::Commercial)->active()->find($forcedCommercialId);
         }
         if (! $commercial) {
             $comInterval = (int) Setting::get('commercial_interval', 0, $stationId);
             $songsSinceCom = (int) Setting::get('songs_since_last_commercial', 0, $stationId);
             if ($comInterval > 0 && $songsSinceCom >= $comInterval) {
-                $commercial = Commercial::nextInRotation($stationId);
+                $commercial = MediaAsset::nextCommercialInRotation($stationId);
             }
         }
 
@@ -78,18 +71,18 @@ class QueueService
         $soundByte = null;
         $forcedSoundByteId = (int) Setting::get('force_sound_byte_id', 0, $stationId);
         if ($forcedSoundByteId) {
-            $soundByte = SoundByte::active()->find($forcedSoundByteId);
+            $soundByte = MediaAsset::query()->ofType(MediaType::SoundByte)->active()->find($forcedSoundByteId);
         }
         if (! $soundByte) {
             $sbInterval = (int) Setting::get('sound_byte_interval', 0, $stationId);
             $songsSinceSb = (int) Setting::get('songs_since_last_sound_byte', 0, $stationId);
             if ($sbInterval > 0 && $songsSinceSb >= $sbInterval) {
-                $soundByte = SoundByte::active()->inRandomOrder()->first();
+                $soundByte = MediaAsset::query()->ofType(MediaType::SoundByte)->active()->inRandomOrder()->first();
             }
         }
 
         // ── Next queued song ──────────────────────────────────────────────
-        $next = QueueItem::with('song')->where('station_id', $stationId)->pending()->first();
+        $next = QueueItem::with('mediaAsset')->where('station_id', $stationId)->pending()->first();
 
         return [
             'commercial' => $commercial ? [
@@ -107,14 +100,25 @@ class QueueService
             'next' => $next ? [
                 'queue_item_id' => $next->id,
                 'requested_by_name' => $next->requested_by_name,
-                'song' => [
-                    'id' => $next->song->id,
-                    'title' => $next->song->title,
-                    'artist' => $next->song->artist,
-                    'filename' => $next->song->filename,
-                    'duration_seconds' => $next->song->duration_seconds,
-                ],
+                'song' => $this->songPayload($next->mediaAsset),
             ] : null,
+        ];
+    }
+
+    /**
+     * The shape the Pi daemon expects for a queued song — unchanged by the media
+     * unification, so the protocol is unaffected.
+     *
+     * @return array<string, mixed>
+     */
+    private function songPayload(MediaAsset $song): array
+    {
+        return [
+            'id' => $song->id,
+            'title' => $song->title,
+            'artist' => $song->artist,
+            'filename' => $song->filename,
+            'duration_seconds' => $song->duration_seconds,
         ];
     }
 
@@ -127,16 +131,14 @@ class QueueService
             ]);
 
             $song = null;
-            $songId = null;
             if ($filename && $type === 'song') {
-                $song = Song::where('filename', $filename)->first();
-                $songId = $song?->id;
+                $song = MediaAsset::query()->songs()->where('filename', $filename)->first();
             }
 
             NowPlaying::updateOrCreate(
                 ['station_id' => $stationId],
                 [
-                    'song_id' => $songId,
+                    'media_asset_id' => $song?->id,
                     'queue_item_id' => $queueItemId,
                     'type' => $type,
                     'started_at' => now(),
@@ -178,11 +180,11 @@ class QueueService
             // (the song library is shared across stations, so other stations' queues don't matter here)
             $excludeIds = QueueItem::where('station_id', $stationId)
                 ->whereIn('status', ['pending', 'playing'])
-                ->pluck('song_id');
+                ->pluck('media_asset_id');
 
-            $songs = Song::available()
+            $songs = MediaAsset::query()->songs()->active()
                 ->whereNotIn('id', $excludeIds)
-                ->orderByRaw('(SELECT MAX(played_at) FROM queue_items WHERE queue_items.song_id = songs.id AND queue_items.status = "played") ASC')
+                ->orderByRaw("(SELECT MAX(played_at) FROM queue_items WHERE queue_items.media_asset_id = media_assets.id AND queue_items.status = 'played') ASC")
                 ->take($needed)
                 ->get();
 
@@ -195,7 +197,7 @@ class QueueService
             foreach ($songs as $song) {
                 QueueItem::create([
                     'station_id' => $stationId,
-                    'song_id' => $song->id,
+                    'media_asset_id' => $song->id,
                     'requested_by_name' => null,
                     'position' => ++$maxPos,
                     'status' => 'pending',
@@ -223,7 +225,7 @@ class QueueService
         Setting::set('force_commercial_id', 0, $stationId);
         if ($commercialId) {
             Setting::set('last_commercial_id', $commercialId, $stationId);
-            Commercial::where('id', $commercialId)->increment('play_count');
+            MediaAsset::where('id', $commercialId)->increment('play_count');
         }
     }
 
@@ -242,7 +244,7 @@ class QueueService
 
             $item = QueueItem::create([
                 'station_id' => $stationId,
-                'song_id' => $songId,
+                'media_asset_id' => $songId,
                 'requested_by_name' => $name,
                 'position' => $maxPos + 1,
                 'status' => 'pending',
@@ -271,7 +273,7 @@ class QueueService
 
             return QueueItem::create([
                 'station_id' => $stationId,
-                'song_id' => $songId,
+                'media_asset_id' => $songId,
                 'requested_by_name' => $name ?? 'Admin',
                 'position' => 1,
                 'status' => 'pending',
@@ -294,7 +296,7 @@ class QueueService
                 continue;
             }
 
-            $song = Song::where('filename', $filename)->first();
+            $song = MediaAsset::query()->songs()->where('filename', $filename)->first();
             if (! $song) {
                 continue;
             }

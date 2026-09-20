@@ -17,22 +17,22 @@ class QueueController extends Controller
         $stationId = $station->id;
         $nowPlaying = NowPlaying::forStation($stationId);
 
-        $pendingItems = QueueItem::with('song')->where('station_id', $stationId)->pending()->get();
+        $pendingItems = QueueItem::with('mediaAsset')->where('station_id', $stationId)->pending()->get();
 
         $queue = $pendingItems->map(fn (QueueItem $item) => [
             'id' => $item->id,
             'position' => $item->position,
             'requested_by_name' => $item->requested_by_name,
             'song' => [
-                'title' => $item->song->title ?? '(deleted)',
-                'artist' => $item->song->artist ?? '',
-                'duration_seconds' => $item->song?->duration_seconds,
+                'title' => $item->mediaAsset->title ?? '(deleted)',
+                'artist' => $item->mediaAsset->artist ?? '',
+                'duration_seconds' => $item->mediaAsset?->duration_seconds,
             ],
         ]);
 
-        $waitSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->song->duration_seconds ?? 0);
+        $waitSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->mediaAsset->duration_seconds ?? 0);
 
-        $history = QueueItem::with('song')
+        $history = QueueItem::with('mediaAsset')
             ->where('station_id', $stationId)
             ->where('status', 'played')
             ->orderByDesc('played_at')
@@ -43,8 +43,8 @@ class QueueController extends Controller
                 'played_at' => $item->played_at?->diffForHumans(),
                 'requested_by_name' => $item->requested_by_name,
                 'song' => [
-                    'title' => $item->song->title ?? '(deleted)',
-                    'artist' => $item->song->artist ?? '',
+                    'title' => $item->mediaAsset->title ?? '(deleted)',
+                    'artist' => $item->mediaAsset->artist ?? '',
                 ],
             ]);
 
@@ -57,12 +57,12 @@ class QueueController extends Controller
                     'commercial' => ['title' => 'Commercial Break', 'artist' => null, 'duration_seconds' => null],
                     'sound_byte' => ['title' => 'Radio Drop',       'artist' => null, 'duration_seconds' => null],
                     'station_id' => ['title' => 'Station ID',       'artist' => null, 'duration_seconds' => null],
-                    default => $nowPlaying->song
+                    default => $nowPlaying->mediaAsset
                         ? [
-                            'id' => $nowPlaying->song->id,
-                            'title' => $nowPlaying->song->title,
-                            'artist' => $nowPlaying->song->artist,
-                            'duration_seconds' => $nowPlaying->song->duration_seconds,
+                            'id' => $nowPlaying->mediaAsset->id,
+                            'title' => $nowPlaying->mediaAsset->title,
+                            'artist' => $nowPlaying->mediaAsset->artist,
+                            'duration_seconds' => $nowPlaying->mediaAsset->duration_seconds,
                         ]
                         : null,
                 },

@@ -350,8 +350,8 @@ class PiController extends Controller
             'commercial' => ['title' => 'Commercial Break', 'artist' => null],
             'sound_byte' => ['title' => 'Radio Drop',       'artist' => null],
             'station_id' => ['title' => 'Station ID',       'artist' => null],
-            default => $np->song
-                ? ['title' => $np->song->title, 'artist' => $np->song->artist]
+            default => $np->mediaAsset
+                ? ['title' => $np->mediaAsset->title, 'artist' => $np->mediaAsset->artist]
                 : null,
         };
 
@@ -362,7 +362,7 @@ class PiController extends Controller
         return response()->json([
             'type' => $np->type,
             'song' => [
-                'id' => $np->song?->id,
+                'id' => $np->mediaAsset?->id,
                 'title' => $display['title'],
                 'artist' => $display['artist'],
             ],

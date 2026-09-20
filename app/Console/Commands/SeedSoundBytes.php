@@ -2,7 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Models\SoundByte;
+use App\Enums\MediaType;
+use App\Models\MediaAsset;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
@@ -86,7 +87,8 @@ class SeedSoundBytes extends Command
 
             Storage::disk('public')->put($destPath, $contents);
 
-            SoundByte::create([
+            MediaAsset::create([
+                'type' => MediaType::SoundByte,
                 'title' => $displayTitle,
                 'filename' => $filename,
                 'category' => $category,

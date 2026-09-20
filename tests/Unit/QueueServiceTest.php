@@ -2,14 +2,12 @@
 
 namespace Tests\Unit;
 
-use App\Models\Commercial;
 use App\Models\DeviceDownload;
+use App\Models\MediaAsset;
 use App\Models\NowPlaying;
 use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Setting;
-use App\Models\Song;
-use App\Models\SoundByte;
 use App\Models\Station;
 use App\Services\QueueService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -47,7 +45,7 @@ class QueueServiceTest extends TestCase
 
         $item = $this->service->addToQueue(
             $this->station->id,
-            Song::factory()->create()->id,
+            MediaAsset::factory()->create()->id,
             'Dana',
         );
 
@@ -62,7 +60,7 @@ class QueueServiceTest extends TestCase
         // a high position must not push the next request past it.
         QueueItem::factory()->for($this->station)->atPosition(9)->played()->create();
 
-        $item = $this->service->addToQueue($this->station->id, Song::factory()->create()->id, null);
+        $item = $this->service->addToQueue($this->station->id, MediaAsset::factory()->create()->id, null);
 
         $this->assertSame(1, $item->position);
     }
@@ -72,7 +70,7 @@ class QueueServiceTest extends TestCase
         $other = Station::factory()->create();
         QueueItem::factory()->for($other)->atPosition(7)->create();
 
-        $item = $this->service->addToQueue($this->station->id, Song::factory()->create()->id, null);
+        $item = $this->service->addToQueue($this->station->id, MediaAsset::factory()->create()->id, null);
 
         $this->assertSame(1, $item->position);
     }
@@ -82,7 +80,7 @@ class QueueServiceTest extends TestCase
         $key = "sse.queue_version.{$this->station->id}";
         Cache::forget($key);
 
-        $this->service->addToQueue($this->station->id, Song::factory()->create()->id, null);
+        $this->service->addToQueue($this->station->id, MediaAsset::factory()->create()->id, null);
 
         $this->assertNotNull(Cache::get($key));
     }
@@ -103,7 +101,7 @@ class QueueServiceTest extends TestCase
             [$items[1]->id, $items[2]->id],
             array_column($peeked, 'queue_item_id'),
         );
-        $this->assertSame($items[1]->song->filename, $peeked[0]['song']['filename']);
+        $this->assertSame($items[1]->mediaAsset->filename, $peeked[0]['song']['filename']);
     }
 
     public function test_peek_upcoming_is_scoped_to_its_station(): void
@@ -119,7 +117,7 @@ class QueueServiceTest extends TestCase
     public function test_get_next_for_pi_autofills_up_to_the_configured_target(): void
     {
         config(['fm.autofill_target' => 3]);
-        Song::factory()->count(5)->create();
+        MediaAsset::factory()->count(5)->create();
 
         $this->service->getNextForPi($this->station->id);
 
@@ -129,16 +127,16 @@ class QueueServiceTest extends TestCase
     public function test_autofill_skips_songs_already_pending_or_playing_on_the_station(): void
     {
         config(['fm.autofill_target' => 3]);
-        $queued = Song::factory()->create();
-        $playing = Song::factory()->create();
-        Song::factory()->count(5)->create();
+        $queued = MediaAsset::factory()->create();
+        $playing = MediaAsset::factory()->create();
+        MediaAsset::factory()->count(5)->create();
 
         QueueItem::factory()->for($this->station)->for($queued)->atPosition(1)->create();
         QueueItem::factory()->for($this->station)->for($playing)->playing()->create();
 
         $this->service->getNextForPi($this->station->id);
 
-        $pendingSongIds = QueueItem::where('station_id', $this->station->id)->pending()->pluck('song_id');
+        $pendingSongIds = QueueItem::where('station_id', $this->station->id)->pending()->pluck('media_asset_id');
         $this->assertSame(1, $pendingSongIds->filter(fn ($id) => $id === $queued->id)->count());
         $this->assertFalse($pendingSongIds->contains($playing->id));
     }
@@ -146,7 +144,7 @@ class QueueServiceTest extends TestCase
     public function test_autofill_ignores_unavailable_songs(): void
     {
         config(['fm.autofill_target' => 5]);
-        Song::factory()->count(3)->create(['available' => false]);
+        MediaAsset::factory()->count(3)->create(['active' => false]);
 
         $this->service->getNextForPi($this->station->id);
 
@@ -158,7 +156,7 @@ class QueueServiceTest extends TestCase
         config(['fm.autofill_target' => 2]);
         QueueItem::factory()->for($this->station)->atPosition(1)->create();
         QueueItem::factory()->for($this->station)->atPosition(2)->create();
-        Song::factory()->count(5)->create();
+        MediaAsset::factory()->count(5)->create();
 
         $this->service->getNextForPi($this->station->id);
 
@@ -177,7 +175,7 @@ class QueueServiceTest extends TestCase
 
         $this->assertSame($first->id, $next['queue_item_id']);
         $this->assertNotSame($second->id, $next['queue_item_id']);
-        $this->assertSame($first->song->duration_seconds, $next['song']['duration_seconds']);
+        $this->assertSame($first->mediaAsset->duration_seconds, $next['song']['duration_seconds']);
     }
 
     /**
@@ -202,8 +200,8 @@ class QueueServiceTest extends TestCase
     public function test_a_forced_commercial_wins_over_the_interval(): void
     {
         config(['fm.autofill_target' => 0]);
-        $forced = Commercial::factory()->create();
-        Commercial::factory()->create();
+        $forced = MediaAsset::factory()->commercial()->create();
+        MediaAsset::factory()->commercial()->create();
         Setting::set('force_commercial_id', $forced->id, $this->station->id);
 
         $result = $this->service->getNextForPi($this->station->id);
@@ -215,7 +213,7 @@ class QueueServiceTest extends TestCase
     public function test_an_inactive_forced_commercial_is_not_returned(): void
     {
         config(['fm.autofill_target' => 0]);
-        $forced = Commercial::factory()->create(['active' => false]);
+        $forced = MediaAsset::factory()->commercial()->create(['active' => false]);
         Setting::set('force_commercial_id', $forced->id, $this->station->id);
 
         $this->assertNull($this->service->getNextForPi($this->station->id)['commercial']);
@@ -224,7 +222,7 @@ class QueueServiceTest extends TestCase
     public function test_a_commercial_is_scheduled_once_the_interval_is_reached(): void
     {
         config(['fm.autofill_target' => 0]);
-        $commercial = Commercial::factory()->create(['rotation_order' => 1]);
+        $commercial = MediaAsset::factory()->commercial()->create(['rotation_order' => 1]);
         Setting::set('commercial_interval', 4, $this->station->id);
         Setting::set('songs_since_last_commercial', 4, $this->station->id);
 
@@ -237,7 +235,7 @@ class QueueServiceTest extends TestCase
     public function test_no_commercial_before_the_interval_is_reached(): void
     {
         config(['fm.autofill_target' => 0]);
-        Commercial::factory()->create();
+        MediaAsset::factory()->commercial()->create();
         Setting::set('commercial_interval', 4, $this->station->id);
         Setting::set('songs_since_last_commercial', 3, $this->station->id);
 
@@ -247,7 +245,7 @@ class QueueServiceTest extends TestCase
     public function test_a_zero_interval_disables_commercial_scheduling(): void
     {
         config(['fm.autofill_target' => 0]);
-        Commercial::factory()->create();
+        MediaAsset::factory()->commercial()->create();
         Setting::set('commercial_interval', 0, $this->station->id);
         Setting::set('songs_since_last_commercial', 99, $this->station->id);
 
@@ -259,7 +257,7 @@ class QueueServiceTest extends TestCase
     public function test_a_forced_sound_byte_is_returned_with_its_rds_text(): void
     {
         config(['fm.autofill_target' => 0]);
-        $forced = SoundByte::factory()->create(['category' => 'drop', 'rds_ps' => 'DROP']);
+        $forced = MediaAsset::factory()->soundByte()->create(['category' => 'drop', 'rds_ps' => 'DROP']);
         Setting::set('force_sound_byte_id', $forced->id, $this->station->id);
 
         $soundByte = $this->service->getNextForPi($this->station->id)['sound_byte'];
@@ -272,7 +270,7 @@ class QueueServiceTest extends TestCase
     public function test_a_sound_byte_is_scheduled_once_the_interval_is_reached(): void
     {
         config(['fm.autofill_target' => 0]);
-        $soundByte = SoundByte::factory()->create();
+        $soundByte = MediaAsset::factory()->soundByte()->create();
         Setting::set('sound_byte_interval', 2, $this->station->id);
         Setting::set('songs_since_last_sound_byte', 2, $this->station->id);
 
@@ -286,7 +284,7 @@ class QueueServiceTest extends TestCase
     {
         config(['fm.autofill_target' => 0]);
         $other = Station::factory()->create();
-        SoundByte::factory()->create();
+        MediaAsset::factory()->soundByte()->create();
         Setting::set('sound_byte_interval', 2, $other->id);
         Setting::set('songs_since_last_sound_byte', 9, $other->id);
 
@@ -298,7 +296,7 @@ class QueueServiceTest extends TestCase
 
     public function test_marking_a_song_playing_records_it_and_advances_the_counters(): void
     {
-        $song = Song::factory()->create();
+        $song = MediaAsset::factory()->create();
         $item = QueueItem::factory()->for($this->station)->for($song)->atPosition(1)->create();
         Setting::set('songs_since_last_commercial', 2, $this->station->id);
         Setting::set('songs_since_last_sound_byte', 5, $this->station->id);
@@ -307,7 +305,7 @@ class QueueServiceTest extends TestCase
 
         $np = NowPlaying::forStation($this->station->id);
         $this->assertSame('song', $np->type);
-        $this->assertSame($song->id, $np->song_id);
+        $this->assertSame($song->id, $np->media_asset_id);
         $this->assertSame($item->id, $np->queue_item_id);
         $this->assertSame('playing', $item->fresh()->status);
         $this->assertSame(3, (int) Setting::get('songs_since_last_commercial', 0, $this->station->id));
@@ -332,7 +330,7 @@ class QueueServiceTest extends TestCase
 
         $np = NowPlaying::forStation($this->station->id);
         $this->assertSame('song', $np->type);
-        $this->assertNull($np->song_id);
+        $this->assertNull($np->media_asset_id);
     }
 
     /**
@@ -363,7 +361,7 @@ class QueueServiceTest extends TestCase
 
     public function test_a_played_commercial_resets_its_counters_and_records_the_play(): void
     {
-        $commercial = Commercial::factory()->create(['play_count' => 4]);
+        $commercial = MediaAsset::factory()->commercial()->create(['play_count' => 4]);
         Setting::set('songs_since_last_commercial', 7, $this->station->id);
         Setting::set('force_commercial_id', $commercial->id, $this->station->id);
 
@@ -390,7 +388,7 @@ class QueueServiceTest extends TestCase
 
     public function test_mark_now_playing_publishes_the_live_frame(): void
     {
-        $song = Song::factory()->create();
+        $song = MediaAsset::factory()->create();
 
         $this->service->markNowPlaying($this->station->id, 'song', null, $song->filename);
 
@@ -418,12 +416,12 @@ class QueueServiceTest extends TestCase
     {
         $playing = QueueItem::factory()->for($this->station)->playing()->create();
         $queued = QueueItem::factory()->for($this->station)->atPosition(1)->create();
-        $song = Song::factory()->create();
+        $song = MediaAsset::factory()->create();
 
         $item = $this->service->playNow($this->station->id, $song->id);
 
         $this->assertSame(1, $item->position);
-        $this->assertSame($song->id, $item->song_id);
+        $this->assertSame($song->id, $item->media_asset_id);
         $this->assertSame('Admin', $item->requested_by_name);
         $this->assertSame(2, $queued->fresh()->position);
         $this->assertSame('skipped', $playing->fresh()->status);
@@ -431,7 +429,7 @@ class QueueServiceTest extends TestCase
 
     public function test_play_now_keeps_an_explicit_requester_name(): void
     {
-        $item = $this->service->playNow($this->station->id, Song::factory()->create()->id, 'Jules');
+        $item = $this->service->playNow($this->station->id, MediaAsset::factory()->create()->id, 'Jules');
 
         $this->assertSame('Jules', $item->requested_by_name);
     }
@@ -441,8 +439,8 @@ class QueueServiceTest extends TestCase
     public function test_sync_library_records_new_downloads_and_counts_repeats(): void
     {
         $token = PiToken::factory()->for($this->station)->create();
-        $known = Song::factory()->create();
-        $alreadyHad = Song::factory()->create();
+        $known = MediaAsset::factory()->create();
+        $alreadyHad = MediaAsset::factory()->create();
         DeviceDownload::factory()->for($token)->forMedia($alreadyHad, 'song')->create();
 
         $result = $this->service->syncLibrary($token, [

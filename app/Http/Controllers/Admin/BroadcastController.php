@@ -2,20 +2,21 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\MediaType;
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Controller;
-use App\Models\Commercial;
+use App\Models\MediaAsset;
 use App\Models\NowPlaying;
 use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Setting;
-use App\Models\Song;
-use App\Models\SoundByte;
 use App\Models\Station;
 use App\Services\QueueService;
 use App\Support\PiPresence;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -38,14 +39,14 @@ class BroadcastController extends Controller
         $np = NowPlaying::forStation($station->id);
 
         return Inertia::render('admin/broadcast', [
-            'songs' => Song::available()->orderBy('title')->get(['id', 'title', 'artist', 'duration_seconds']),
-            'commercials' => Commercial::active()->orderBy('rotation_order')->orderBy('title')->get(['id', 'title', 'play_count']),
-            'soundBytes' => SoundByte::active()->orderBy('category')->orderBy('title')->get(['id', 'title', 'category']),
+            'songs' => MediaAsset::query()->songs()->active()->orderBy('title')->get(['id', 'title', 'artist', 'duration_seconds']),
+            'commercials' => MediaAsset::query()->ofType(MediaType::Commercial)->active()->orderBy('rotation_order')->orderBy('title')->get(['id', 'title', 'play_count']),
+            'soundBytes' => MediaAsset::query()->ofType(MediaType::SoundByte)->active()->orderBy('category')->orderBy('title')->get(['id', 'title', 'category']),
             'settings' => $settings,
             'pi' => $this->aggregatePiStatus($station),
             'nowPlaying' => $np ? [
-                'title' => $np->song !== null ? $np->song->title : ucwords(str_replace('_', ' ', $np->type ?? '')),
-                'artist' => $np->song?->artist,
+                'title' => $np->mediaAsset !== null ? $np->mediaAsset->title : ucwords(str_replace('_', ' ', $np->type ?? '')),
+                'artist' => $np->mediaAsset?->artist,
                 'type' => $np->type,
             ] : null,
         ]);
@@ -102,7 +103,7 @@ class BroadcastController extends Controller
         $station = $this->activeStation($request);
 
         $data = $request->validate([
-            'song_id' => ['required', 'integer', 'exists:songs,id'],
+            'song_id' => ['required', 'integer', $this->existsAs(MediaType::Song)],
         ]);
 
         $this->queueService->playNow($station->id, (int) $data['song_id']);
@@ -115,7 +116,7 @@ class BroadcastController extends Controller
         $station = $this->activeStation($request);
 
         $data = $request->validate([
-            'commercial_id' => ['required', 'integer', 'exists:commercials,id'],
+            'commercial_id' => ['required', 'integer', $this->existsAs(MediaType::Commercial)],
         ]);
 
         Setting::set('force_commercial_id', $data['commercial_id'], $station->id);
@@ -128,7 +129,7 @@ class BroadcastController extends Controller
         $station = $this->activeStation($request);
 
         $data = $request->validate([
-            'sound_byte_id' => ['required', 'integer', 'exists:sound_bytes,id'],
+            'sound_byte_id' => ['required', 'integer', $this->existsAs(MediaType::SoundByte)],
         ]);
 
         Setting::set('force_sound_byte_id', $data['sound_byte_id'], $station->id);
@@ -146,6 +147,15 @@ class BroadcastController extends Controller
         $this->queueService->bumpQueueVersion($station->id);
 
         return back()->with('success', 'Emergency broadcast triggered — Pi switches within 30 s.');
+    }
+
+    /**
+     * All three live in `media_assets` now, so a bare `exists:media_assets,id` would let
+     * a commercial id be injected as a song. The type is part of the constraint.
+     */
+    private function existsAs(MediaType $type): Exists
+    {
+        return Rule::exists('media_assets', 'id')->where('type', $type->value);
     }
 
     /** @return array<string, mixed> */

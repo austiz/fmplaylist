@@ -2,12 +2,10 @@
 
 namespace Tests\Feature\Admin;
 
-use App\Models\Commercial;
+use App\Models\MediaAsset;
 use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Setting;
-use App\Models\Song;
-use App\Models\SoundByte;
 use App\Models\Station;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -76,11 +74,11 @@ class BroadcastControllerTest extends TestCase
 
     public function test_the_page_lists_the_pickable_media_and_current_settings(): void
     {
-        Song::factory()->create(['title' => 'Available Song']);
-        Song::factory()->create(['title' => 'Missing Song', 'available' => false]);
-        Commercial::factory()->create(['title' => 'Live Spot']);
-        Commercial::factory()->create(['title' => 'Retired Spot', 'active' => false]);
-        SoundByte::factory()->create(['title' => 'Drop']);
+        MediaAsset::factory()->create(['title' => 'Available Song']);
+        MediaAsset::factory()->create(['title' => 'Missing Song', 'active' => false]);
+        MediaAsset::factory()->commercial()->create(['title' => 'Live Spot']);
+        MediaAsset::factory()->commercial()->create(['title' => 'Retired Spot', 'active' => false]);
+        MediaAsset::factory()->soundByte()->create(['title' => 'Drop']);
         Setting::set('broadcast_mode', 'usb_input', $this->station->id);
 
         $this->actingAs($this->admin)
@@ -229,7 +227,7 @@ class BroadcastControllerTest extends TestCase
     public function test_play_now_puts_the_song_at_the_front_of_the_queue(): void
     {
         $queued = QueueItem::factory()->for($this->station)->atPosition(1)->create();
-        $song = Song::factory()->create();
+        $song = MediaAsset::factory()->create();
 
         $this->actingAs($this->admin)
             ->post('/admin/broadcast/play-now', ['song_id' => $song->id])
@@ -238,7 +236,7 @@ class BroadcastControllerTest extends TestCase
 
         $this->assertDatabaseHas('queue_items', [
             'station_id' => $this->station->id,
-            'song_id' => $song->id,
+            'media_asset_id' => $song->id,
             'position' => 1,
             'status' => 'pending',
             'requested_by_name' => 'Admin',
@@ -255,15 +253,27 @@ class BroadcastControllerTest extends TestCase
         $this->assertSame(0, QueueItem::count());
     }
 
+    /** Ids are global across the media library now, so the type is part of the rule. */
+    public function test_play_now_rejects_a_commercial_id(): void
+    {
+        $commercial = MediaAsset::factory()->commercial()->create();
+
+        $this->actingAs($this->admin)
+            ->post('/admin/broadcast/play-now', ['song_id' => $commercial->id])
+            ->assertSessionHasErrors('song_id');
+
+        $this->assertSame(0, QueueItem::count());
+    }
+
     public function test_play_now_queues_onto_the_active_station(): void
     {
         $other = Station::factory()->create();
-        $song = Song::factory()->create();
+        $song = MediaAsset::factory()->create();
         $this->switchTo($other);
 
         $this->actingAs($this->admin)->post('/admin/broadcast/play-now', ['song_id' => $song->id]);
 
-        $this->assertDatabaseHas('queue_items', ['station_id' => $other->id, 'song_id' => $song->id]);
+        $this->assertDatabaseHas('queue_items', ['station_id' => $other->id, 'media_asset_id' => $song->id]);
         $this->assertDatabaseMissing('queue_items', ['station_id' => $this->station->id]);
     }
 
@@ -271,7 +281,7 @@ class BroadcastControllerTest extends TestCase
 
     public function test_forcing_a_commercial_records_the_id_for_the_next_poll(): void
     {
-        $commercial = Commercial::factory()->create();
+        $commercial = MediaAsset::factory()->commercial()->create();
 
         $this->actingAs($this->admin)
             ->post('/admin/broadcast/force-commercial', ['commercial_id' => $commercial->id])
@@ -290,7 +300,7 @@ class BroadcastControllerTest extends TestCase
 
     public function test_forcing_a_sound_byte_records_the_id_for_the_next_poll(): void
     {
-        $soundByte = SoundByte::factory()->create();
+        $soundByte = MediaAsset::factory()->soundByte()->create();
 
         $this->actingAs($this->admin)
             ->post('/admin/broadcast/force-sound-byte', ['sound_byte_id' => $soundByte->id])
