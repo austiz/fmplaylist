@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Resources\NowPlayingResource;
+use App\Http\Resources\QueueItemResource;
 use App\Models\NowPlaying;
 use App\Models\QueueItem;
 use App\Support\PublicStation;
@@ -20,16 +21,7 @@ class QueueController extends Controller
 
         $pendingItems = QueueItem::with('mediaAsset')->where('station_id', $stationId)->pending()->get();
 
-        $queue = $pendingItems->map(fn (QueueItem $item) => [
-            'id' => $item->id,
-            'position' => $item->position,
-            'requested_by_name' => $item->requested_by_name,
-            'song' => [
-                'title' => $item->mediaAsset->title ?? '(deleted)',
-                'artist' => $item->mediaAsset->artist ?? '',
-                'duration_seconds' => $item->mediaAsset?->duration_seconds,
-            ],
-        ]);
+        $queue = $pendingItems->map(fn (QueueItem $item) => (new QueueItemResource($item, true))->resolve());
 
         $waitSeconds = $pendingItems->sum(fn (QueueItem $item) => $item->mediaAsset->duration_seconds ?? 0);
 
@@ -39,15 +31,7 @@ class QueueController extends Controller
             ->orderByDesc('played_at')
             ->take(30)
             ->get()
-            ->map(fn (QueueItem $item) => [
-                'id' => $item->id,
-                'played_at' => $item->played_at?->diffForHumans(),
-                'requested_by_name' => $item->requested_by_name,
-                'song' => [
-                    'title' => $item->mediaAsset->title ?? '(deleted)',
-                    'artist' => $item->mediaAsset->artist ?? '',
-                ],
-            ]);
+            ->map(fn (QueueItem $item) => (new QueueItemResource($item, true))->resolve());
 
         return Inertia::render('queue', [
             'history' => $history,

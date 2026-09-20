@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Admin\Concerns\HasChartStats;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\NowPlayingResource;
+use App\Http\Resources\QueueItemResource;
 use App\Models\NowPlaying;
 use App\Models\QueueItem;
 use Illuminate\Http\Request;
@@ -32,14 +33,7 @@ class DashboardController extends Controller
             ->orderByDesc('created_at')
             ->take(20)
             ->get()
-            ->map(fn (QueueItem $item) => [
-                'id' => $item->id,
-                'status' => $item->status,
-                'requested_by_name' => $item->requested_by_name,
-                'created_at' => $item->created_at->toDateTimeString(),
-                'played_at' => $item->played_at?->toDateTimeString(),
-                'song' => ['title' => $item->mediaAsset->title ?? '(deleted)', 'artist' => $item->mediaAsset->artist ?? ''],
-            ]);
+            ->map(fn (QueueItem $item) => (new QueueItemResource($item))->resolve());
 
         return Inertia::render('admin/dashboard', [
             'nowPlaying' => $nowPlaying ? (new NowPlayingResource($nowPlaying))->resolve() : null,

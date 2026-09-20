@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Resources\NowPlayingResource;
+use App\Http\Resources\QueueItemResource;
 use App\Models\NowPlaying;
 use App\Models\QueueItem;
 use App\Support\PublicStation;
@@ -41,15 +42,7 @@ class HomeController extends Controller
             ->pending()
             ->take(5)
             ->get()
-            ->map(fn (QueueItem $item) => [
-                'id' => $item->id,
-                'position' => $item->position,
-                'requested_by_name' => $item->requested_by_name,
-                'song' => [
-                    'title' => $item->mediaAsset->title ?? '(deleted)',
-                    'artist' => $item->mediaAsset->artist ?? '',
-                ],
-            ]);
+            ->map(fn (QueueItem $item) => (new QueueItemResource($item, true))->resolve());
 
         return [
             'nowPlaying' => $this->serializeNowPlaying($nowPlaying),

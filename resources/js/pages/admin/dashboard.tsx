@@ -2,20 +2,13 @@ import { router } from '@inertiajs/react';
 import { BarSparkline, LineSparkline } from '@/components/admin/sparkline';
 import { AdminLayout } from '@/components/admin-layout';
 import { formatRuntime, shortDay } from '@/lib/format';
-import type { NowPlayingData } from '@/types/fm';
+import type { NowPlayingData, QueueItem } from '@/types/fm';
 
 interface Props {
     nowPlaying: NowPlayingData | null;
     queueDepth: number;
     queueRuntimeSeconds: number;
-    recentRequests: {
-        id: number;
-        status: string;
-        requested_by_name: string | null;
-        created_at: string;
-        played_at: string | null;
-        song: { title: string; artist: string };
-    }[];
+    recentRequests: QueueItem[];
     stats: { requestsToday: number; songsPlayedToday: number };
     requestsPerHour: number[];
     playsLast7Days: { date: string; count: number }[];

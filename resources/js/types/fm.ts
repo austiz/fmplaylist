@@ -45,14 +45,19 @@ export interface MediaAsset {
     rds_ps?: string | null;
 }
 
+/**
+ * One row of the request queue, exactly as `QueueItemResource` serializes it --
+ * the same shape whether it came from an admin list or a listener page.
+ */
 export interface QueueItem {
     id: number;
     position: number;
+    status: string;
     requested_by_name: string | null;
-    status?: string;
-    created_at?: string;
-    played_at?: string | null;
-    song: Pick<Song, 'title' | 'artist'>;
+    created_at: string | null;
+    /** A timestamp on the admin lists, "3 minutes ago" on the listener pages. */
+    played_at: string | null;
+    song: { title: string; artist: string; duration_seconds: number | null };
 }
 
 export interface NowPlayingData {

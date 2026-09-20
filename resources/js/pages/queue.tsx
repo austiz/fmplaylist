@@ -9,18 +9,11 @@ import { useViewTransitionReload } from '@/hooks/use-view-transition-reload';
 import { bumpReaction, getReaction } from '@/lib/reactions';
 import type { NowPlayingData, QueueItem, Station } from '@/types/fm';
 
-interface HistoryItem {
-    id: number;
-    played_at: string | null;
-    requested_by_name: string | null;
-    song: { title: string; artist: string };
-}
-
 interface Props {
     nowPlaying: NowPlayingData | null;
     queue: QueueItem[];
     waitMinutes: number | null;
-    history: HistoryItem[];
+    history: QueueItem[];
     station: Station;
 }
 

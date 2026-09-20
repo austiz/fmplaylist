@@ -3,19 +3,10 @@ import { LineSparkline } from '@/components/admin/sparkline';
 import { AdminLayout } from '@/components/admin-layout';
 import { Pagination } from '@/components/pagination';
 import { shortDay } from '@/lib/format';
-import type { PaginatedResponse } from '@/types/fm';
-
-interface HistoryItem {
-    id: number;
-    status: string;
-    requested_by_name: string | null;
-    created_at: string;
-    played_at: string | null;
-    song: { title: string; artist: string };
-}
+import type { PaginatedResponse, QueueItem } from '@/types/fm';
 
 interface Props {
-    items: PaginatedResponse<HistoryItem>;
+    items: PaginatedResponse<QueueItem>;
     filter: string;
     playsLast7Days: { date: string; count: number }[];
 }
