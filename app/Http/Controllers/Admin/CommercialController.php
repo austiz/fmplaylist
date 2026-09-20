@@ -10,22 +10,13 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Inertia\Inertia;
-use Inertia\Response;
 
 class CommercialController extends Controller
 {
-    public function index(): Response
-    {
-        return Inertia::render('admin/commercials', [
-            'commercials' => Commercial::orderBy('rotation_order')->orderBy('title')->get(),
-        ]);
-    }
-
     public function upload(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'file' => ['required', 'file', 'mimes:wav,mp3,ogg', 'max:51200'],
+            'file' => ['required', 'file', 'mimes:wav,mp3,ogg', 'max:'.config('fm.uploads.commercial_max_kb')],
             'title' => ['required', 'string', 'max:255'],
         ]);
 

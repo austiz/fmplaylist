@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Database\Factories\QueueItemFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -11,6 +13,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class QueueItem extends Model
 {
+    /** @use HasFactory<QueueItemFactory> */
+    use HasFactory;
+
     protected $fillable = [
         'station_id',
         'song_id',

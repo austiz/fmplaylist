@@ -10,22 +10,13 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Inertia\Inertia;
-use Inertia\Response;
 
 class SoundByteController extends Controller
 {
-    public function index(): Response
-    {
-        return Inertia::render('admin/sound-bytes', [
-            'soundBytes' => SoundByte::orderBy('category')->orderBy('title')->get(),
-        ]);
-    }
-
     public function upload(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'file' => ['required', 'file', 'mimes:wav,mp3,ogg', 'max:20480'],
+            'file' => ['required', 'file', 'mimes:wav,mp3,ogg', 'max:'.config('fm.uploads.sound_byte_max_kb')],
             'title' => ['required', 'string', 'max:255'],
             'category' => ['required', 'in:jingle,shoutout,drop,id'],
         ]);

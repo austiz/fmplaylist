@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Database\Factories\NowPlayingFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -10,6 +12,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class NowPlaying extends Model
 {
+    /** @use HasFactory<NowPlayingFactory> */
+    use HasFactory;
+
     protected $table = 'now_playing';
 
     protected $fillable = [

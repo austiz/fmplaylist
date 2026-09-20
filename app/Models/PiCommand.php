@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Database\Factories\PiCommandFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -15,6 +17,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class PiCommand extends Model
 {
+    /** @use HasFactory<PiCommandFactory> */
+    use HasFactory;
+
     /** Actions the daemon knows how to run. Anything else is rejected up front. */
     public const COMMANDS = [
         'update',
@@ -42,7 +47,7 @@ class PiCommand extends Model
         'completed_at' => 'datetime',
     ];
 
-    /** @return BelongsTo<PiToken, PiCommand> */
+    /** @return BelongsTo<PiToken, $this> */
     public function piToken(): BelongsTo
     {
         return $this->belongsTo(PiToken::class);

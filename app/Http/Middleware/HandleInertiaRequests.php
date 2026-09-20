@@ -43,7 +43,7 @@ class HandleInertiaRequests extends Middleware
         // set yet when share() executes. Mirrors EnsureActiveStation's own fallback logic.
         $activeStation = $request->user() ? $this->resolveActiveStation() : null;
         $publicStation = $request->user() ? null : PublicStation::resolve($request);
-        $frequencyStationId = $activeStation?->id ?? $publicStation?->id;
+        $frequencyStationId = $activeStation->id ?? $publicStation?->id;
 
         return [
             ...parent::share($request),
@@ -61,6 +61,6 @@ class HandleInertiaRequests extends Middleware
     {
         $stationId = session('active_station_id');
 
-        return ($stationId ? Station::find($stationId) : null) ?? Station::orderBy('id')->first();
+        return ($stationId ? Station::find((int) $stationId) : null) ?? Station::orderBy('id')->first();
     }
 }

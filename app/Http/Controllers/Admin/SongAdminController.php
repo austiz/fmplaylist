@@ -39,7 +39,7 @@ class SongAdminController extends Controller
     public function upload(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'file' => ['required', 'file', 'mimes:wav,mp3', 'max:51200'],
+            'file' => ['required', 'file', 'mimes:wav,mp3', 'max:'.config('fm.uploads.song_max_kb')],
             'title' => ['required', 'string', 'max:255'],
             'artist' => ['nullable', 'string', 'max:255'],
         ]);

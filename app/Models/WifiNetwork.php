@@ -2,13 +2,18 @@
 
 namespace App\Models;
 
+use Database\Factories\WifiNetworkFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Collection;
 
 class WifiNetwork extends Model
 {
+    /** @use HasFactory<WifiNetworkFactory> */
+    use HasFactory;
+
     protected $fillable = [
         'station_id', 'ssid', 'password', 'priority', 'active',
     ];
@@ -27,7 +32,7 @@ class WifiNetwork extends Model
         return $query->where('active', true);
     }
 
-    /** @return BelongsTo<Station, WifiNetwork> */
+    /** @return BelongsTo<Station, $this> */
     public function station(): BelongsTo
     {
         return $this->belongsTo(Station::class);
@@ -42,7 +47,7 @@ class WifiNetwork extends Model
      */
     public static function ordered(?int $stationId = null): Collection
     {
-        return static::query()
+        return self::query()
             ->active()
             ->where('station_id', $stationId)
             ->orderBy('priority')

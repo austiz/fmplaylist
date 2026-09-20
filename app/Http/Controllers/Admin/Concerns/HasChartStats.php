@@ -7,7 +7,11 @@ use Illuminate\Support\Facades\DB;
 
 trait HasChartStats
 {
-    /** Requests received per hour today, 24 buckets (0-23), for a bar sparkline. */
+    /**
+     * Requests received per hour today, 24 buckets (0-23), for a bar sparkline.
+     *
+     * @return array<int, int>
+     */
     protected function requestsPerHourToday(int $stationId): array
     {
         $rows = QueueItem::where('station_id', $stationId)
@@ -19,7 +23,11 @@ trait HasChartStats
         return array_map(fn (int $hour) => (int) ($rows[$hour] ?? 0), range(0, 23));
     }
 
-    /** Songs played per day over the last 7 days (oldest first), for a line/area sparkline. */
+    /**
+     * Songs played per day over the last 7 days (oldest first), for a line/area sparkline.
+     *
+     * @return array<int, array{date: string, count: int}>
+     */
     protected function playsLast7Days(int $stationId): array
     {
         $start = today()->subDays(6);
@@ -43,6 +51,10 @@ trait HasChartStats
             ->all();
     }
 
+    /**
+     * @param  literal-string  $column
+     * @return literal-string
+     */
     private function hourExpression(string $column): string
     {
         return match (DB::connection()->getDriverName()) {
