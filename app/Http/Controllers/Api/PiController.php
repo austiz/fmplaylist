@@ -11,13 +11,13 @@ use App\Models\Station;
 use App\Models\WifiNetwork;
 use App\Services\DeviceSyncService;
 use App\Services\QueueService;
+use App\Support\PiPresence;
 use App\Support\PiSource;
 use App\Support\PublicStation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
 
 class PiController extends Controller
 {
@@ -149,68 +149,45 @@ class PiController extends Controller
 
         $skipNext = false;
         if ($token) {
-            $skipNext = $this->piTokenHasColumn('pi_skip_next') ? (bool) $token->pi_skip_next : false;
+            $skipNext = (bool) $token->pi_skip_next;
 
-            $updates = [];
+            $updates = [
+                'pi_status' => $data['status'],
+                'pi_mode' => $data['mode'],
+                'pi_ip' => $data['ip'] ?? $token->pi_ip,
+                'pi_skip_next' => false,
+                'pi_daemon_hash' => $data['daemon_hash'] ?? $token->pi_daemon_hash,
+                'disk_free_bytes' => $data['disk_free_bytes'] ?? $token->disk_free_bytes,
+                'disk_total_bytes' => $data['disk_total_bytes'] ?? $token->disk_total_bytes,
+                // Health signals. fm_running is the one that distinguishes "the
+                // daemon is alive" from "the station is actually on the air".
+                'pi_fm_running' => $data['fm_running'] ?? $token->pi_fm_running,
+                'pi_queue_depth' => $data['ready_queue_depth'] ?? $token->pi_queue_depth,
+                'pi_last_error' => $data['last_error_message'] ?? null,
+            ];
 
-            if ($this->piTokenHasColumn('pi_status')) {
-                $updates['pi_status'] = $data['status'];
-            }
-            if ($this->piTokenHasColumn('pi_mode')) {
-                $updates['pi_mode'] = $data['mode'];
-            }
-            if ($this->piTokenHasColumn('pi_ip')) {
-                $updates['pi_ip'] = $data['ip'] ?? $token->pi_ip;
-            }
-
-            if ($this->piTokenHasColumn('pi_skip_next')) {
-                $updates['pi_skip_next'] = false;
-            }
-            if ($this->piTokenHasColumn('pi_daemon_hash')) {
-                $updates['pi_daemon_hash'] = $data['daemon_hash'] ?? $token->pi_daemon_hash;
-            }
-            if ($this->piTokenHasColumn('disk_free_bytes')) {
-                $updates['disk_free_bytes'] = $data['disk_free_bytes'] ?? $token->disk_free_bytes;
-            }
-            if ($this->piTokenHasColumn('disk_total_bytes')) {
-                $updates['disk_total_bytes'] = $data['disk_total_bytes'] ?? $token->disk_total_bytes;
-            }
-
-            // Health signals. fm_running is the one that distinguishes "the
-            // daemon is alive" from "the station is actually on the air".
-            if ($this->piTokenHasColumn('pi_fm_running')) {
-                $updates['pi_fm_running'] = $data['fm_running'] ?? $token->pi_fm_running;
-            }
-            if ($this->piTokenHasColumn('pi_queue_depth')) {
-                $updates['pi_queue_depth'] = $data['ready_queue_depth'] ?? $token->pi_queue_depth;
-            }
-            if ($this->piTokenHasColumn('pi_last_error')) {
-                $updates['pi_last_error'] = $data['last_error_message'] ?? null;
-            }
-            if ($this->piTokenHasColumn('pi_last_update_status') && isset($data['last_update_result'])) {
+            if (isset($data['last_update_result'])) {
                 $updates['pi_last_update_status'] = $data['last_update_result'];
                 $updates['pi_last_update_at'] = now();
             }
 
-            if ($updates !== []) {
-                try {
-                    $token->update($updates);
-                } catch (\Throwable $e) {
-                    // Telemetry fields (status/ip/disk stats) must never be able to break the
-                    // heartbeat/config-sync channel — log and continue with whatever succeeded.
-                    Log::warning('Pi heartbeat: failed to persist token updates', [
-                        'pi_token_id' => $token->id,
-                        'keys' => array_keys($updates),
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+            try {
+                $token->update($updates);
+            } catch (\Throwable $e) {
+                // Telemetry fields (status/ip/disk stats) must never be able to break the
+                // heartbeat/config-sync channel — log and continue with whatever succeeded.
+                Log::warning('Pi heartbeat: failed to persist token updates', [
+                    'pi_token_id' => $token->id,
+                    'keys' => array_keys($updates),
+                    'error' => $e->getMessage(),
+                ]);
             }
 
             Cache::put("sse.pi_status.{$stationId}", [
                 'online' => true,
                 'status' => $data['status'],
                 'mode' => $data['mode'],
-                'ip' => $data['ip'] ?? ($this->piTokenHasColumn('pi_ip') ? $token->pi_ip : null),
+                'ip' => $data['ip'] ?? $token->pi_ip,
             ], 180);
         }
 
@@ -242,14 +219,6 @@ class PiController extends Controller
      */
     private function dispatchCommands(PiToken $token): array
     {
-        if (! Schema::hasTable('pi_commands')) {
-            return [];
-        }
-
-        // A device that went down mid-command (reboot, failed update) never
-        // acks; without this its row would pin the UI on "in progress" forever.
-        PiCommand::expireStale();
-
         $queued = PiCommand::query()
             ->where('pi_token_id', $token->id)
             ->queued()
@@ -278,13 +247,13 @@ class PiController extends Controller
 
         $token = $request->attributes->get('pi_token');
 
-        if (! $token || ! Schema::hasTable('pi_commands')) {
+        if (! $token) {
             return response()->json(['ok' => false], 404);
         }
 
         $command = PiCommand::query()
             ->where('pi_token_id', $token->id)   // a device may only ack its own
-            ->find($data['id']);
+            ->find((int) $data['id']);
 
         if (! $command) {
             return response()->json(['ok' => false], 404);
@@ -338,10 +307,8 @@ class PiController extends Controller
     public function piStatus(Request $request): JsonResponse
     {
         $station = $this->resolvePublicStation($request);
-        $tokens = $this->piTokenHasColumn('station_id')
-            ? PiToken::where('station_id', $station->id)->get()
-            : PiToken::query()->get();
-        $online = $tokens->filter(fn (PiToken $t) => $t->last_seen_at && $t->last_seen_at->diffInSeconds(now()) < 120);
+        $tokens = PiToken::where('station_id', $station->id)->get();
+        $online = PiPresence::online($tokens);
 
         if ($online->isEmpty()) {
             return response()->json([
@@ -353,25 +320,20 @@ class PiController extends Controller
             ]);
         }
 
-        $status = 'idle';
-        foreach (['live', 'playing'] as $candidate) {
-            if ($this->piTokenHasColumn('pi_status') && $online->contains(fn (PiToken $t) => $t->pi_status === $candidate)) {
-                $status = $candidate;
-                break;
-            }
-        }
+        $status = PiPresence::status($online);
 
-        $primary = $online->sortByDesc('last_seen_at')->first();
+        $primary = $online->sortByDesc('last_seen_at')->firstOrFail();
         $currentSourceHash = self::currentPiSourceHash();
 
         return response()->json([
             'online' => true,
             'status' => $status,
-            'mode' => $this->piTokenHasColumn('pi_mode') ? ($primary->pi_mode ?? 'normal') : 'normal',
-            'ip' => $this->piTokenHasColumn('pi_ip') ? $primary->pi_ip : null,
+            'mode' => $primary->pi_mode ?? 'normal',
+            'ip' => $primary->pi_ip,
             // null hash means the running Pi install predates hash-reporting; don't nag until it's known.
-            'update_available' => $this->piTokenHasColumn('pi_daemon_hash')
-                && $online->contains(fn (PiToken $t) => $t->pi_daemon_hash !== null && $t->pi_daemon_hash !== $currentSourceHash),
+            'update_available' => $online->contains(
+                fn (PiToken $t) => $t->pi_daemon_hash !== null && $t->pi_daemon_hash !== $currentSourceHash
+            ),
         ]);
     }
 
@@ -415,7 +377,7 @@ class PiController extends Controller
         /** @var PiToken|null $token */
         $token = $request->attributes->get('pi_token');
 
-        if ($token && $this->piTokenHasColumn('station_id') && $token->station_id) {
+        if ($token && $token->station_id) {
             return $token->station_id;
         }
 
@@ -444,11 +406,6 @@ class PiController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function piTokenHasColumn(string $column): bool
-    {
-        return Schema::hasColumn((new PiToken)->getTable(), $column);
-    }
-
     private function buildConfig(Station $station, PiToken $token): array
     {
         $pendingWifiSsid = Setting::get('pending_wifi_ssid', '', $station->id);

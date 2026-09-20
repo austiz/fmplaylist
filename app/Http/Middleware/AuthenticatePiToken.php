@@ -6,7 +6,6 @@ use App\Models\PiToken;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
 use Symfony\Component\HttpFoundation\Response;
 
 class AuthenticatePiToken
@@ -29,9 +28,7 @@ class AuthenticatePiToken
             return response()->json(['error' => 'Invalid token'], 401);
         }
 
-        if (Schema::hasColumn((new PiToken)->getTable(), 'last_seen_at')) {
-            $token->update(['last_seen_at' => now()]);
-        }
+        $token->update(['last_seen_at' => now()]);
 
         $request->attributes->set('pi_token', $token);
 

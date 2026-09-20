@@ -6,9 +6,8 @@ use App\Models\PiToken;
 use App\Models\QueueItem;
 use App\Models\Song;
 use App\Models\Station;
-use Illuminate\Database\Schema\Blueprint;
+use App\Services\DeviceSyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class PiControllerTest extends TestCase
@@ -280,7 +279,8 @@ class PiControllerTest extends TestCase
             'pi_delete_requested' => true,
         ]);
 
-        $this->getJson('/api/pi/config', $this->piHeaders())->assertOk();
+        // Scheduled housekeeping, not the device poll — see routes/console.php.
+        app(DeviceSyncService::class)->purgeOrphanedDeleteRequests();
 
         $this->assertDatabaseMissing('songs', ['id' => $song->id]);
     }
@@ -322,59 +322,5 @@ class PiControllerTest extends TestCase
             'disk_free_bytes' => 1_000_000,
             'disk_total_bytes' => 8_000_000,
         ]);
-    }
-
-    public function test_heartbeat_succeeds_when_telemetry_columns_are_missing(): void
-    {
-        Schema::drop('pi_tokens');
-        Schema::create('pi_tokens', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('station_id')->nullable();
-            $table->string('token_hash', 64);
-            $table->string('label')->default('Raspberry Pi');
-            $table->timestamp('last_seen_at')->nullable();
-            $table->timestamps();
-            $table->string('pi_status', 20)->default('offline');
-            $table->string('pi_mode', 30)->default('normal');
-            $table->string('pi_ip', 45)->nullable();
-            $table->boolean('pi_skip_next')->default(false);
-        });
-
-        ['raw' => $rawToken] = PiToken::generate('Legacy Pi');
-
-        $response = $this->postJson('/api/pi/heartbeat', [
-            'status' => 'idle',
-            'mode' => 'normal',
-        ], ['X-Pi-Token' => $rawToken]);
-
-        $response->assertOk();
-        $this->assertDatabaseHas('pi_tokens', ['pi_status' => 'idle', 'pi_mode' => 'normal']);
-    }
-
-    public function test_heartbeat_succeeds_with_original_pi_token_schema(): void
-    {
-        Schema::drop('pi_tokens');
-        Schema::create('pi_tokens', function (Blueprint $table) {
-            $table->id();
-            $table->string('token_hash', 64);
-            $table->string('label')->default('Raspberry Pi');
-            $table->timestamp('last_seen_at')->nullable();
-            $table->timestamps();
-            $table->index('token_hash');
-        });
-
-        ['raw' => $rawToken] = PiToken::generate('Legacy Pi');
-
-        $response = $this->postJson('/api/pi/heartbeat', [
-            'status' => 'idle',
-            'mode' => 'normal',
-            'daemon_hash' => 'abc123',
-            'disk_free_bytes' => 1_000_000,
-            'disk_total_bytes' => 8_000_000,
-        ], ['X-Pi-Token' => $rawToken]);
-
-        $response->assertOk();
-        $response->assertJsonPath('skip_next', false);
-        $this->assertDatabaseHas('pi_tokens', ['label' => 'Legacy Pi']);
     }
 }

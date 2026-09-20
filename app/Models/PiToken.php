@@ -2,14 +2,18 @@
 
 namespace App\Models;
 
+use Database\Factories\PiTokenFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class PiToken extends Model
 {
+    /** @use HasFactory<PiTokenFactory> */
+    use HasFactory;
+
     protected $fillable = [
         'station_id',
         'token_hash',
@@ -59,9 +63,7 @@ class PiToken extends Model
             'label' => $label,
         ];
 
-        if (Schema::hasColumn((new static)->getTable(), 'station_id')) {
-            $attributes['station_id'] = $stationId ?? Station::defaultId();
-        }
+        $attributes['station_id'] = $stationId ?? Station::defaultId();
 
         $token = static::create($attributes);
 
