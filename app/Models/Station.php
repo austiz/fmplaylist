@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Database\Factories\StationFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -13,6 +15,9 @@ use Illuminate\Support\Facades\Cache;
  */
 class Station extends Model
 {
+    /** @use HasFactory<StationFactory> */
+    use HasFactory;
+
     protected $fillable = ['name', 'slug', 'is_default'];
 
     protected $casts = [
@@ -48,5 +53,16 @@ class Station extends Model
     public static function forgetDefaultIdCache(): void
     {
         Cache::forget('station.default_id');
+    }
+
+    /**
+     * defaultId() caches forever, so any write that could change which station is
+     * default has to clear it. Doing that here rather than at each call site means
+     * a new admin action cannot silently leave the cache stale.
+     */
+    protected static function booted(): void
+    {
+        static::saved(static fn () => self::forgetDefaultIdCache());
+        static::deleted(static fn () => self::forgetDefaultIdCache());
     }
 }

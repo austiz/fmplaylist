@@ -7,6 +7,7 @@ use App\Models\PiCommand;
 use App\Models\PiToken;
 use App\Models\Station;
 use App\Services\DeviceSyncService;
+use App\Support\PiPresence;
 use App\Support\PiSource;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,8 @@ class TokenController extends Controller
 
     public function index(): Response
     {
+        // Also scheduled (routes/console.php). Kept here so the devices page
+        // self-heals on shared hosting where no cron may be configured.
         PiCommand::expireStale();
 
         $currentHash = PiSource::hash();
@@ -35,7 +38,7 @@ class TokenController extends Controller
                     'id' => $t->id,
                     'label' => $t->label,
                     'station' => $t->station ? ['id' => $t->station->id, 'name' => $t->station->name] : null,
-                    'online' => $t->last_seen_at && $t->last_seen_at->diffInSeconds(now()) < 120,
+                    'online' => PiPresence::isOnline($t),
                     'last_seen_at' => $t->last_seen_at?->diffForHumans(),
                     'disk_free_bytes' => $t->disk_free_bytes,
                     'disk_total_bytes' => $t->disk_total_bytes,

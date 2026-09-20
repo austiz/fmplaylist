@@ -10,8 +10,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class PiSetupController extends Controller
 {
-    /** The host hardcoded in public/pi/setup.sh, rewritten per request in setup(). */
+    /** The host baked into the checked-in setup.sh, rewritten per-request below. */
     private const DEFAULT_BASE_URL = 'https://fmplaylist.com';
+
+    /** The host hardcoded in public/pi/setup.sh, rewritten per request in setup(). */
 
     /**
      * The payload the Pi installs, with per-file hashes so it can download only
@@ -80,6 +82,6 @@ class PiSetupController extends Controller
             return ($isLocal ? $request->getScheme() : 'https')."://{$host}";
         }
 
-        return 'https://fmplaylist.com';
+        return (string) config('fm.base_url');
     }
 }

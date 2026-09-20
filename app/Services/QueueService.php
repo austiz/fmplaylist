@@ -160,8 +160,10 @@ class QueueService
         });
     }
 
-    private function autoFillQueue(int $stationId, int $target = 10): void
+    private function autoFillQueue(int $stationId, ?int $target = null): void
     {
+        $target ??= (int) config('fm.autofill_target');
+
         DB::transaction(function () use ($stationId, $target) {
             $this->lockStation($stationId);
 
@@ -279,7 +281,7 @@ class QueueService
 
     /**
      * @param  array<int, array{filename: string, file_size?: int|null}>  $songs
-     * @return array{added: int, unchanged: int, removed: int}
+     * @return array{added: int, unchanged: int}
      */
     public function syncLibrary(PiToken $token, array $songs): array
     {
@@ -287,7 +289,7 @@ class QueueService
         $unchanged = 0;
 
         foreach ($songs as $data) {
-            $filename = (string) ($data['filename'] ?? '');
+            $filename = $data['filename'];
             if ($this->isRuntimePiFile($filename)) {
                 continue;
             }
@@ -309,9 +311,7 @@ class QueueService
             }
         }
 
-        $removed = 0;
-
-        return compact('added', 'unchanged', 'removed');
+        return compact('added', 'unchanged');
     }
 
     private function isRuntimePiFile(string $filename): bool

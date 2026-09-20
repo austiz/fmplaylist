@@ -13,6 +13,7 @@ use App\Models\Song;
 use App\Models\SoundByte;
 use App\Models\Station;
 use App\Services\QueueService;
+use App\Support\PiPresence;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -151,22 +152,15 @@ class BroadcastController extends Controller
     private function aggregatePiStatus(Station $station): array
     {
         $tokens = PiToken::where('station_id', $station->id)->get();
-        $online = $tokens->filter(fn (PiToken $t) => $t->last_seen_at && $t->last_seen_at->diffInSeconds(now()) < 120);
-
-        $status = 'offline';
-        foreach (['live', 'playing', 'idle'] as $candidate) {
-            if ($online->contains(fn (PiToken $t) => $t->pi_status === $candidate)) {
-                $status = $candidate;
-                break;
-            }
-        }
+        $online = PiPresence::online($tokens);
+        $status = PiPresence::status($online);
 
         $primary = $online->sortByDesc('last_seen_at')->first();
 
         return [
             'online' => $online->isNotEmpty(),
             'status' => $status,
-            'mode' => $primary?->pi_mode ?? 'normal',
+            'mode' => $primary->pi_mode ?? 'normal',
             'ip' => $primary?->pi_ip,
             'last_seen' => $tokens->sortByDesc('last_seen_at')->first()?->last_seen_at?->diffForHumans(),
             'device_count' => $tokens->count(),
