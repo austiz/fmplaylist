@@ -97,6 +97,10 @@ Route::middleware(['auth', EnsureActiveStation::class])->prefix('admin')->name('
     Route::delete('/tokens/{token}', [TokenController::class, 'destroy'])->name('tokens.destroy');
     Route::post('/tokens/{token}/command', [TokenController::class, 'dispatchCommand'])->name('tokens.command');
     Route::get('/history', [HistoryController::class, 'index'])->name('history');
+    Route::get('/queue', [QueueAdminController::class, 'index'])->name('queue');
+    Route::post('/queue/reorder', [QueueAdminController::class, 'reorder'])->name('queue.reorder');
+    Route::post('/queue/bulk-destroy', [QueueAdminController::class, 'bulkDestroy'])->name('queue.bulk-destroy');
+    Route::post('/queue/{queueItem}/play-next', [QueueAdminController::class, 'playNext'])->name('queue.play-next');
     Route::delete('/queue/{queueItem}', [QueueAdminController::class, 'destroy'])->name('queue.destroy');
 });
 

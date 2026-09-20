@@ -2,6 +2,7 @@ import {
     Cpu,
     History,
     LayoutDashboard,
+    ListMusic,
     Music,
     Radio,
     RadioTower,
@@ -41,6 +42,7 @@ export const navGroups: NavGroup[] = [
         items: [
             { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
             { href: '/admin/broadcast', label: 'Broadcast', icon: RadioTower },
+            { href: '/admin/queue', label: 'Queue', icon: ListMusic },
         ],
     },
     {

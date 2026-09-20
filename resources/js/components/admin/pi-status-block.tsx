@@ -1,51 +1,26 @@
 import { router } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { Badge, BadgeDot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useSidebar } from '@/components/ui/sidebar';
-import { subscribeLive } from '@/lib/live';
-import type { PiStatus } from '@/types/fm';
-
-const OFFLINE: PiStatus = {
-    online: false,
-    status: 'offline',
-    mode: 'normal',
-    ip: null,
-    update_available: false,
-};
+import { useAdminLive } from '@/hooks/use-admin-live';
 
 /**
  * What the transmitter is doing, in the sidebar footer.
  *
  * This used to be a full-width strip pinned under the admin header, which spent
- * a row of vertical space on every page to say "Connected" three times. The data
- * and the subscription are unchanged -- it still rides the same `/api/live` poll
- * the listener pages use, rather than its own `/api/pi-status` fetch, so an
- * operator watching the dashboard makes one request for state that moves
- * together, not two.
+ * a row of vertical space on every page to say "Connected" three times. It reads
+ * the shell's shared `/api/live` frame, so every admin page watching live state
+ * costs the operator one poll between them -- see `useAdminLive`.
  *
  * Collapsed to the icon rail it degrades to a single dot, which is enough to
  * notice that something went offline and expand.
  */
-export function PiStatusBlock({ stationSlug }: { stationSlug?: string }) {
-    const [pi, setPi] = useState<PiStatus | null>(null);
+export function PiStatusBlock() {
+    const { piStatus: pi } = useAdminLive();
     const [updating, setUpdating] = useState(false);
     const { state } = useSidebar();
-
-    useEffect(
-        () =>
-            subscribeLive({
-                stationSlug,
-                clientId: null,
-                onFrame: (frame) => {
-                    if (frame.pi_status !== undefined) {
-                        setPi(frame.pi_status ?? OFFLINE);
-                    }
-                },
-            }),
-        [stationSlug],
-    );
 
     if (!pi) {
         return null;

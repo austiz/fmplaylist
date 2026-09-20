@@ -15,6 +15,7 @@ use App\Models\Station;
 use App\Support\CurrentStation;
 use App\Support\LiveState;
 use App\Support\StationSettings;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -365,6 +366,82 @@ class QueueService
                 'status' => 'pending',
             ]);
         }));
+    }
+
+    /**
+     * Apply an operator-supplied order to the pending queue.
+     *
+     * `$ids` is the order the admin page had on screen. Anything pending that is
+     * not named in it keeps its own relative order *behind* that list rather than
+     * being dropped: autofill runs on the Pi's poll and listeners request whenever
+     * they like, so rows appear between the page rendering and the operator hitting
+     * save, and renumbering only the ones we knew about leaves two songs holding
+     * the same position.
+     *
+     * Ids belonging to another station never arrive here as rows -- the read runs
+     * under `CurrentStation::as()` -- so a forged id is filtered out rather than
+     * rejected, and the rest of the reorder still applies.
+     *
+     * @param  array<int, int>  $ids
+     */
+    public function reorder(int $stationId, array $ids): void
+    {
+        CurrentStation::as($stationId, fn () => DB::transaction(function () use ($stationId, $ids) {
+            $this->lockStation($stationId);
+
+            // Read inside the lock: the order this is diffed against has to be the
+            // one that is about to be written, not the one the page was built from.
+            $current = QueueItem::pending()->pluck('position', 'id');
+
+            $named = collect($ids)->unique()->filter(fn (int $id) => $current->has($id));
+            $rest = $current->keys()->reject(fn (int $id) => $named->contains($id));
+
+            $this->applyPositions($current, $named->concat($rest)->values());
+
+            $this->bumpQueueVersion($stationId);
+        }));
+    }
+
+    /**
+     * Move one pending item to the head of the queue, leaving everything else in
+     * the order it was already in.
+     *
+     * Deliberately not `playNow()`: that skips whatever is on air and inserts a
+     * fresh row, which is the right answer for "play this song" from the library
+     * and the wrong one for a request that is already queued -- the listener would
+     * hear it twice and the original row would still be waiting its turn.
+     */
+    public function moveToFront(int $stationId, int $queueItemId): void
+    {
+        $this->reorder($stationId, [$queueItemId]);
+    }
+
+    /**
+     * Write `$order` out as positions 1..n, one UPDATE per distinct shift.
+     *
+     * Same grouping `compactPositions()` uses, for the same reason: dragging one
+     * row moves everything between it and its destination by exactly one, so the
+     * ordinary reorder is two statements rather than one per row.
+     *
+     * @param  Collection<int, int>  $current  current position, keyed by item id
+     * @param  Collection<int, int>  $order  item ids, in their new order
+     */
+    private function applyPositions(Collection $current, Collection $order): void
+    {
+        $shifts = [];
+
+        foreach ($order as $index => $id) {
+            $target = $index + 1;
+            $delta = $current[$id] - $target;
+
+            if ($delta !== 0) {
+                $shifts[$delta][] = $id;
+            }
+        }
+
+        foreach ($shifts as $by => $ids) {
+            QueueItem::whereIn('id', $ids)->decrement('position', $by);
+        }
     }
 
     /**

@@ -121,7 +121,7 @@ export function AdminSidebar() {
             </SidebarContent>
 
             <SidebarFooter>
-                <PiStatusBlock stationSlug={activeStation?.slug} />
+                <PiStatusBlock />
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton asChild tooltip="Log out">

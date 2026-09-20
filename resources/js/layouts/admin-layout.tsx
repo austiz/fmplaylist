@@ -8,6 +8,7 @@ import {
     SidebarProvider,
     SidebarTrigger,
 } from '@/components/ui/sidebar';
+import { AdminLiveProvider } from '@/hooks/use-admin-live';
 
 type Props = PropsWithChildren<{
     title?: string;
@@ -27,38 +28,42 @@ type Props = PropsWithChildren<{
  */
 export function AdminLayout({ children, title, description, actions }: Props) {
     return (
-        <SidebarProvider>
-            <AdminSidebar />
+        <AdminLiveProvider>
+            <SidebarProvider>
+                <AdminSidebar />
 
-            <SidebarInset className="min-w-0">
-                <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur-sm">
-                    <SidebarTrigger className="-ml-1" />
+                <SidebarInset className="min-w-0">
+                    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur-sm">
+                        <SidebarTrigger className="-ml-1" />
 
-                    <div className="min-w-0 flex-1">
-                        {title && (
-                            <h1 className="truncate font-display text-sm font-semibold text-foreground">
-                                {title}
-                            </h1>
-                        )}
-                        {description && (
-                            <p className="truncate text-xs text-muted-foreground">
-                                {description}
-                            </p>
-                        )}
-                    </div>
+                        <div className="min-w-0 flex-1">
+                            {title && (
+                                <h1 className="truncate font-display text-sm font-semibold text-foreground">
+                                    {title}
+                                </h1>
+                            )}
+                            {description && (
+                                <p className="truncate text-xs text-muted-foreground">
+                                    {description}
+                                </p>
+                            )}
+                        </div>
 
-                    {actions}
+                        {actions}
 
-                    <span className="hidden items-center gap-1 rounded-md border border-border px-1.5 py-0.5 font-display text-[10px] font-semibold text-muted-foreground/70 sm:inline-flex">
-                        <kbd className="font-sans">⌘K</kbd>
-                    </span>
-                </header>
+                        <span className="hidden items-center gap-1 rounded-md border border-border px-1.5 py-0.5 font-display text-[10px] font-semibold text-muted-foreground/70 sm:inline-flex">
+                            <kbd className="font-sans">⌘K</kbd>
+                        </span>
+                    </header>
 
-                <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
-            </SidebarInset>
+                    <main className="min-w-0 flex-1 p-4 sm:p-6">
+                        {children}
+                    </main>
+                </SidebarInset>
 
-            <CommandPalette nav={flatNav} />
-        </SidebarProvider>
+                <CommandPalette nav={flatNav} />
+            </SidebarProvider>
+        </AdminLiveProvider>
     );
 }
 
