@@ -1,9 +1,14 @@
-import { useForm, usePage } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { SearchX } from 'lucide-react';
 import { useState } from 'react';
+
+import { EmptyState } from '@/components/empty-state';
 import { FieldError } from '@/components/field-error';
+import { PageHeader } from '@/components/page-header';
 import { Pagination } from '@/components/pagination';
 import { PublicLayout } from '@/components/public-layout';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import {
     Dialog,
     DialogContent,
@@ -88,6 +93,11 @@ function RequestDialog({
                     <DialogTitle className="font-display font-bold">
                         {song.title}
                     </DialogTitle>
+                    {song.artist && (
+                        <p className="text-sm text-muted-foreground">
+                            {song.artist}
+                        </p>
+                    )}
                 </DialogHeader>
                 <form onSubmit={submit} className="space-y-4 pt-2">
                     <div className="space-y-2">
@@ -112,7 +122,7 @@ function RequestDialog({
                         disabled={processing}
                         className="h-14 w-full font-display font-bold tracking-wide uppercase disabled:opacity-60"
                     >
-                        {processing ? 'Adding...' : 'Add to Queue'}
+                        {processing ? 'Adding…' : 'Add to queue'}
                     </Button>
                     <Button
                         type="button"
@@ -130,70 +140,74 @@ function RequestDialog({
 
 export default function Songs({ songs, search, station }: Props) {
     const [requesting, setRequesting] = useState<Song | null>(null);
-    const { props } = usePage<{ flash: { success?: string } }>();
-    const flash = props.flash;
     const handleSearch = useDebouncedSearch('/songs', {
         params: { station: station.slug },
     });
 
     return (
         <PublicLayout>
-            <div className="space-y-4">
-                <div>
-                    <p className="font-display text-xs font-bold tracking-[0.2em] text-muted-foreground uppercase">
-                        {songs.total} tracks available
-                    </p>
-                    <h1 className="mt-1 font-display text-3xl font-bold text-foreground">
-                        Song Library
-                    </h1>
-                </div>
-
-                {flash?.success && (
-                    <div className="border-l-2 border-online bg-online-soft px-4 py-3 text-sm text-online">
-                        {flash.success}
-                    </div>
-                )}
-
-                <Input
-                    placeholder="Search by title or artist..."
-                    defaultValue={search}
-                    onChange={handleSearch}
-                    className="h-10 max-w-md"
+            <div className="space-y-5">
+                <PageHeader
+                    title="Song library"
+                    description={`${songs.total} tracks available`}
                 />
 
-                <div className="divide-y divide-border border border-border bg-card/40 backdrop-blur-sm">
-                    {songs.data.length === 0 && (
-                        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                            No songs found.
-                        </p>
-                    )}
-                    {songs.data.map((song) => (
-                        <div
-                            key={song.id}
-                            className="group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-card active:bg-card"
-                            onClick={() => setRequesting(song)}
-                        >
-                            <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-medium text-foreground">
-                                    {song.title}
-                                </p>
-                                {song.artist && (
-                                    <p className="truncate text-xs text-muted-foreground">
-                                        {song.artist}
-                                    </p>
-                                )}
-                            </div>
-                            {song.duration_formatted && (
-                                <span className="shrink-0 text-xs text-muted-foreground/50 tabular-nums">
-                                    {song.duration_formatted}
-                                </span>
-                            )}
-                            <span className="shrink-0 border border-primary/40 px-2.5 py-1.5 text-xs font-bold tracking-wider text-primary uppercase transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-                                Request
-                            </span>
-                        </div>
-                    ))}
-                </div>
+                <Input
+                    type="search"
+                    placeholder="Search by title or artist…"
+                    defaultValue={search}
+                    onChange={handleSearch}
+                    aria-label="Search songs"
+                    className="h-11 max-w-md"
+                />
+
+                {songs.data.length === 0 ? (
+                    <EmptyState
+                        icon={<SearchX size={22} />}
+                        title="No songs found"
+                        description={
+                            search
+                                ? `Nothing matches “${search}”.`
+                                : 'The library is empty right now.'
+                        }
+                    />
+                ) : (
+                    <Card className="gap-0 overflow-hidden py-0">
+                        <ul className="divide-y divide-border">
+                            {songs.data.map((song) => (
+                                <li key={song.id}>
+                                    {/* A button, not a clickable div: this row is
+                                        the only way to request a song, and the old
+                                        markup was unreachable by keyboard. */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setRequesting(song)}
+                                        className="group flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+                                    >
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-sm font-medium text-foreground">
+                                                {song.title}
+                                            </p>
+                                            {song.artist && (
+                                                <p className="truncate text-xs text-muted-foreground">
+                                                    {song.artist}
+                                                </p>
+                                            )}
+                                        </div>
+                                        {song.duration_formatted && (
+                                            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                                                {song.duration_formatted}
+                                            </span>
+                                        )}
+                                        <span className="shrink-0 rounded-md border border-primary/40 px-2.5 py-1.5 font-display text-[11px] font-semibold tracking-wider text-primary uppercase transition-colors group-hover:bg-primary group-hover:text-primary-foreground group-focus-visible:bg-primary group-focus-visible:text-primary-foreground">
+                                            Request
+                                        </span>
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    </Card>
+                )}
 
                 <Pagination page={songs} variant="listener" />
             </div>

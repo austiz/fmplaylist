@@ -1,11 +1,13 @@
-import { Link, router, usePage } from '@inertiajs/react';
-import { Gauge, RotateCw } from 'lucide-react';
+import { Link, router } from '@inertiajs/react';
+import { Gauge, ListMusic, Music, RotateCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+
 import { NowPlayingBar } from '@/components/now-playing-bar';
+import { SectionHeader } from '@/components/page-header';
 import { PublicLayout } from '@/components/public-layout';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { useFmLive } from '@/hooks/use-fm-live';
-import { getQuip, getTagline } from '@/lib/quips';
 import { getRecents, pushRecent } from '@/lib/recents';
 import type { Recent } from '@/lib/recents';
 import type { NowPlayingData, QueueItem, Station } from '@/types/fm';
@@ -23,13 +25,7 @@ export default function Home({
     queueCount,
     station,
 }: Props) {
-    const { props } = usePage<{
-        flash: { success?: string };
-        frequency: string;
-    }>();
-    const flash = props.flash;
-    const freq = props.frequency ?? '96.9';
-    const { queueVersion, palette, listenerCount } = useFmLive();
+    const { queueVersion, commuteLabel, listenerCount } = useFmLive();
 
     const [recents, setRecents] = useState<Recent[]>(() => getRecents());
     const [busyId, setBusyId] = useState<number | null>(null);
@@ -84,98 +80,70 @@ export default function Home({
     return (
         <PublicLayout>
             <div className="space-y-6">
-                {/* Hero cockpit */}
-                <div className="relative space-y-2 overflow-hidden border-b border-border pb-6">
-                    <div
-                        className="pointer-events-none absolute -top-20 left-1/2 h-64 w-96 -translate-x-1/2 rounded-full blur-3xl"
-                        style={{
-                            background: `radial-gradient(ellipse, oklch(0.55 0.24 var(--phase-glow-hue, 27) / var(--glow-opacity, 0.1)), transparent)`,
-                            animation: 'hero-breathe 4s ease-in-out infinite',
-                        }}
-                    />
-                    <div className="relative flex items-center gap-2">
-                        <p className="font-display text-xs font-bold tracking-[0.25em] text-primary uppercase">
-                            On Air · {freq} FM
-                        </p>
-                        <span
-                            className="font-display text-[10px] font-bold tracking-[0.2em] uppercase"
-                            style={{ color: palette.accent }}
-                        >
-                            · {palette.label}
-                        </span>
-                        {!!listenerCount && listenerCount > 0 && (
-                            <span className="font-display text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
-                                · {listenerCount} listening now
-                            </span>
-                        )}
-                    </div>
-                    <h1 className="relative font-display text-4xl leading-tight font-bold text-foreground sm:text-5xl">
-                        Your station.
-                        <br />
-                        Your songs.
-                    </h1>
-                    <p className="relative max-w-md text-base text-muted-foreground">
-                        {getTagline(palette.phase)}
-                    </p>
-                    <p className="relative max-w-md text-sm text-muted-foreground/60 italic">
-                        {getQuip(palette.phase)}
-                    </p>
+                {/* The hour and the room, in one line. This was three stacked
+                    paragraphs of rotating copy over an animated glow, and a
+                    listener who came to request a song read past all of it. */}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-display text-[11px] font-semibold tracking-[0.2em] text-muted-foreground uppercase">
+                    <span className="text-primary">{commuteLabel}</span>
+                    {!!listenerCount && listenerCount > 0 && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <span>{listenerCount} listening now</span>
+                        </>
+                    )}
                 </div>
 
                 <NowPlayingBar initial={nowPlaying} />
 
-                {flash?.success && (
-                    <div className="border-l-2 border-online bg-online-soft px-4 py-3 text-sm text-online backdrop-blur-sm">
-                        {flash.success}
-                    </div>
-                )}
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <Card className="animate-card-in">
+                        <CardContent className="space-y-4">
+                            <SectionHeader
+                                title="Request a song"
+                                description="Browse the full library and put anything on the air."
+                            />
+                            <Button asChild className="h-12 w-full gap-2">
+                                <Link href="/songs">
+                                    <Music size={18} />
+                                    Browse songs
+                                </Link>
+                            </Button>
+                        </CardContent>
+                    </Card>
 
-                {/* Primary actions */}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="border border-border bg-card/70 p-4 backdrop-blur-sm">
-                        <h2 className="font-display text-lg font-bold text-foreground">
-                            Request a Song
-                        </h2>
-                        <p className="mt-1 mb-4 text-sm text-muted-foreground">
-                            Browse the full library and put anything on the air.
-                        </p>
-                        <Link href="/songs">
-                            <Button className="h-12 w-full font-display font-bold tracking-wide uppercase active:scale-[0.98]">
-                                Browse Songs →
-                            </Button>
-                        </Link>
-                    </div>
-                    <div className="border border-border bg-card/70 p-4 backdrop-blur-sm">
-                        <h2 className="font-display text-lg font-bold text-foreground">
-                            Driving Mode
-                        </h2>
-                        <p className="mt-1 mb-4 text-sm text-muted-foreground">
-                            Big, glanceable, thumb-friendly. Eyes on the 5.
-                        </p>
-                        <Link href="/drive">
+                    <Card
+                        className="animate-card-in"
+                        style={{ animationDelay: '60ms' }}
+                    >
+                        <CardContent className="space-y-4">
+                            <SectionHeader
+                                title="Driving mode"
+                                description="Big, glanceable, thumb-friendly. Eyes on the 5."
+                            />
                             <Button
+                                asChild
                                 variant="outline"
-                                className="h-12 w-full gap-2 font-display font-bold tracking-wide uppercase active:scale-[0.98]"
+                                className="h-12 w-full gap-2"
                             >
-                                <Gauge size={18} /> Enter Drive
+                                <Link href="/drive">
+                                    <Gauge size={18} />
+                                    Enter drive
+                                </Link>
                             </Button>
-                        </Link>
-                    </div>
+                        </CardContent>
+                    </Card>
                 </div>
 
-                {/* Recent requests — one-tap play again */}
                 {recents.length > 0 && (
-                    <div>
-                        <h2 className="mb-3 font-display text-sm font-bold tracking-widest text-muted-foreground uppercase">
-                            Your Recent Requests
-                        </h2>
-                        <div className="flex scrollbar-none gap-3 overflow-x-auto pb-2">
+                    <section className="space-y-3">
+                        <SectionHeader title="Your recent requests" />
+                        <div className="flex scrollbar-none gap-3 overflow-x-auto pb-1">
                             {recents.map((r) => (
                                 <button
                                     key={r.songId}
                                     onClick={() => reRequest(r)}
                                     disabled={busyId === r.songId}
-                                    className="group flex w-40 shrink-0 flex-col justify-between border border-border bg-card/70 p-3 text-left backdrop-blur-sm transition-colors hover:border-primary/50 active:scale-[0.98] disabled:opacity-50"
+                                    className="flex w-44 shrink-0 flex-col justify-between gap-4 rounded-xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/50 hover:bg-surface-2 disabled:opacity-50"
                                 >
                                     <div className="min-w-0">
                                         <p className="truncate text-sm font-medium text-foreground">
@@ -187,7 +155,7 @@ export default function Home({
                                             </p>
                                         )}
                                     </div>
-                                    <span className="mt-3 flex items-center gap-1.5 font-display text-[10px] font-bold tracking-wider text-primary uppercase">
+                                    <span className="flex items-center gap-1.5 font-display text-[10px] font-semibold tracking-wider text-primary uppercase">
                                         <RotateCw
                                             size={12}
                                             className={
@@ -203,51 +171,64 @@ export default function Home({
                                 </button>
                             ))}
                         </div>
-                    </div>
+                    </section>
                 )}
 
-                {/* Queue preview */}
-                {queue.length > 0 && (
-                    <div>
-                        <div className="mb-4 flex items-center justify-between">
-                            <h2 className="font-display text-sm font-bold tracking-widest text-muted-foreground uppercase">
-                                Up Next ({queueCount})
-                            </h2>
-                            <Link
-                                href="/queue"
-                                className="text-xs font-medium text-primary hover:underline"
-                            >
-                                Full queue →
-                            </Link>
-                        </div>
-                        <div className="divide-y divide-border border border-border bg-card/40 backdrop-blur-sm">
-                            {queue.map((item) => (
-                                <div
-                                    key={item.id}
-                                    className="flex items-center gap-4 px-4 py-3"
+                {queue.length > 0 ? (
+                    <section className="space-y-3">
+                        <SectionHeader
+                            title={`Up next (${queueCount})`}
+                            actions={
+                                <Link
+                                    href="/queue"
+                                    className="text-xs font-medium text-primary hover:underline"
                                 >
-                                    <span className="w-6 shrink-0 text-center font-display text-sm font-bold text-primary/60 tabular-nums">
-                                        {item.position}
-                                    </span>
-                                    <div className="min-w-0 flex-1">
-                                        <p className="truncate text-sm font-medium text-foreground">
-                                            {item.song.title}
-                                        </p>
-                                        {item.song.artist && (
-                                            <p className="truncate text-xs text-muted-foreground">
-                                                {item.song.artist}
-                                            </p>
-                                        )}
-                                    </div>
-                                    {item.requested_by_name && (
-                                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                                            {item.requested_by_name}
+                                    Full queue →
+                                </Link>
+                            }
+                        />
+                        <Card className="gap-0 overflow-hidden py-0">
+                            <ul className="divide-y divide-border">
+                                {queue.map((item) => (
+                                    <li
+                                        key={item.id}
+                                        className="flex items-center gap-4 px-5 py-3"
+                                    >
+                                        <span className="w-6 shrink-0 text-center font-display text-sm font-bold text-muted-foreground tabular-nums">
+                                            {item.position}
                                         </span>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-sm font-medium text-foreground">
+                                                {item.song.title}
+                                            </p>
+                                            {item.song.artist && (
+                                                <p className="truncate text-xs text-muted-foreground">
+                                                    {item.song.artist}
+                                                </p>
+                                            )}
+                                        </div>
+                                        {item.requested_by_name && (
+                                            <span className="shrink-0 text-xs text-muted-foreground">
+                                                {item.requested_by_name}
+                                            </span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </Card>
+                    </section>
+                ) : (
+                    <Card className="border-dashed">
+                        <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
+                            <ListMusic
+                                size={22}
+                                className="text-muted-foreground/50"
+                            />
+                            <p className="text-sm text-muted-foreground">
+                                Nothing queued. Whatever you request plays next.
+                            </p>
+                        </CardContent>
+                    </Card>
                 )}
             </div>
         </PublicLayout>

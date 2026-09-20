@@ -9,8 +9,7 @@ import {
     useState,
 } from 'react';
 import type { PropsWithChildren } from 'react';
-import { getCommutePalette } from '@/lib/commute';
-import type { CommutePalette } from '@/lib/commute';
+import { getCommuteLabel } from '@/lib/commute';
 import { listenerId, subscribeLive } from '@/lib/live';
 import type { ChatMsg } from '@/lib/live';
 import type { NowPlayingData, PiStatus, Station } from '@/types/fm';
@@ -30,9 +29,9 @@ interface FmLiveValue {
     connected: boolean;
     /** Approximate concurrent-listener count, `null` until the first frame. */
     listenerCount: number | null;
-    /** Current commute-phase palette/copy set, refreshed on a shared timer so every
-     *  consumer (visualizer, hero copy, Driving Mode) rolls over together. */
-    palette: CommutePalette;
+    /** Broadcast label for the current hour ("Morning Drive"), refreshed on a shared
+     *  timer so the hero and Driving Mode roll over together rather than on two clocks. */
+    commuteLabel: string;
     /** The station every listener request has to be tagged with, `null` on the default. */
     stationSlug: string | null;
 }
@@ -59,15 +58,16 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
     const [onAirTitle, setOnAirTitle] = useState<string | null>(null);
     const [connected, setConnected] = useState(false);
     const [listenerCount, setListenerCount] = useState<number | null>(null);
-    const [palette, setPalette] = useState<CommutePalette>(() =>
-        getCommutePalette(),
-    );
+    const [commuteLabel, setCommuteLabel] = useState(getCommuteLabel);
     const onAirTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-    // Roll the commute palette/copy over as the phase changes — shared so every consumer
-    // (visualizer, hero, Driving Mode) updates together instead of drifting independently.
+    // Roll the commute label over as the phase changes — shared so the hero and Driving
+    // Mode update together instead of drifting on independent timers.
     useEffect(() => {
-        const id = setInterval(() => setPalette(getCommutePalette()), 60_000);
+        const id = setInterval(
+            () => setCommuteLabel(getCommuteLabel()),
+            60_000,
+        );
 
         return () => clearInterval(id);
     }, []);
@@ -164,7 +164,7 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
             dismissOnAir,
             connected,
             listenerCount,
-            palette,
+            commuteLabel,
             stationSlug,
         }),
         [
@@ -176,7 +176,7 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
             dismissOnAir,
             connected,
             listenerCount,
-            palette,
+            commuteLabel,
             stationSlug,
         ],
     );

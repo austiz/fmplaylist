@@ -33,19 +33,19 @@ export function PublicLayout({ children }: PropsWithChildren) {
     return (
         <div className="min-h-screen bg-background text-foreground">
             {/* Header — logo only on mobile, logo + nav on desktop */}
-            <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-sm">
-                <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-2.5">
+            <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur-sm">
+                <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
                     <Link
                         href={tagged('/')}
                         className="group flex items-center gap-2"
                     >
-                        <span className="font-display text-xl font-bold tracking-tight text-primary transition-colors group-hover:text-primary/80">
+                        <span className="flex aspect-square size-7 items-center justify-center rounded-lg bg-primary font-display text-[11px] font-bold text-primary-foreground">
                             FM
                         </span>
-                        <span className="font-display text-xl font-bold tracking-tight text-foreground transition-colors group-hover:text-foreground/70">
+                        <span className="font-display text-lg font-bold tracking-tight text-foreground">
                             PLAYLIST
                         </span>
-                        <span className="ml-1 border border-primary/40 bg-primary/12 px-1.5 py-0.5 font-sans text-[10px] font-bold tracking-widest text-primary uppercase">
+                        <span className="ml-1 rounded-md border border-primary/40 bg-primary-soft px-1.5 py-0.5 font-sans text-[10px] font-bold tracking-widest text-primary uppercase">
                             {freq}
                         </span>
                     </Link>
@@ -54,7 +54,11 @@ export function PublicLayout({ children }: PropsWithChildren) {
                             <Link
                                 key={label}
                                 href={tagged(href)}
-                                className={`py-1 transition-colors ${active(href) ? 'text-foreground' : 'hover:text-foreground'}`}
+                                className={`rounded-md px-2 py-1 transition-colors ${
+                                    active(href)
+                                        ? 'bg-surface-2 text-foreground'
+                                        : 'hover:text-foreground'
+                                }`}
                             >
                                 {label}
                             </Link>
@@ -64,7 +68,7 @@ export function PublicLayout({ children }: PropsWithChildren) {
             </header>
 
             {/* Page content — extra bottom padding on mobile for the tab bar */}
-            <main className="mx-auto max-w-5xl px-4 py-6 pb-20 sm:pb-8">
+            <main className="mx-auto max-w-5xl px-4 py-6 pb-24 sm:pb-10">
                 {children}
             </main>
 
@@ -72,14 +76,14 @@ export function PublicLayout({ children }: PropsWithChildren) {
                 <p className="font-display text-xs font-bold tracking-[0.3em] text-muted-foreground uppercase">
                     {freq} FM
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground/50">
+                <p className="mt-1 text-xs text-muted-foreground/60">
                     Fuck corporate media · Request a song · Hear it live
                 </p>
             </footer>
 
             {/* Mobile bottom tab bar — hidden on desktop */}
             <nav
-                className="fixed right-0 bottom-0 left-0 z-50 flex border-t border-border bg-background/95 backdrop-blur-sm sm:hidden"
+                className="fixed right-0 bottom-0 left-0 z-50 flex border-t border-border bg-background/90 backdrop-blur-md sm:hidden"
                 style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
             >
                 {tabs.map(({ href, label, Icon }) => (

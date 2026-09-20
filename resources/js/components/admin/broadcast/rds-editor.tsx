@@ -68,7 +68,7 @@ export function RdsEditor({ settings }: { settings: Record<string, string> }) {
                                 }
                                 className={`flex-1 border py-2 text-xs font-bold tracking-widest uppercase transition-colors ${
                                     rdsForm.data.rds_rt_mode === m
-                                        ? 'border-primary bg-primary/12 text-primary'
+                                        ? 'border-primary bg-primary-soft text-primary'
                                         : 'border-border text-muted-foreground hover:text-foreground'
                                 }`}
                             >

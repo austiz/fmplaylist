@@ -61,7 +61,7 @@ export function SearchablePickList<T extends { id: number }>({
                         onClick={() => onSelect(item.id)}
                         className={`w-full text-left text-sm transition-colors hover:bg-secondary ${cls.row} ${
                             selectedId === String(item.id)
-                                ? 'bg-primary/12 text-foreground'
+                                ? 'bg-primary-soft text-foreground'
                                 : 'text-foreground'
                         }`}
                     >

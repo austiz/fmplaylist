@@ -42,6 +42,10 @@
 
     --color-primary: var(--primary);
     --color-primary-foreground: var(--primary-foreground);
+    /* The brand gets the same tinted-background value the status colours do, so
+       a selected row or a brand pill is `bg-primary-soft`, not `bg-primary/12`
+       written out at five call sites that each picked their own opacity. */
+    --color-primary-soft: var(--primary-soft);
 
     --color-secondary: var(--secondary);
     --color-secondary-foreground: var(--secondary-foreground);
@@ -140,6 +144,7 @@
        identical and made every focus ring look like an error. */
     --primary: oklch(0.63 0.21 25);
     --primary-foreground: oklch(0.99 0 0);
+    --primary-soft: oklch(0.63 0.21 25 / 0.14);
     --destructive: oklch(0.57 0.19 15);
     --destructive-foreground: oklch(0.99 0 0);
     --ring: oklch(0.7 0.15 250);
@@ -253,78 +258,6 @@
     }
 }
 
-/* Waveform bar keyframes — 5 staggered durations so they never sync */
-@keyframes bar-a {
-    0%,
-    100% {
-        transform: scaleY(0.25);
-    }
-    45% {
-        transform: scaleY(1);
-    }
-}
-@keyframes bar-b {
-    0%,
-    100% {
-        transform: scaleY(0.6);
-    }
-    30% {
-        transform: scaleY(0.1);
-    }
-    65% {
-        transform: scaleY(1);
-    }
-}
-@keyframes bar-c {
-    0%,
-    100% {
-        transform: scaleY(0.4);
-    }
-    55% {
-        transform: scaleY(1);
-    }
-    80% {
-        transform: scaleY(0.15);
-    }
-}
-@keyframes bar-d {
-    0%,
-    100% {
-        transform: scaleY(0.85);
-    }
-    40% {
-        transform: scaleY(0.2);
-    }
-    70% {
-        transform: scaleY(1);
-    }
-}
-@keyframes bar-e {
-    0%,
-    100% {
-        transform: scaleY(0.5);
-    }
-    20% {
-        transform: scaleY(1);
-    }
-    60% {
-        transform: scaleY(0.3);
-    }
-}
-
-/* Split-flap character flip — content swap happens in JS at the rotateX(-90deg)
-   midpoint (see split-flap-text.tsx), so it must never rotate past 90deg or the
-   glyph would render mirrored/backwards. */
-@keyframes flap-char {
-    0%,
-    100% {
-        transform: rotateX(0deg);
-    }
-    50% {
-        transform: rotateX(-90deg);
-    }
-}
-
 @keyframes card-in {
     from {
         opacity: 0;
@@ -341,29 +274,9 @@
         font-family: var(--font-display);
     }
 
-    .animate-bar-a {
-        animation: bar-a 0.85s ease-in-out infinite;
-    }
-    .animate-bar-b {
-        animation: bar-b 1.1s ease-in-out infinite;
-    }
-    .animate-bar-c {
-        animation: bar-c 0.75s ease-in-out infinite;
-    }
-    .animate-bar-d {
-        animation: bar-d 1.3s ease-in-out infinite;
-    }
-    .animate-bar-e {
-        animation: bar-e 0.95s ease-in-out infinite;
-    }
-
     /* Stat-card mount-in — subtle fade/rise, staggered via inline animation-delay */
     .animate-card-in {
         animation: card-in var(--dur-slow) var(--ease-out-quint) both;
-    }
-
-    .animate-flap-char {
-        animation: flap-char 380ms ease-in-out;
     }
 
     /* Hide scrollbar while keeping scroll functionality */

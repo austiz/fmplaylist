@@ -1,47 +1,52 @@
-import { usePage } from '@inertiajs/react';
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { Celebration } from '@/components/celebration';
-import { FrequencyField } from '@/components/visualizer/frequency-field';
+import { toast } from 'sonner';
+
 import { FmLiveProvider, useFmLive } from '@/hooks/use-fm-live';
 
-// Full-bleed visualizer on the cockpit + drive views; subtle behind the reading-heavy lists.
-const WEIGHT: Record<string, number> = {
-    home: 1,
-    drive: 1,
-    songs: 0.4,
-    queue: 0.45,
-};
+/**
+ * "Your song is on air" used to be 153 lines: a full-viewport canvas, ninety
+ * gravity-simulated confetti particles and a hand-built fixed banner with its own
+ * dismiss button and z-index. The moment is worth keeping; a bespoke notification
+ * system to deliver it is not, when a <Toaster> is already mounted app-wide.
+ *
+ * The haptic buzz survives -- on a phone in a car it is the part that actually
+ * reaches you.
+ */
+function useOnAirToast() {
+    const { onAirTitle, dismissOnAir } = useFmLive();
+
+    useEffect(() => {
+        if (!onAirTitle) {
+            return;
+        }
+
+        try {
+            navigator.vibrate?.([40, 30, 40, 30, 140]);
+        } catch {
+            /* unsupported */
+        }
+
+        toast.success('Your song is on air', {
+            description: onAirTitle,
+            duration: 8000,
+            onDismiss: dismissOnAir,
+            onAutoClose: dismissOnAir,
+        });
+    }, [onAirTitle, dismissOnAir]);
+}
 
 /**
- * Persistent layout for all listener pages. Because Inertia keeps this same instance mounted
- * across home/songs/queue/drive navigations, the SSE connection (FmLiveProvider) and the
- * WebGL context (FrequencyField) live once for the whole session — no reconnect/flicker.
+ * Persistent layout for all listener pages. Inertia keeps this same instance
+ * mounted across home/songs/queue/drive, so the `/api/live` poll in
+ * FmLiveProvider lives once for the whole session rather than reconnecting on
+ * every navigation -- which is why this file has to keep a stable module-scope
+ * identity even now that it has almost nothing left to render.
  */
 function FmLiveShell({ children }: { children: ReactNode }) {
-    const { component } = usePage();
-    const weight = WEIGHT[component] ?? 0.5;
-    const { palette } = useFmLive();
+    useOnAirToast();
 
-    // Paint the commute palette onto CSS custom properties (drives the hero glow + accents).
-    // `palette` comes from FmLiveProvider's shared 60s timer, so this stays in lockstep with
-    // every other phase-aware consumer instead of rolling over on its own clock.
-    useEffect(() => {
-        const root = document.documentElement;
-        root.style.setProperty('--phase-accent', palette.accent);
-        root.style.setProperty('--phase-glow-hue', String(palette.glowHue));
-    }, [palette]);
-
-    return (
-        <div className="relative min-h-screen">
-            <FrequencyField
-                weight={weight}
-                className="fixed inset-0 z-0 h-full w-full"
-            />
-            <div className="relative z-10">{children}</div>
-            <Celebration />
-        </div>
-    );
+    return <>{children}</>;
 }
 
 export default function FmLiveLayout({ children }: { children: ReactNode }) {

@@ -125,7 +125,7 @@ export function ChatPanel() {
                     <button
                         type="submit"
                         disabled={sending || !text.trim() || !name.trim()}
-                        className="shrink-0 border border-primary/40 bg-primary/12 px-3 py-1.5 text-xs font-bold tracking-wider text-primary uppercase transition-colors hover:bg-primary/90 hover:text-foreground disabled:opacity-40"
+                        className="shrink-0 border border-primary/40 bg-primary-soft px-3 py-1.5 text-xs font-bold tracking-wider text-primary uppercase transition-colors hover:bg-primary/90 hover:text-foreground disabled:opacity-40"
                     >
                         Send
                     </button>
