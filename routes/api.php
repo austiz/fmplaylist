@@ -7,8 +7,8 @@ use App\Http\Middleware\AuthenticatePiToken;
 use Illuminate\Support\Facades\Route;
 
 // Public endpoints — no auth
-Route::get('/now-playing', [PiController::class, 'nowPlayingPublic']);
-Route::get('/pi-status', [PiController::class, 'piStatus']);
+Route::get('/now-playing', [PiController::class, 'nowPlayingPublic'])->middleware('throttle:60,1');
+Route::get('/pi-status', [PiController::class, 'piStatus'])->middleware('throttle:60,1');
 // SSE: one persistent connection per browser tab; 30/min covers reconnects and page reloads
 Route::get('/events', [SseController::class, 'stream'])->middleware('throttle:30,1');
 // Listener chat

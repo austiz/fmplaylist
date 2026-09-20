@@ -12,7 +12,13 @@ class ChatController extends Controller
 {
     public function index(): JsonResponse
     {
-        $messages = ChatMessage::orderBy('created_at')->take(50)->get(['id', 'name', 'message', 'created_at']);
+        // Newest 50, then reversed for display. Ordering ascending and taking 50
+        // would pin the seed to the first conversation ever once the table grows.
+        $messages = ChatMessage::latest('id')
+            ->take(50)
+            ->get(['id', 'name', 'message', 'created_at'])
+            ->reverse()
+            ->values();
 
         return response()->json($messages);
     }

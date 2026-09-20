@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\StationController;
 use App\Http\Controllers\Admin\TokenController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\PiSetupController;
+use App\Http\Controllers\PublicFileController;
 use App\Http\Controllers\QueueController;
 use App\Http\Controllers\SongController;
 use App\Http\Middleware\EnsureActiveStation;
@@ -24,15 +25,9 @@ Route::get('/pi/setup.sh', [PiSetupController::class, 'setup'])->name('pi.setup'
 // only what changed. Must be registered before the /pi/{filename} catch-all.
 Route::get('/pi/manifest.json', [PiSetupController::class, 'manifest'])->name('pi.manifest');
 
-// Serve public storage files — symlinks unreliable on LiteSpeed shared hosting.
-// /files/ prefix avoids conflict with Laravel's built-in storage.local route at /storage/.
-Route::get('/files/{path}', function (string $path) {
-    abort_if(str_contains($path, '..'), 403);
-    $file = storage_path('app/public/'.$path);
-    abort_unless(file_exists($file) && is_file($file), 404);
-
-    return response()->file($file);
-})->where('path', '.*');
+Route::get('/files/{path}', PublicFileController::class)
+    ->name('files.show')
+    ->where('path', '.*');
 Route::get('/pi/{filename}', [PiSetupController::class, 'file'])->name('pi.file')
     ->where('filename', '[a-zA-Z0-9_\-\.]+');
 
