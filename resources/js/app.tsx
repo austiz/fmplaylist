@@ -74,6 +74,8 @@ createInertiaApp({
         );
     },
     progress: {
-        color: '#4B5563',
+        // Inertia writes this into a style tag before the stylesheet is
+        // available, so it cannot be a var() — keep it in step with --primary.
+        color: '#ED4042',
     },
 });

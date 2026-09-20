@@ -3,12 +3,14 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="theme-color" content="#0a0a0a">
+        <meta name="theme-color" content="#0e0f12">
 
-        {{-- Prevent flash of white background before CSS loads --}}
+        {{-- Prevent flash of white background before CSS loads. Must stay in
+             lockstep with --surface-0 in resources/css/app.css, which is what
+             paints once the stylesheet arrives. --}}
         <style>
             html {
-                background-color: oklch(0.07 0 0);
+                background-color: oklch(0.165 0.008 265);
             }
         </style>
 

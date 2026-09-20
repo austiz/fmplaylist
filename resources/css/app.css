@@ -18,12 +18,21 @@
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
         'Noto Color Emoji';
 
+    --radius-xl: calc(var(--radius) + 4px);
     --radius-lg: var(--radius);
     --radius-md: calc(var(--radius) - 2px);
     --radius-sm: calc(var(--radius) - 4px);
 
     --color-background: var(--background);
     --color-foreground: var(--foreground);
+
+    /* The elevation ramp. Every surface in the app is one of these four, so a
+       component never has to invent its own shade — and overriding --surface-0
+       on a subtree (drive mode) re-bases everything above it. */
+    --color-surface-0: var(--surface-0);
+    --color-surface-1: var(--surface-1);
+    --color-surface-2: var(--surface-2);
+    --color-surface-3: var(--surface-3);
 
     --color-card: var(--card);
     --color-card-foreground: var(--card-foreground);
@@ -46,7 +55,29 @@
     --color-destructive: var(--destructive);
     --color-destructive-foreground: var(--destructive-foreground);
 
+    /* Station states. These are the things the app is actually about, so they
+       get names: `bg-live-soft text-live` instead of `bg-red-500/10 text-red-400`. */
+    --color-live: var(--live);
+    --color-live-foreground: var(--live-foreground);
+    --color-live-soft: var(--live-soft);
+
+    --color-online: var(--online);
+    --color-online-foreground: var(--online-foreground);
+    --color-online-soft: var(--online-soft);
+
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-warning-soft: var(--warning-soft);
+
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    --color-info-soft: var(--info-soft);
+
+    --color-offline: var(--offline);
+    --color-offline-soft: var(--offline-soft);
+
     --color-border: var(--border);
+    --color-border-strong: var(--border-strong);
     --color-input: var(--input);
     --color-ring: var(--ring);
 
@@ -64,43 +95,101 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+
+    /* Elevation. The inset top highlight is what makes a dark card read as a
+       physical surface rather than a lighter rectangle. */
+    --shadow-card: var(--elevation-card);
+    --shadow-raised: var(--elevation-raised);
+    --shadow-overlay: var(--elevation-overlay);
+
+    --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Dark-only palette — :root IS the theme, no light mode */
+/* Dark-only palette — :root IS the theme, no light mode.
+   Lightness values are deliberate: the old canvas was oklch(0.07), effectively
+   black, and you cannot build elevation above black. The ramp starts high enough
+   that each step up is visible, and carries a trace of blue chroma so the greys
+   read as designed rather than dead. */
 :root {
-    --background: oklch(0.07 0 0);
-    --foreground: oklch(0.93 0 0);
-    --card: oklch(0.1 0 0);
-    --card-foreground: oklch(0.93 0 0);
-    --popover: oklch(0.1 0 0);
-    --popover-foreground: oklch(0.93 0 0);
-    --primary: oklch(0.55 0.24 27);
+    --surface-0: oklch(0.165 0.008 265); /* ~#0e0f12 */
+    --surface-1: oklch(0.205 0.01 265); /* ~#17181c */
+    --surface-2: oklch(0.245 0.012 265); /* ~#202128 */
+    --surface-3: oklch(0.29 0.013 265); /* ~#2b2d34 */
+
+    --background: var(--surface-0);
+    --foreground: oklch(0.95 0.004 265);
+
+    --card: var(--surface-1);
+    --card-foreground: var(--foreground);
+    --popover: var(--surface-2);
+    --popover-foreground: var(--foreground);
+
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--foreground);
+    --muted: var(--surface-2);
+    --muted-foreground: oklch(0.66 0.012 265);
+    --accent: var(--surface-3);
+    --accent-foreground: var(--foreground);
+
+    /* These three used to be the same colour, which made "delete" and "request"
+       identical and made every focus ring look like an error. */
+    --primary: oklch(0.63 0.21 25);
     --primary-foreground: oklch(0.99 0 0);
-    --secondary: oklch(0.15 0 0);
-    --secondary-foreground: oklch(0.93 0 0);
-    --muted: oklch(0.15 0 0);
-    --muted-foreground: oklch(0.58 0 0);
-    --accent: oklch(0.15 0 0);
-    --accent-foreground: oklch(0.93 0 0);
-    --destructive: oklch(0.55 0.24 27);
+    --destructive: oklch(0.57 0.19 15);
     --destructive-foreground: oklch(0.99 0 0);
-    --border: oklch(0.18 0 0);
-    --input: oklch(0.15 0 0);
-    --ring: oklch(0.55 0.24 27);
-    --chart-1: oklch(0.488 0.243 264.376);
-    --chart-2: oklch(0.696 0.17 162.48);
-    --chart-3: oklch(0.769 0.188 70.08);
-    --chart-4: oklch(0.627 0.265 303.9);
-    --chart-5: oklch(0.645 0.246 16.439);
-    --radius: 0.25rem;
-    --sidebar: oklch(0.1 0 0);
-    --sidebar-foreground: oklch(0.93 0 0);
-    --sidebar-primary: oklch(0.55 0.24 27);
-    --sidebar-primary-foreground: oklch(0.99 0 0);
-    --sidebar-accent: oklch(0.15 0 0);
-    --sidebar-accent-foreground: oklch(0.93 0 0);
-    --sidebar-border: oklch(0.18 0 0);
-    --sidebar-ring: oklch(0.55 0.24 27);
+    --ring: oklch(0.7 0.15 250);
+
+    --live: oklch(0.66 0.23 18);
+    --live-foreground: oklch(0.99 0 0);
+    --live-soft: oklch(0.66 0.23 18 / 0.14);
+
+    --online: oklch(0.72 0.17 155);
+    --online-foreground: oklch(0.16 0.03 155);
+    --online-soft: oklch(0.72 0.17 155 / 0.14);
+
+    --warning: oklch(0.79 0.15 75);
+    --warning-foreground: oklch(0.18 0.03 75);
+    --warning-soft: oklch(0.79 0.15 75 / 0.14);
+
+    --info: oklch(0.7 0.14 240);
+    --info-foreground: oklch(0.16 0.03 240);
+    --info-soft: oklch(0.7 0.14 240 / 0.14);
+
+    --offline: oklch(0.6 0.008 265);
+    --offline-soft: oklch(0.6 0.008 265 / 0.12);
+
+    --border: oklch(0.32 0.01 265);
+    --border-strong: oklch(0.4 0.012 265);
+    --input: var(--surface-2);
+
+    /* Brand-anchored rather than the stock shadcn set, which opened on a blue
+       that fights the FM red. chart-1 IS the brand. */
+    --chart-1: oklch(0.63 0.21 25);
+    --chart-2: oklch(0.72 0.17 155);
+    --chart-3: oklch(0.79 0.15 75);
+    --chart-4: oklch(0.7 0.15 250);
+    --chart-5: oklch(0.68 0.19 320);
+
+    --radius: 0.625rem;
+
+    --elevation-card:
+        0 1px 2px oklch(0 0 0 / 0.4), inset 0 1px 0 oklch(1 0 0 / 0.04);
+    --elevation-raised:
+        0 4px 12px -2px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.06);
+    --elevation-overlay: 0 16px 40px -8px oklch(0 0 0 / 0.65);
+
+    --dur-fast: 120ms;
+    --dur: 200ms;
+    --dur-slow: 320ms;
+
+    --sidebar: var(--surface-1);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--surface-3);
+    --sidebar-accent-foreground: var(--foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
 }
 
 @layer base {
@@ -258,7 +347,7 @@
 
     /* Stat-card mount-in — subtle fade/rise, staggered via inline animation-delay */
     .animate-card-in {
-        animation: card-in 0.35s ease-out both;
+        animation: card-in var(--dur-slow) var(--ease-out-quint) both;
     }
 
     .animate-flap-char {
