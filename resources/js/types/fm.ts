@@ -54,7 +54,7 @@ export interface QueueItem {
 }
 
 export interface NowPlayingData {
-    type: 'song' | 'commercial' | 'sound_byte';
+    type: 'song' | 'commercial' | 'sound_byte' | 'station_id';
     song: {
         id?: number | null;
         title: string;

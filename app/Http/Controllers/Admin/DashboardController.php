@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Admin\Concerns\HasChartStats;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\NowPlayingResource;
 use App\Models\NowPlaying;
 use App\Models\QueueItem;
 use Illuminate\Http\Request;
@@ -41,11 +42,7 @@ class DashboardController extends Controller
             ]);
 
         return Inertia::render('admin/dashboard', [
-            'nowPlaying' => $nowPlaying && $nowPlaying->mediaAsset ? [
-                'type' => $nowPlaying->type,
-                'song' => ['title' => $nowPlaying->mediaAsset->title, 'artist' => $nowPlaying->mediaAsset->artist],
-                'started_at' => $nowPlaying->started_at?->toIso8601String(),
-            ] : null,
+            'nowPlaying' => $nowPlaying ? (new NowPlayingResource($nowPlaying))->resolve() : null,
             'queueDepth' => $pendingItems->count(),
             'queueRuntimeSeconds' => $queueRuntimeSeconds,
             'recentRequests' => $recentRequests,

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\NowPlayingResource;
 use App\Models\NowPlaying;
 use App\Models\PiCommand;
 use App\Models\PiToken;
@@ -346,29 +347,7 @@ class PiController extends Controller
             return response()->json(null);
         }
 
-        $display = match ($np->type) {
-            'commercial' => ['title' => 'Commercial Break', 'artist' => null],
-            'sound_byte' => ['title' => 'Radio Drop',       'artist' => null],
-            'station_id' => ['title' => 'Station ID',       'artist' => null],
-            default => $np->mediaAsset
-                ? ['title' => $np->mediaAsset->title, 'artist' => $np->mediaAsset->artist]
-                : null,
-        };
-
-        if (! $display) {
-            return response()->json(null);
-        }
-
-        return response()->json([
-            'type' => $np->type,
-            'song' => [
-                'id' => $np->mediaAsset?->id,
-                'title' => $display['title'],
-                'artist' => $display['artist'],
-            ],
-            'queue_item_id' => $np->queue_item_id,
-            'started_at' => $np->started_at?->toIso8601String(),
-        ]);
+        return response()->json((new NowPlayingResource($np))->resolve());
     }
 
     /** Resolve the station id for the authenticated device, falling back to the default station for an unassigned token. */

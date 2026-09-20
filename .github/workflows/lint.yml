@@ -42,11 +42,13 @@ jobs:
       # table. eslint's import resolver needs them on disk: without them the
       # `@/actions/*` and `@/routes/*` specifiers don't resolve, import/order puts
       # them in a different group, and the lint job fails on code that is fine.
+      # `--with-form` is required: the auth and settings pages use the `.form`
+      # variants, and tsc fails on every one of them without it.
       - name: Generate Wayfinder Definitions
         run: |
           cp .env.example .env
           php artisan key:generate
-          php artisan wayfinder:generate
+          php artisan wayfinder:generate --with-form
 
       # Check, never fix: the fixing variants (`composer lint`, `npm run format`)
       # rewrite files in place, so style drift passes CI silently.

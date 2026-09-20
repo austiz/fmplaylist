@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\MediaType;
+use App\Http\Resources\NowPlayingResource;
 use App\Models\DeviceDownload;
 use App\Models\MediaAsset;
 use App\Models\NowPlaying;
@@ -135,7 +136,7 @@ class QueueService
                 $song = MediaAsset::query()->songs()->where('filename', $filename)->first();
             }
 
-            NowPlaying::updateOrCreate(
+            $nowPlaying = NowPlaying::updateOrCreate(
                 ['station_id' => $stationId],
                 [
                     'media_asset_id' => $song?->id,
@@ -151,12 +152,11 @@ class QueueService
                 default => $this->onSongPlayed($stationId, $queueItemId), // 'song'
             };
 
-            // Push SSE events
-            $npPayload = match ($type) {
-                'commercial' => ['type' => 'commercial', 'song' => ['id' => null, 'title' => 'Commercial Break', 'artist' => null], 'queue_item_id' => null, 'started_at' => now()->toIso8601String()],
-                'sound_byte' => ['type' => 'sound_byte',  'song' => ['id' => null, 'title' => 'Radio Drop',       'artist' => null], 'queue_item_id' => null, 'started_at' => now()->toIso8601String()],
-                default => ['type' => 'song', 'song' => $song ? ['id' => $song->id, 'title' => $song->title, 'artist' => $song->artist, 'duration_seconds' => $song->duration_seconds] : null, 'queue_item_id' => $queueItemId, 'started_at' => now()->toIso8601String()],
-            };
+            // Push SSE events. The frame is the same shape the REST endpoints
+            // return, so a listener sees no difference between the two transports.
+            $nowPlaying->setRelation('mediaAsset', $song);
+            $npPayload = (new NowPlayingResource($nowPlaying))->resolve();
+
             Cache::put("sse.now_playing.{$stationId}", $npPayload, 3600);
             $this->bumpQueueVersion($stationId);
         });

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\NowPlayingResource;
 use App\Models\NowPlaying;
 use App\Models\QueueItem;
 use App\Support\PublicStation;
@@ -51,23 +52,7 @@ class QueueController extends Controller
         return Inertia::render('queue', [
             'history' => $history,
             'station' => ['id' => $station->id, 'name' => $station->name, 'slug' => $station->slug],
-            'nowPlaying' => $nowPlaying ? [
-                'type' => $nowPlaying->type,
-                'song' => match ($nowPlaying->type) {
-                    'commercial' => ['title' => 'Commercial Break', 'artist' => null, 'duration_seconds' => null],
-                    'sound_byte' => ['title' => 'Radio Drop',       'artist' => null, 'duration_seconds' => null],
-                    'station_id' => ['title' => 'Station ID',       'artist' => null, 'duration_seconds' => null],
-                    default => $nowPlaying->mediaAsset
-                        ? [
-                            'id' => $nowPlaying->mediaAsset->id,
-                            'title' => $nowPlaying->mediaAsset->title,
-                            'artist' => $nowPlaying->mediaAsset->artist,
-                            'duration_seconds' => $nowPlaying->mediaAsset->duration_seconds,
-                        ]
-                        : null,
-                },
-                'started_at' => $nowPlaying->started_at?->toIso8601String(),
-            ] : null,
+            'nowPlaying' => $nowPlaying ? (new NowPlayingResource($nowPlaying))->resolve() : null,
             'queue' => $queue,
             'waitMinutes' => $waitSeconds > 0 ? (int) ceil($waitSeconds / 60) : null,
         ]);

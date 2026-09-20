@@ -1,13 +1,10 @@
 import { router } from '@inertiajs/react';
 import { BarSparkline, LineSparkline } from '@/components/admin/sparkline';
 import { AdminLayout } from '@/components/admin-layout';
+import type { NowPlayingData } from '@/types/fm';
 
 interface Props {
-    nowPlaying: {
-        type: string;
-        song: { title: string; artist: string };
-        started_at: string;
-    } | null;
+    nowPlaying: NowPlayingData | null;
     queueDepth: number;
     queueRuntimeSeconds: number;
     recentRequests: {
@@ -144,9 +141,9 @@ export default function Dashboard({
                         Now Broadcasting
                     </p>
                     <p className="mt-1 text-lg font-bold text-foreground">
-                        {nowPlaying.song.title}
+                        {nowPlaying.song?.title ?? '(deleted)'}
                     </p>
-                    {nowPlaying.song.artist && (
+                    {nowPlaying.song?.artist && (
                         <p className="text-sm text-muted-foreground">
                             {nowPlaying.song.artist}
                         </p>
