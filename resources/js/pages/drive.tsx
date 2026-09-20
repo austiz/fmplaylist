@@ -5,10 +5,11 @@ import { useElapsed } from '@/hooks/use-elapsed';
 import { useFmLive } from '@/hooks/use-fm-live';
 import { getRecents } from '@/lib/recents';
 import type { Recent } from '@/lib/recents';
-import type { NowPlayingData } from '@/types/fm';
+import type { NowPlayingData, Station } from '@/types/fm';
 
 interface Props {
     nowPlaying: NowPlayingData | null;
+    station: Station;
 }
 
 // Minimal Wake Lock typing (not in the DOM lib everywhere yet).
@@ -26,7 +27,7 @@ function fmtTime(sec: number): string {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export default function Drive({ nowPlaying }: Props) {
+export default function Drive({ nowPlaying, station }: Props) {
     const { nowPlaying: live, piStatus, palette } = useFmLive();
     const data = live === undefined ? nowPlaying : live;
     const isLive = piStatus?.status === 'live';
@@ -85,8 +86,11 @@ export default function Drive({ nowPlaying }: Props) {
         }
 
         setBusy(true);
+        // The station has to travel with the request: without it the server falls
+        // back to the default station, so re-requesting from Driving Mode on any
+        // other station silently queued the song on the wrong one.
         router.post(
-            `/songs/${last.songId}/request`,
+            `/songs/${last.songId}/request?station=${encodeURIComponent(station.slug)}`,
             {},
             {
                 preserveScroll: true,
