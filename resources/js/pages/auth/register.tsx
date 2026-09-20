@@ -1,5 +1,5 @@
 import { Form, Head } from '@inertiajs/react';
-import InputError from '@/components/input-error';
+import { FieldError } from '@/components/field-error';
 import PasswordInput from '@/components/password-input';
 import TextLink from '@/components/text-link';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,7 @@ export default function Register({ passwordRules }: Props) {
                                     name="name"
                                     placeholder="Full name"
                                 />
-                                <InputError
+                                <FieldError
                                     message={errors.name}
                                     className="mt-2"
                                 />
@@ -55,7 +55,7 @@ export default function Register({ passwordRules }: Props) {
                                     name="email"
                                     placeholder="email@example.com"
                                 />
-                                <InputError message={errors.email} />
+                                <FieldError message={errors.email} />
                             </div>
 
                             <div className="grid gap-2">
@@ -69,7 +69,7 @@ export default function Register({ passwordRules }: Props) {
                                     placeholder="Password"
                                     passwordrules={passwordRules}
                                 />
-                                <InputError message={errors.password} />
+                                <FieldError message={errors.password} />
                             </div>
 
                             <div className="grid gap-2">
@@ -85,7 +85,7 @@ export default function Register({ passwordRules }: Props) {
                                     placeholder="Confirm password"
                                     passwordrules={passwordRules}
                                 />
-                                <InputError
+                                <FieldError
                                     message={errors.password_confirmation}
                                 />
                             </div>

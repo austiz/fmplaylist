@@ -1,6 +1,7 @@
 import { createInertiaApp } from '@inertiajs/react';
 import { lazy, Suspense } from 'react';
 import type { ComponentType, ReactNode } from 'react';
+import { ConfirmProvider } from '@/components/confirm-dialog';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -68,7 +69,7 @@ createInertiaApp({
     withApp(app) {
         return (
             <TooltipProvider delayDuration={0}>
-                {app}
+                <ConfirmProvider>{app}</ConfirmProvider>
                 <Toaster />
             </TooltipProvider>
         );

@@ -1,8 +1,8 @@
 import { Form, Head } from '@inertiajs/react';
 import { useRef } from 'react';
 import SecurityController from '@/actions/App/Http/Controllers/Settings/SecurityController';
+import { FieldError } from '@/components/field-error';
 import Heading from '@/components/heading';
-import InputError from '@/components/input-error';
 import type { Props as ManagePasskeysProps } from '@/components/manage-passkeys';
 import ManagePasskeys from '@/components/manage-passkeys';
 import type { Props as ManageTwoFactorProps } from '@/components/manage-two-factor';
@@ -72,7 +72,7 @@ export default function Security(props: Props) {
                                     placeholder="Current password"
                                 />
 
-                                <InputError message={errors.current_password} />
+                                <FieldError message={errors.current_password} />
                             </div>
 
                             <div className="grid gap-2">
@@ -88,7 +88,7 @@ export default function Security(props: Props) {
                                     passwordrules={props.passwordRules}
                                 />
 
-                                <InputError message={errors.password} />
+                                <FieldError message={errors.password} />
                             </div>
 
                             <div className="grid gap-2">
@@ -105,7 +105,7 @@ export default function Security(props: Props) {
                                     passwordrules={props.passwordRules}
                                 />
 
-                                <InputError
+                                <FieldError
                                     message={errors.password_confirmation}
                                 />
                             </div>

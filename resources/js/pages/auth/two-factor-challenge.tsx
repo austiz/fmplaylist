@@ -1,7 +1,7 @@
 import { Form, Head, setLayoutProps } from '@inertiajs/react';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
 import { useMemo, useState } from 'react';
-import InputError from '@/components/input-error';
+import { FieldError } from '@/components/field-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -71,7 +71,7 @@ export default function TwoFactorChallenge() {
                                         autoFocus={showRecoveryInput}
                                         required
                                     />
-                                    <InputError
+                                    <FieldError
                                         message={errors.recovery_code}
                                     />
                                 </>
@@ -100,7 +100,7 @@ export default function TwoFactorChallenge() {
                                             </InputOTPGroup>
                                         </InputOTP>
                                     </div>
-                                    <InputError message={errors.code} />
+                                    <FieldError message={errors.code} />
                                 </div>
                             )}
 
