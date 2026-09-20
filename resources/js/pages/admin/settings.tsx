@@ -127,7 +127,9 @@ export default function Settings({ settings, wifi }: Props) {
     // The Pi only reports a rev once it has actually written the list to disk,
     // so a mismatch means the change hasn't reached it yet.
     const pendingSync =
-        wifi.saved.length > 0 && wifi.pi_rev !== '' && wifi.pi_rev !== wifi.saved_rev;
+        wifi.saved.length > 0 &&
+        wifi.pi_rev !== '' &&
+        wifi.pi_rev !== wifi.saved_rev;
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -488,9 +490,9 @@ export default function Settings({ settings, wifi }: Props) {
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                    Tried in order, top first. The Pi stores these locally, so it
-                    reconnects on its own after a reboot even with no internet.
-                    Broadcasting never waits on WiFi.
+                    Tried in order, top first. The Pi stores these locally, so
+                    it reconnects on its own after a reboot even with no
+                    internet. Broadcasting never waits on WiFi.
                 </p>
 
                 {wifi.saved.length > 0 ? (

@@ -75,7 +75,7 @@ export function SplitFlapText({
                     key={`${generation}-${i}`}
                     className={
                         generation > 0
-                            ? 'inline-block animate-flap-char'
+                            ? 'animate-flap-char inline-block'
                             : 'inline-block'
                     }
                     style={{ animationDelay: `${i * STAGGER_MS}ms` }}

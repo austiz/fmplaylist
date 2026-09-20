@@ -57,7 +57,9 @@ function DeviceControls({ device }: { device: PiDevice }) {
     const send = (command: string, label: string) => {
         if (
             DISRUPTIVE.has(command) &&
-            !confirm(`${label} "${device.label}"? This interrupts the broadcast.`)
+            !confirm(
+                `${label} "${device.label}"? This interrupts the broadcast.`,
+            )
         ) {
             return;
         }
@@ -119,7 +121,9 @@ function DeviceControls({ device }: { device: PiDevice }) {
                         }
                     >
                         Last update: {device.last_update_status}
-                        {device.last_update_at ? ` ${device.last_update_at}` : ''}
+                        {device.last_update_at
+                            ? ` ${device.last_update_at}`
+                            : ''}
                     </span>
                 )}
             </div>
@@ -149,8 +153,12 @@ function DeviceControls({ device }: { device: PiDevice }) {
                     disabled={!!pending}
                     onClick={() =>
                         send(
-                            device.fm_running === false ? 'fm_start' : 'fm_stop',
-                            device.fm_running === false ? 'Go on air' : 'Go off air',
+                            device.fm_running === false
+                                ? 'fm_start'
+                                : 'fm_stop',
+                            device.fm_running === false
+                                ? 'Go on air'
+                                : 'Go off air',
                         )
                     }
                 >
