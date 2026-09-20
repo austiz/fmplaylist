@@ -388,9 +388,9 @@ class PiControllerTest extends TestCase
             'mode' => 'normal',
         ], ['X-Pi-Token' => $rawB])->assertOk();
 
-        $response = $this->getJson('/api/pi-status')->assertOk();
-
-        $response->assertJsonPath('update_available', true);
+        $this->getJson('/api/live')
+            ->assertOk()
+            ->assertJsonPath('pi_status.update_available', true);
     }
 
     public function test_heartbeat_persists_disk_stats(): void

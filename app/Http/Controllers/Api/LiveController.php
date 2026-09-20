@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
  * up, whether the queue moved, and what has been said in chat.
  *
  * Both the listener pages and the admin status bar poll this, so there is one live
- * transport rather than an SSE stream plus a separate 30-second `/api/pi-status` poll.
+ * transport rather than an SSE stream plus a separate 30-second pi-status poll.
  * See `LiveState` for why the stream went.
  */
 class LiveController extends Controller

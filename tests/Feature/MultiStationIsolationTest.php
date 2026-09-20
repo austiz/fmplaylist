@@ -103,15 +103,23 @@ class MultiStationIsolationTest extends TestCase
 
     public function test_pi_status_does_not_report_another_stations_device(): void
     {
-        PiToken::factory()->for($this->a)->create(['last_seen_at' => now()]);
+        // Through a real heartbeat rather than a factory row: device status is
+        // cached per station by the heartbeat and read back out of the live frame,
+        // so the cache key is the thing that has to be scoped, not a query.
+        ['raw' => $raw] = PiToken::generate('Pi on A', $this->a->id);
 
-        $this->getJson('/api/pi-status?station=station-b')
-            ->assertOk()
-            ->assertJsonPath('online', false);
+        $this->postJson('/api/pi/heartbeat', [
+            'status' => 'playing',
+            'mode' => 'normal',
+        ], ['X-Pi-Token' => $raw])->assertOk();
 
-        $this->getJson('/api/pi-status')
+        $this->getJson('/api/live?station=station-b')
             ->assertOk()
-            ->assertJsonPath('online', true);
+            ->assertJsonPath('pi_status', null);
+
+        $this->getJson('/api/live')
+            ->assertOk()
+            ->assertJsonPath('pi_status.online', true);
     }
 
     public function test_the_queue_page_shows_only_its_own_station(): void

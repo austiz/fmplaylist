@@ -171,7 +171,6 @@ command queue. Two consequences worth knowing:
 | GET | `/drive` | Drive Mode — large-type now-playing for a phone on a dashboard |
 | GET | `/api/live` | Live state — now-playing, pi-status, queue version, chat. Send back the `v` cursor and an unchanged station answers in a few bytes (rate-limited 600/min) |
 | GET | `/api/now-playing` | Public JSON now-playing endpoint |
-| GET | `/api/pi-status` | Public JSON Pi connectivity/status endpoint |
 | GET | `/api/chat` | Chat backlog (the live poll normally supplies this) |
 | POST | `/api/chat` | Post a chat message; throttled at 10/minute |
 | GET | `/pi/setup.sh` | Bash setup script — downloads, builds, and installs the Pi daemon |
@@ -846,7 +845,7 @@ Applied globally to all web and API responses via `SecurityHeaders` middleware:
 |---|---|---|
 | `POST /songs/{song}/request` | 5 / IP / min | Prevents queue spam from a single device |
 | `POST /api/chat` | 10 / IP / min | Chat is public and unauthenticated |
-| `GET /api/now-playing`, `GET /api/pi-status` | 60 / IP / min | Legacy read endpoints; the live poll supersedes both |
+| `GET /api/now-playing` | 60 / IP / min | Legacy read endpoint; the live poll supersedes it |
 | `GET /api/live` | 600 / IP / min | Room for a 3s poll across a handful of tabs; the responses are tiny |
 | Pi API (`/api/pi/*`) | 120 / IP / min | Well above the 2/min normal heartbeat; blocks brute-force of token auth |
 | Auth routes | 6 / IP / min | Laravel Fortify default |
@@ -885,7 +884,6 @@ The old token is invalidated the instant Regenerate is clicked.
 |---|---|
 | `GET /api/live` | Read-only; rate-limited; serves one station's public state |
 | `GET /api/now-playing` | Current song only; no user data |
-| `GET /api/pi-status` | Online/offline indicator; no credentials |
 | `GET /api/chat` | Listener chat for one station; no user data beyond the name given |
 | `GET /pi/setup.sh` | Bootstrap script; fetches only what `/pi/manifest.json` lists |
 | `GET /pi/manifest.json` | Names, sizes and sha256 of the payload — no secrets |

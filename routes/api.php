@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Route;
 // resolved once by middleware rather than by each controller body.
 Route::middleware(ResolvePublicStation::class)->group(function () {
     Route::get('/now-playing', [PiController::class, 'nowPlayingPublic'])->middleware('throttle:60,1');
-    Route::get('/pi-status', [PiController::class, 'piStatus'])->middleware('throttle:60,1');
     // The live transport: every page that shows moving state polls this one endpoint.
     // 30/min covered one SSE connection per tab; a 3s poll needs room for twenty times
     // that, and the response is a few bytes whenever the cursor still matches.

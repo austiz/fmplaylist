@@ -172,9 +172,9 @@ class PiController extends Controller
                 ]);
             }
 
-            // Built the same way the REST endpoint builds it, from the same helper:
-            // the admin bar reads this out of the live frame now, and a frame that
-            // disagreed with /api/pi-status would be a bug nobody would look for.
+            // The only writer of device status: there is no REST endpoint to
+            // disagree with any more, so the live frame is the single source every
+            // status indicator in the app reads from.
             LiveState::piStatusChanged($stationId, $this->piStatusPayload($stationId));
         }
 
@@ -264,11 +264,6 @@ class PiController extends Controller
         }
 
         return response()->json(['ok' => true]);
-    }
-
-    public function piStatus(Request $request): JsonResponse
-    {
-        return response()->json($this->piStatusPayload($this->resolvePublicStation($request)->id));
     }
 
     /**

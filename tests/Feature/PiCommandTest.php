@@ -218,9 +218,9 @@ class PiCommandTest extends TestCase
 
         // The banner used to be permanently stuck on because the server hashed
         // its own checkout while the Pi installed from GitHub.
-        $this->getJson('/api/pi-status')
+        $this->getJson('/api/live')
             ->assertOk()
-            ->assertJsonPath('update_available', false);
+            ->assertJsonPath('pi_status.update_available', false);
     }
 
     public function test_outdated_device_is_flagged(): void
@@ -229,8 +229,8 @@ class PiCommandTest extends TestCase
 
         $this->heartbeat($raw, ['daemon_hash' => 'deadbeef1234'])->assertOk();
 
-        $this->getJson('/api/pi-status')
+        $this->getJson('/api/live')
             ->assertOk()
-            ->assertJsonPath('update_available', true);
+            ->assertJsonPath('pi_status.update_available', true);
     }
 }
