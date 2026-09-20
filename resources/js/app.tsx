@@ -11,14 +11,14 @@ type LayoutProps = { children: ReactNode };
 
 /**
  * Layouts are referenced by `layout()` below, so a static import would pull every
- * one of them into the entry bundle — which meant the WebGL visualizer, its shader
- * source and the SSE client (all reachable from FmLiveLayout) shipped on /login and
- * on every admin page. Splitting them per-layout keeps each route's cost its own.
+ * one of them into the entry bundle — the listener layout and its live-poll client
+ * would ship on /login and on every admin page. Splitting them per-layout keeps
+ * each route's cost its own.
  *
  * The wrapper is defined once per layout at module scope so its identity is stable:
  * Inertia only keeps a layout mounted across navigations while the same component
- * reference comes back, which is what FmLiveLayout relies on to hold its SSE
- * connection and WebGL context open.
+ * reference comes back, which is what FmLiveLayout relies on to hold its live poll
+ * open rather than restarting it on every page.
  */
 function lazyLayout(
     load: () => Promise<{ default: ComponentType<LayoutProps> }>,
@@ -39,29 +39,47 @@ const FmLiveLayout = lazyLayout(() => import('@/layouts/fm-live-layout'));
 
 const FM_LIVE_PAGES = new Set(['home', 'songs', 'queue', 'drive']);
 
+/**
+ * The outermost layout on every page, whatever else wraps it.
+ *
+ * The toaster reads the shared `toast` prop, so it has to render inside the
+ * Inertia page context. Mounting it beside the app in `withApp` put it
+ * outside: `usePage` threw on first paint and took the whole tree down with
+ * it, leaving a blank page. Being a layout also keeps it mounted across
+ * navigations, so a toast raised by a redirect survives the page swap that
+ * delivered it.
+ */
+function RootLayout({ children }: LayoutProps) {
+    return (
+        <>
+            {children}
+            <Toaster />
+        </>
+    );
+}
+
 createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
     layout: (name) => {
-        // Listener pages share one persistent layout so the SSE connection + WebGL
-        // visualizer stay mounted across navigations (see fm-live-layout.tsx).
+        // Listener pages share one persistent layout so the live poll stays
+        // mounted across navigations (see fm-live-layout.tsx).
         if (FM_LIVE_PAGES.has(name)) {
-            return FmLiveLayout;
+            return [RootLayout, FmLiveLayout];
         }
 
         if (name.startsWith('auth/')) {
-            return AuthLayout;
+            return [RootLayout, AuthLayout];
         }
 
         // Admin and settings pages both render the operator shell themselves,
-        // so Inertia has no layout to supply.
-        return null;
+        // so the root layout is all Inertia has to supply.
+        return RootLayout;
     },
     strictMode: true,
     withApp(app) {
         return (
             <TooltipProvider delayDuration={0}>
                 <ConfirmProvider>{app}</ConfirmProvider>
-                <Toaster />
             </TooltipProvider>
         );
     },
