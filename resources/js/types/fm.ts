@@ -77,6 +77,12 @@ export interface PiStatus {
     device_count?: number;
 }
 
+/**
+ * The aggregate Pi status the admin Broadcast page receives: `PiStatus` minus the
+ * updater flag, which only the device list has a use for.
+ */
+export type BroadcastPiStatus = Omit<PiStatus, 'update_available'>;
+
 export interface Station {
     id: number;
     name: string;
