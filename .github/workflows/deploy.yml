@@ -14,6 +14,22 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
 
+    # Production is MySQL, so the gate that guards production runs on MySQL.
+    # The SQLite default hid an ONLY_FULL_GROUP_BY error that 500'd /admin.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: fmplaylist_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -ppassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
         with:
@@ -37,7 +53,17 @@ jobs:
 
       # The deploy gate runs the same single entry point as local development:
       # pint, eslint, prettier, phpstan, tsc and phpunit.
+      #
+      # PHPUnit's <env> entries do not override variables already present in the
+      # environment, so these are enough to point the suite at MySQL.
       - run: composer ci:check
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: fmplaylist_test
+          DB_USERNAME: root
+          DB_PASSWORD: password
 
   # ── 2. Deploy ──────────────────────────────────────────────────────────────
   deploy:
