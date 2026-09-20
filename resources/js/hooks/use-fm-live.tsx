@@ -1,5 +1,13 @@
 import { usePage } from '@inertiajs/react';
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import {
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import type { PropsWithChildren } from 'react';
 import { getCommutePalette } from '@/lib/commute';
 import type { CommutePalette } from '@/lib/commute';
@@ -151,20 +159,38 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
         };
     }, [stationSlug]);
 
-    const value: FmLiveValue = {
-        nowPlaying,
-        piStatus,
-        queueVersion,
-        chatMessages,
-        onAirTitle,
-        dismissOnAir: () => {
-            clearTimeout(onAirTimer.current);
-            setOnAirTitle(null);
-        },
-        connected,
-        listenerCount,
-        palette,
-    };
+    const dismissOnAir = useCallback(() => {
+        clearTimeout(onAirTimer.current);
+        setOnAirTitle(null);
+    }, []);
+
+    // This provider wraps every listener page, so a fresh object here re-renders
+    // all of them on any render of the provider — including ones where none of
+    // the live values actually moved.
+    const value: FmLiveValue = useMemo(
+        () => ({
+            nowPlaying,
+            piStatus,
+            queueVersion,
+            chatMessages,
+            onAirTitle,
+            dismissOnAir,
+            connected,
+            listenerCount,
+            palette,
+        }),
+        [
+            nowPlaying,
+            piStatus,
+            queueVersion,
+            chatMessages,
+            onAirTitle,
+            dismissOnAir,
+            connected,
+            listenerCount,
+            palette,
+        ],
+    );
 
     return (
         <FmLiveContext.Provider value={value}>

@@ -1,4 +1,5 @@
 import { router } from '@inertiajs/react';
+import { useCallback } from 'react';
 
 interface ReloadOptions {
     only: string[];
@@ -18,7 +19,9 @@ function supportsViewTransitions(): boolean {
  * snapping. Falls back to a plain reload when the API is unsupported or motion is reduced.
  */
 export function useViewTransitionReload(): (options: ReloadOptions) => void {
-    return (options) => {
+    // Stable identity: callers pass this straight into effect dependency arrays,
+    // where a fresh function every render would restart their polling.
+    return useCallback((options: ReloadOptions) => {
         if (!supportsViewTransitions()) {
             router.reload({ only: options.only });
 
@@ -41,5 +44,5 @@ export function useViewTransitionReload(): (options: ReloadOptions) => void {
                 });
             });
         });
-    };
+    }, []);
 }

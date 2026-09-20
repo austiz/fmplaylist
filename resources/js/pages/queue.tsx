@@ -71,8 +71,7 @@ export default function Queue({
         }
 
         viewTransitionReload({ only: ['queue', 'waitMinutes', 'history'] });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [queueVersion]);
+    }, [queueVersion, viewTransitionReload]);
 
     return (
         <PublicLayout>

@@ -34,11 +34,59 @@ export function useElapsed(
 ): Elapsed {
     const [, setTick] = useState(0);
 
-    useEffect(() => {
-        const id = setInterval(() => setTick((t) => (t + 1) % 1_000_000), 250);
+    // This hook sits above every listener page, so its tick re-renders the whole
+    // tree. Two cases where that buys nothing: nothing is playing (elapsed is
+    // pinned at 0), and the tab is hidden (nobody sees the playhead move).
+    const running = Boolean(startedAt);
 
-        return () => clearInterval(id);
-    }, []);
+    useEffect(() => {
+        if (!running) {
+            return;
+        }
+
+        let id: ReturnType<typeof setInterval> | undefined;
+
+        const tick = () => setTick((t) => (t + 1) % 1_000_000);
+
+        const start = () => {
+            id ??= setInterval(tick, 250);
+        };
+
+        const stop = () => {
+            if (id !== undefined) {
+                clearInterval(id);
+                id = undefined;
+            }
+        };
+
+        const onVisibilityChange = () => {
+            if (document.hidden) {
+                stop();
+
+                return;
+            }
+
+            // Re-render once immediately: elapsed is computed from Date.now(), so
+            // coming back to the tab should show the real playhead, not wherever it
+            // was when we stopped ticking.
+            tick();
+            start();
+        };
+
+        if (!document.hidden) {
+            start();
+        }
+
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
+        return () => {
+            stop();
+            document.removeEventListener(
+                'visibilitychange',
+                onVisibilityChange,
+            );
+        };
+    }, [running]);
 
     const elapsed = secondsSince(startedAt);
     const duration = durationSeconds ?? 0;
