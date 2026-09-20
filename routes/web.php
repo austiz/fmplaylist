@@ -3,6 +3,7 @@
 use App\Enums\MediaType;
 use App\Http\Controllers\Admin\BroadcastController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\DjController;
 use App\Http\Controllers\Admin\HistoryController;
 use App\Http\Controllers\Admin\MediaAssetController;
 use App\Http\Controllers\Admin\QueueAdminController;
@@ -10,12 +11,14 @@ use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SoundsController;
 use App\Http\Controllers\Admin\StationController;
 use App\Http\Controllers\Admin\TokenController;
+use App\Http\Controllers\Auth\SetupController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\PiSetupController;
 use App\Http\Controllers\PublicFileController;
 use App\Http\Controllers\QueueController;
 use App\Http\Controllers\SongController;
 use App\Http\Middleware\EnsureActiveStation;
+use App\Http\Middleware\EnsureSetupIncomplete;
 use App\Http\Middleware\ResolvePublicStation;
 use Illuminate\Support\Facades\Route;
 
@@ -42,6 +45,16 @@ Route::middleware(ResolvePublicStation::class)->group(function () {
         ->middleware('throttle:5,1');
     Route::get('/queue', [QueueController::class, 'index'])->name('queue.index');
     Route::get('/drive', [HomeController::class, 'drive'])->name('drive');
+});
+
+// The first operator account. There is no public sign-up -- an account here
+// drives a transmitter -- but a fresh install has nobody who can log in to
+// create one, so this door stays open until it is used once and then 404s.
+// Every DJ after the first is added under /admin/djs or with `dj:create`.
+Route::middleware(EnsureSetupIncomplete::class)->group(function () {
+    Route::get('/setup', [SetupController::class, 'create'])->name('setup');
+    Route::post('/setup', [SetupController::class, 'store'])->name('setup.store')
+        ->middleware('throttle:5,1');
 });
 
 // Admin (dashboard alias for Wayfinder compatibility)
@@ -97,6 +110,10 @@ Route::middleware(['auth', EnsureActiveStation::class])->prefix('admin')->name('
     Route::delete('/tokens/{token}', [TokenController::class, 'destroy'])->name('tokens.destroy');
     Route::post('/tokens/{token}/command', [TokenController::class, 'dispatchCommand'])->name('tokens.command');
     Route::get('/history', [HistoryController::class, 'index'])->name('history');
+    Route::get('/djs', [DjController::class, 'index'])->name('djs');
+    Route::post('/djs', [DjController::class, 'store'])->name('djs.store');
+    Route::post('/djs/{user}/password', [DjController::class, 'updatePassword'])->name('djs.password');
+    Route::delete('/djs/{user}', [DjController::class, 'destroy'])->name('djs.destroy');
     Route::get('/queue', [QueueAdminController::class, 'index'])->name('queue');
     Route::post('/queue/reorder', [QueueAdminController::class, 'reorder'])->name('queue.reorder');
     Route::post('/queue/bulk-destroy', [QueueAdminController::class, 'bulkDestroy'])->name('queue.bulk-destroy');

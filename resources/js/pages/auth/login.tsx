@@ -8,16 +8,17 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
 
 type Props = {
     status?: string;
     canResetPassword: boolean;
+    /** True only until the first operator account exists. */
+    canSetUp: boolean;
 };
 
-export default function Login({ status, canResetPassword }: Props) {
+export default function Login({ status, canResetPassword, canSetUp }: Props) {
     return (
         <>
             <Head title="Log in" />
@@ -92,12 +93,18 @@ export default function Login({ status, canResetPassword }: Props) {
                             </Button>
                         </div>
 
-                        <div className="text-center text-sm text-muted-foreground">
-                            Don't have an account?{' '}
-                            <TextLink href={register()} tabIndex={5}>
-                                Sign up
-                            </TextLink>
-                        </div>
+                        {/* No public sign-up: an account here runs a
+                            transmitter, so DJs are added by hand under
+                            System -> DJs. The one exception is a brand new
+                            install, which has nobody to add them. */}
+                        {canSetUp && (
+                            <div className="text-center text-sm text-muted-foreground">
+                                Nobody has set this station up yet.{' '}
+                                <TextLink href="/setup" tabIndex={5}>
+                                    Create the first account
+                                </TextLink>
+                            </div>
+                        )}
                     </>
                 )}
             </Form>

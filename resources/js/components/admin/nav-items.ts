@@ -8,6 +8,7 @@ import {
     RadioTower,
     Settings,
     UserCog,
+    Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -60,6 +61,7 @@ export const navGroups: NavGroup[] = [
         label: 'System',
         items: [
             { href: '/admin/settings', label: 'Settings', icon: Settings },
+            { href: '/admin/djs', label: 'DJs', icon: Users },
             {
                 href: '/settings/profile',
                 label: 'Account',
