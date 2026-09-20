@@ -260,23 +260,36 @@ php artisan media:backfill-durations
 
 If you need durations and `shell_exec` is blocked, contact Namecheap support to enable it, or upgrade to a VPS.
 
-### Server-Sent Events (SSE)
+### The realtime transport is an ordinary poll
 
-Apache shared hosting typically has a 60–300 second request timeout. The SSE controller already closes its connection at 55 seconds and instructs the browser to reconnect in 500ms — well within Apache's limits. SSE will work fine.
+Browsers watch a station through `GET /api/live`, polled every few seconds. Nothing is
+held open, so Apache's 60–300 second request timeout is irrelevant and a room full of
+listeners cannot pin a PHP worker each — which matters here, because the transmitter's
+own API shares that worker pool.
 
-### No background queue workers
+### Cron is required
 
-Shared hosting doesn't support persistent queue workers. The app is already configured to use `QUEUE_CONNECTION=sync` which runs jobs inline — no worker needed.
-
-### No cron / scheduled tasks needed
-
-This app has no scheduled Artisan commands. If you add them later, use **cPanel → Cron Jobs** to call:
+**Set up the scheduler before you go live.** In **cPanel → Cron Jobs**, run this every
+minute:
 
 ```bash
 php /home/yourusername/fmplaylist/artisan schedule:run
 ```
 
-every minute.
+It drives everything that is not part of a request:
+
+| Scheduled | Why it matters |
+|---|---|
+| `queue:work --stop-when-empty` | Audio durations are extracted off the request. Without cron, an upload's duration stays `null` until you run `media:backfill-durations` by hand. |
+| `media:backfill-durations` | Catches anything the job missed. |
+| Stale-command and delete-request clean-up | Used to run inside the Pi's 30-second heartbeat. |
+
+### Queue workers
+
+Shared hosting won't keep a worker alive, so `QUEUE_CONNECTION=database` plus the
+scheduled `queue:work --stop-when-empty` above stands in for one: each cron tick drains
+whatever is waiting and exits. Jobs run within a minute of being queued rather than
+instantly, which is fine for everything currently queued.
 
 ---
 

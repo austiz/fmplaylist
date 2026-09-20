@@ -16,7 +16,7 @@ use Tests\TestCase;
  * Two stations, one server, nothing crossing between them.
  *
  * Media, chat and the listener count used to be global: the library, the chat log and
- * the `sse.listener_count` cache key were shared by every station on the install. Each
+ * the listener-count cache key were shared by every station on the install. Each
  * test here pins one of those, plus the route-model binding that reaches the same rows
  * by id rather than by listing them.
  */
@@ -78,16 +78,16 @@ class MultiStationIsolationTest extends TestCase
      * were not, so one station's chat bumped the other's stream and both stations
      * showed one combined listener tally.
      */
-    public function test_the_sse_cache_keys_are_per_station(): void
+    public function test_the_live_cache_keys_are_per_station(): void
     {
-        Cache::forget("sse.chat_version.{$this->a->id}");
-        Cache::forget("sse.chat_version.{$this->b->id}");
+        Cache::forget("live.chat_version.{$this->a->id}");
+        Cache::forget("live.chat_version.{$this->b->id}");
 
         $this->postJson('/api/chat?station=station-b', ['name' => 'Tester', 'message' => 'bump B'])
             ->assertCreated();
 
-        $this->assertNotNull(Cache::get("sse.chat_version.{$this->b->id}"));
-        $this->assertNull(Cache::get("sse.chat_version.{$this->a->id}"));
+        $this->assertNotNull(Cache::get("live.chat_version.{$this->b->id}"));
+        $this->assertNull(Cache::get("live.chat_version.{$this->a->id}"));
     }
 
     public function test_now_playing_does_not_cross_stations(): void

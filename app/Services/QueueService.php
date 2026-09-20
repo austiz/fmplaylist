@@ -13,8 +13,8 @@ use App\Models\QueueItem;
 use App\Models\Setting;
 use App\Models\Station;
 use App\Support\CurrentStation;
+use App\Support\LiveState;
 use App\Support\StationSettings;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -217,12 +217,11 @@ class QueueService
                 default => $this->onSongPlayed($stationId, $queueItemId), // 'song'
             };
 
-            // Push SSE events. The frame is the same shape the REST endpoints
-            // return, so a listener sees no difference between the two transports.
+            // Publish the live frame. Same shape the REST endpoint returns, so a
+            // listener sees no difference between polling this and asking directly.
             $nowPlaying->setRelation('mediaAsset', $song);
-            $npPayload = (new NowPlayingResource($nowPlaying))->resolve();
 
-            Cache::put("sse.now_playing.{$stationId}", $npPayload, 3600);
+            LiveState::nowPlayingChanged($stationId, (new NowPlayingResource($nowPlaying))->resolve());
             $this->bumpQueueVersion($stationId);
         }));
     }
@@ -432,6 +431,6 @@ class QueueService
 
     public function bumpQueueVersion(int $stationId): void
     {
-        Cache::put("sse.queue_version.{$stationId}", (string) microtime(true), 3600);
+        LiveState::queueChanged($stationId);
     }
 }

@@ -9,7 +9,7 @@ import {
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { withStation } from '@/lib/station';
+import { subscribeLive } from '@/lib/live';
 import type { PiStatus, Station } from '@/types/fm';
 
 const nav = [
@@ -22,29 +22,35 @@ const nav = [
     { href: '/admin/history', label: 'History' },
 ];
 
+const OFFLINE: PiStatus = {
+    online: false,
+    status: 'offline',
+    mode: 'normal',
+    ip: null,
+    update_available: false,
+};
+
 function PiStatusBar({ stationSlug }: { stationSlug?: string }) {
     const [pi, setPi] = useState<PiStatus | null>(null);
     const [updating, setUpdating] = useState(false);
 
-    useEffect(() => {
-        const poll = async () => {
-            try {
-                const res = await fetch(
-                    withStation('/api/pi-status', stationSlug),
-                );
-
-                if (res.ok) {
-                    setPi(await res.json());
-                }
-            } catch {
-                /* ignore */
-            }
-        };
-        poll();
-        const id = setInterval(poll, 30_000);
-
-        return () => clearInterval(id);
-    }, [stationSlug]);
+    // Rides the same `/api/live` poll the listener pages use, rather than its own
+    // 30-second `/api/pi-status` fetch: an admin watching the queue page was making
+    // two independent requests for state that moves together. No `clientId` -- the
+    // operator is not part of their own audience count.
+    useEffect(
+        () =>
+            subscribeLive({
+                stationSlug,
+                clientId: null,
+                onFrame: (frame) => {
+                    if (frame.pi_status !== undefined) {
+                        setPi(frame.pi_status ?? OFFLINE);
+                    }
+                },
+            }),
+        [stationSlug],
+    );
 
     if (!pi) {
         return null;

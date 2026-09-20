@@ -69,7 +69,7 @@ class NowPlayingShapeTest extends TestCase
 
         app(QueueService::class)->markNowPlaying($station->id, 'song', null, $song->filename);
 
-        $frame = Cache::get("sse.now_playing.{$station->id}");
+        $frame = Cache::get("live.now_playing.{$station->id}");
 
         $this->assertSame($this->surfaces()['api'], $frame);
     }

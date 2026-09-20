@@ -18,6 +18,7 @@ use App\Models\Station;
 use App\Models\WifiNetwork;
 use App\Services\DeviceSyncService;
 use App\Services\QueueService;
+use App\Support\LiveState;
 use App\Support\PiPresence;
 use App\Support\PiSource;
 use App\Support\PublicStation;
@@ -162,12 +163,10 @@ class PiController extends Controller
                 ]);
             }
 
-            Cache::put("sse.pi_status.{$stationId}", [
-                'online' => true,
-                'status' => $data['status'],
-                'mode' => $data['mode'],
-                'ip' => $data['ip'] ?? $token->pi_ip,
-            ], 180);
+            // Built the same way the REST endpoint builds it, from the same helper:
+            // the admin bar reads this out of the live frame now, and a frame that
+            // disagreed with /api/pi-status would be a bug nobody would look for.
+            LiveState::piStatusChanged($stationId, $this->piStatusPayload($stationId));
         }
 
         $station = Station::find($stationId) ?? Station::findOrFail(Station::defaultId());
@@ -260,35 +259,42 @@ class PiController extends Controller
 
     public function piStatus(Request $request): JsonResponse
     {
-        $station = $this->resolvePublicStation($request);
-        $tokens = PiToken::where('station_id', $station->id)->get();
-        $online = PiPresence::online($tokens);
+        return response()->json($this->piStatusPayload($this->resolvePublicStation($request)->id));
+    }
+
+    /**
+     * How a station's transmitters look from outside, collapsed to one line of status.
+     *
+     * @return array{online: bool, status: string, mode: string, ip: string|null, update_available: bool}
+     */
+    private function piStatusPayload(int $stationId): array
+    {
+        $online = PiPresence::online(PiToken::where('station_id', $stationId)->get());
 
         if ($online->isEmpty()) {
-            return response()->json([
+            return [
                 'online' => false,
                 'status' => 'offline',
                 'mode' => 'normal',
                 'ip' => null,
                 'update_available' => false,
-            ]);
+            ];
         }
 
-        $status = PiPresence::status($online);
-
+        // Several Pis can share a station; the one heard from most recently speaks for it.
         $primary = $online->sortByDesc('last_seen_at')->firstOrFail();
         $currentSourceHash = self::currentPiSourceHash();
 
-        return response()->json([
+        return [
             'online' => true,
-            'status' => $status,
+            'status' => PiPresence::status($online),
             'mode' => $primary->pi_mode ?? 'normal',
             'ip' => $primary->pi_ip,
             // null hash means the running Pi install predates hash-reporting; don't nag until it's known.
             'update_available' => $online->contains(
                 fn (PiToken $t) => $t->pi_daemon_hash !== null && $t->pi_daemon_hash !== $currentSourceHash
             ),
-        ]);
+        ];
     }
 
     public function nowPlayingPublic(Request $request): JsonResponse

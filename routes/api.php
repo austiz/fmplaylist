@@ -1,8 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\LiveController;
 use App\Http\Controllers\Api\PiController;
-use App\Http\Controllers\Api\SseController;
 use App\Http\Middleware\AuthenticatePiToken;
 use App\Http\Middleware\ResolvePublicStation;
 use Illuminate\Support\Facades\Route;
@@ -12,8 +12,10 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(ResolvePublicStation::class)->group(function () {
     Route::get('/now-playing', [PiController::class, 'nowPlayingPublic'])->middleware('throttle:60,1');
     Route::get('/pi-status', [PiController::class, 'piStatus'])->middleware('throttle:60,1');
-    // SSE: one persistent connection per browser tab; 30/min covers reconnects and page reloads
-    Route::get('/events', [SseController::class, 'stream'])->middleware('throttle:30,1');
+    // The live transport: every page that shows moving state polls this one endpoint.
+    // 30/min covered one SSE connection per tab; a 3s poll needs room for twenty times
+    // that, and the response is a few bytes whenever the cursor still matches.
+    Route::get('/live', LiveController::class)->middleware('throttle:600,1');
     // Listener chat
     Route::get('/chat', [ChatController::class, 'index']);
     Route::post('/chat', [ChatController::class, 'store'])->middleware('throttle:10,1');

@@ -11,18 +11,14 @@ import {
 import type { PropsWithChildren } from 'react';
 import { getCommutePalette } from '@/lib/commute';
 import type { CommutePalette } from '@/lib/commute';
-import { withStation } from '@/lib/station';
+import { listenerId, subscribeLive } from '@/lib/live';
+import type { ChatMsg } from '@/lib/live';
 import type { NowPlayingData, PiStatus, Station } from '@/types/fm';
 
-export interface ChatMsg {
-    id: number;
-    name: string;
-    message: string;
-    created_at: string;
-}
+export type { ChatMsg };
 
 interface FmLiveValue {
-    /** `undefined` until the first SSE frame arrives; `null` means nothing is playing. */
+    /** `undefined` until the first live frame arrives; `null` means nothing is playing. */
     nowPlaying: NowPlayingData | null | undefined;
     piStatus: PiStatus | null;
     /** Bumps whenever the server signals the queue changed — subscribe in an effect to reload. */
@@ -32,7 +28,7 @@ interface FmLiveValue {
     onAirTitle: string | null;
     dismissOnAir: () => void;
     connected: boolean;
-    /** Approximate concurrent-listener count from the shared SSE stream, `null` until the first frame. */
+    /** Approximate concurrent-listener count, `null` until the first frame. */
     listenerCount: number | null;
     /** Current commute-phase palette/copy set, refreshed on a shared timer so every
      *  consumer (visualizer, hero copy, Driving Mode) rolls over together. */
@@ -46,10 +42,10 @@ const FmLiveContext = createContext<FmLiveValue | null>(null);
 const MY_REQUEST_KEY = 'fm.my_request';
 
 /**
- * Owns the single `/api/events` EventSource for the whole listener session and the
- * one-shot `GET /api/chat` seed. Everything live (now-playing, pi-status, queue version,
- * chat, "your song is on air") flows through here so we hold exactly one SSE connection
- * instead of one per component.
+ * Owns the single `/api/live` poll for the whole listener session. Everything that
+ * moves -- now-playing, pi-status, queue version, chat, "your song is on air" --
+ * arrives on it, so a page holds one request in flight rather than one per component,
+ * and the chat seed comes down on the first frame instead of a second request.
  */
 export function FmLiveProvider({ children }: PropsWithChildren) {
     const { props } = usePage<{ publicStation: Station | null }>();
@@ -76,87 +72,78 @@ export function FmLiveProvider({ children }: PropsWithChildren) {
         return () => clearInterval(id);
     }, []);
 
-    // Seed chat history once for the session.
+    // Did the listener's own request just hit the air? Their request is the only thing
+    // kept client-side, so this is the one place the celebration can be triggered from.
+    const announceIfMine = useCallback((data: NowPlayingData | null) => {
+        try {
+            const stored = localStorage.getItem(MY_REQUEST_KEY);
+
+            if (!stored || !data?.song?.id) {
+                return;
+            }
+
+            const { songId, title } = JSON.parse(stored) as {
+                songId: number;
+                title: string;
+            };
+
+            if (data.song.id === songId) {
+                localStorage.removeItem(MY_REQUEST_KEY);
+                setOnAirTitle(title);
+                clearTimeout(onAirTimer.current);
+                onAirTimer.current = setTimeout(
+                    () => setOnAirTitle(null),
+                    9000,
+                );
+            }
+        } catch {
+            /* private mode may block localStorage */
+        }
+    }, []);
+
+    // The highest chat id held, read by the poll so the server sends only what is new.
+    // A ref, not state: the poll must not be torn down and rebuilt on every message.
+    const lastChatId = useRef(0);
+
     useEffect(() => {
-        let cancelled = false;
-        fetch(withStation('/api/chat', stationSlug))
-            .then((r) => r.json())
-            .then((data: ChatMsg[]) => {
-                if (!cancelled) {
-                    setChatMessages((prev) => mergeChat(data, prev));
+        lastChatId.current = 0;
+
+        return subscribeLive({
+            stationSlug,
+            clientId: listenerId(),
+            since: () => lastChatId.current || null,
+            onConnectedChange: setConnected,
+            onFrame: (frame) => {
+                setListenerCount(frame.listeners);
+
+                // Absent, not null: an unchanged cursor sends no payload at all, and
+                // `null` here is the real "nothing is playing".
+                if (frame.now_playing !== undefined) {
+                    setNowPlaying(frame.now_playing);
+                    announceIfMine(frame.now_playing);
                 }
-            })
-            .catch(() => {});
 
-        return () => {
-            cancelled = true;
-        };
-    }, [stationSlug]);
-
-    useEffect(() => {
-        const es = new EventSource(withStation('/api/events', stationSlug));
-
-        es.onopen = () => setConnected(true);
-        es.onerror = () => setConnected(false);
-
-        es.addEventListener('now-playing', (e) => {
-            const data: NowPlayingData = JSON.parse(e.data);
-            setNowPlaying(data);
-
-            // Did the user's own request just hit the air?
-            try {
-                const stored = localStorage.getItem(MY_REQUEST_KEY);
-
-                if (stored && data?.song?.id) {
-                    const { songId, title } = JSON.parse(stored) as {
-                        songId: number;
-                        title: string;
-                    };
-
-                    if (data.song.id === songId) {
-                        localStorage.removeItem(MY_REQUEST_KEY);
-                        setOnAirTitle(title);
-                        clearTimeout(onAirTimer.current);
-                        onAirTimer.current = setTimeout(
-                            () => setOnAirTitle(null),
-                            9000,
-                        );
-                    }
+                if (frame.pi_status !== undefined) {
+                    setPiStatus(frame.pi_status ?? null);
                 }
-            } catch {
-                /* private mode may block localStorage */
-            }
-        });
 
-        es.addEventListener('pi-status', (e) => {
-            setPiStatus(JSON.parse(e.data));
-        });
+                if (frame.queue_version !== undefined) {
+                    setQueueVersion(frame.queue_version);
+                }
 
-        es.addEventListener('queue-changed', (e) => {
-            try {
-                setQueueVersion((JSON.parse(e.data) as { v: string }).v);
-            } catch {
-                setQueueVersion(String(Date.now()));
-            }
+                if (frame.chat?.length) {
+                    lastChatId.current = Math.max(
+                        lastChatId.current,
+                        ...frame.chat.map((m) => m.id),
+                    );
+                    setChatMessages((prev) =>
+                        mergeChat(prev, frame.chat ?? []),
+                    );
+                }
+            },
         });
-
-        es.addEventListener('chat-message', (e) => {
-            const msg: ChatMsg = JSON.parse(e.data);
-            setChatMessages((prev) => mergeChat(prev, [msg]));
-        });
-
-        es.addEventListener('listener-count', (e) => {
-            try {
-                setListenerCount((JSON.parse(e.data) as { n: number }).n);
-            } catch {
-                /* ignore malformed frame */
-            }
-        });
-
-        return () => {
-            es.close();
-            clearTimeout(onAirTimer.current);
-        };
+        // `announceIfMine` is stable for the life of the provider.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stationSlug]);
 
     const dismissOnAir = useCallback(() => {

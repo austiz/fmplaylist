@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Admin\Concerns\HasActiveStation;
 use App\Http\Controllers\Controller;
 use App\Models\QueueItem;
+use App\Support\LiveState;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 class QueueAdminController extends Controller
 {
@@ -24,7 +24,7 @@ class QueueAdminController extends Controller
         }
 
         $queueItem->delete();
-        Cache::put("sse.queue_version.{$station->id}", (string) microtime(true), 3600);
+        LiveState::queueChanged($station->id);
 
         return back()->with('success', 'Request removed from queue.');
     }

@@ -76,7 +76,7 @@ class QueueServiceTest extends TestCase
 
     public function test_add_to_queue_bumps_the_queue_version(): void
     {
-        $key = "sse.queue_version.{$this->station->id}";
+        $key = "live.queue_version.{$this->station->id}";
         Cache::forget($key);
 
         $this->service->addToQueue($this->station->id, MediaAsset::factory()->create()->id, null);
@@ -483,7 +483,7 @@ class QueueServiceTest extends TestCase
 
         $this->service->markNowPlaying($this->station->id, 'song', null, $song->filename);
 
-        $frame = Cache::get("sse.now_playing.{$this->station->id}");
+        $frame = Cache::get("live.now_playing.{$this->station->id}");
         $this->assertSame('song', $frame['type']);
         $this->assertSame($song->title, $frame['song']['title']);
         $this->assertSame($song->duration_seconds, $frame['song']['duration_seconds']);

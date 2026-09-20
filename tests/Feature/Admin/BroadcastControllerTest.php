@@ -328,7 +328,7 @@ class BroadcastControllerTest extends TestCase
         $playing = QueueItem::factory()->for($this->station)->playing()->create();
         $token = PiToken::factory()->for($this->station)->create();
         Setting::set(SettingKey::EmergencyAnnouncement, 'evac.wav', $this->station->id);
-        Cache::forget("sse.queue_version.{$this->station->id}");
+        Cache::forget("live.queue_version.{$this->station->id}");
 
         $this->actingAs($this->admin)
             ->post('/admin/broadcast/emergency')
@@ -349,7 +349,7 @@ class BroadcastControllerTest extends TestCase
             'status' => 'queued',
         ]);
         $this->assertTrue((bool) $token->fresh()->pi_skip_next);
-        $this->assertNotNull(Cache::get("sse.queue_version.{$this->station->id}"));
+        $this->assertNotNull(Cache::get("live.queue_version.{$this->station->id}"));
     }
 
     /**

@@ -20,7 +20,7 @@ This project is intended for authorized, licensed, and venue-approved operation 
 | Build tooling | Vite 8 |
 | Database | SQLite locally by default, MySQL in production |
 | Pi runtime | Python 3, ffmpeg, PiFmRds C binary |
-| Real-time | Server-Sent Events (`/api/events`) |
+| Real-time | Version-cursor polling (`/api/live`) |
 | PWA | `manifest.json` + service worker — installable as a home-screen app |
 
 ## Repository Layout
@@ -118,7 +118,7 @@ The web app owns the queue, settings, uploaded media metadata, Pi token, and cur
 | GET | `/songs` | Searchable paginated song catalog |
 | POST | `/songs/{song}/request` | Add an available song to the pending queue; throttled at 5 requests/minute |
 | GET | `/queue` | Full public pending queue with estimated wait time |
-| GET | `/api/events` | SSE stream — now-playing, pi-status, queue-changed events (rate-limited 30/min) |
+| GET | `/api/live` | Live state — now-playing, pi-status, queue version, chat. Send back the `v` cursor and an unchanged station answers in a few bytes (rate-limited 600/min) |
 | GET | `/api/now-playing` | Public JSON now-playing endpoint |
 | GET | `/api/pi-status` | Public JSON Pi connectivity/status endpoint |
 | GET | `/pi/setup.sh` | Bash setup script — downloads, builds, and installs the Pi daemon |
@@ -680,7 +680,7 @@ Applied globally to all web and API responses via `SecurityHeaders` middleware:
 | Endpoint | Limit | Rationale |
 |---|---|---|
 | `POST /songs/{song}/request` | 5 / IP / min | Prevents queue spam from a single device |
-| `GET /api/events` (SSE) | 30 / IP / min | Covers normal reconnects; blocks SSE exhaustion attacks |
+| `GET /api/live` | 600 / IP / min | Room for a 3s poll across a handful of tabs; the responses are tiny |
 | Pi API (`/api/pi/*`) | 120 / IP / min | Well above the 2/min normal heartbeat; blocks brute-force of token auth |
 | Auth routes | 6 / IP / min | Laravel Fortify default |
 
@@ -716,7 +716,7 @@ The old token is invalidated the instant Regenerate is clicked.
 
 | Path | Notes |
 |---|---|
-| `GET /api/events` | SSE stream; read-only; rate-limited |
+| `GET /api/live` | Read-only; rate-limited; serves one station's public state |
 | `GET /api/now-playing` | Current song only; no user data |
 | `GET /api/pi-status` | Online/offline indicator; no credentials |
 | `GET /pi/setup.sh` | Bootstrap script; references only the 18 allowlisted source files |

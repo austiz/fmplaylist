@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ChatMessage;
+use App\Support\LiveState;
 use App\Support\PublicStation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 class ChatController extends Controller
 {
@@ -37,7 +37,7 @@ class ChatController extends Controller
 
         $msg = ChatMessage::create($data);
 
-        Cache::put("sse.chat_version.{$stationId}", (string) microtime(true), 3600);
+        LiveState::chatChanged($stationId);
 
         return response()->json($msg, 201);
     }
